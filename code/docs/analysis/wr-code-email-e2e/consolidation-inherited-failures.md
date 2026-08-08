@@ -1,6 +1,13 @@
 # NAMED BACKLOG ITEM — “consolidation-inherited failures”
 
-**Status:** DIAGNOSIS ONLY — no fixes applied, none authorized.
+**Status: RESOLVED.** All 35 pinned identities are green in both isolation and
+the full workspace; 0 new failures. See §7 “Remediation acceptance” for the
+data, and §8 for what the remediation found and deliberately did not do. The
+diagnosis below is preserved unchanged as the record it was ratified on.
+
+---
+
+**Status of the diagnosis pass (historical):** DIAGNOSIS ONLY — no fixes applied, none authorized.
 **Ordered:** author ruling of 2026-08-08, point 3 — bounded diagnosis pass after
 the `phase-2-complete` tag and before Phase 3 begins.
 **Branch:** `integration/consolidated-current` (diagnosed at `a310cb96`).
@@ -262,3 +269,135 @@ Frozen at `a310cb96`. Any change to this set is a signal.
 | A4 | 1 | test-assumption | fixture capsule shape | Silent enqueue drop flagged separately |
 
 No fixes were applied. The author decides fix-vs-defer per class.
+
+---
+
+## 7. Remediation acceptance
+
+Author decision of 2026-08-08: fix all five groups as one bounded package,
+“consolidation-inherited remediation”, on `integration/consolidated-current`.
+
+### Commits
+
+| Commit | Item | Change |
+|---|---|---|
+| `892bacf5` | A1 | `test/harness/sealed-storage.ts`: `validated_at`, `validation_reason` |
+| `a5ad04b2` | B | Coordination device ids in the fixtures of three clone suites |
+| `32996715` | A2 | Seal-gate suite rewritten to the contract it actually has |
+| `c5447a40` | A3 + A4 | Retired-relay refusal pinned; enqueue result asserted; ambient orchestrator mode pinned and restored |
+
+**No product code was changed by this package.** Every change is in tests or
+the test harness.
+
+### Dual-mode verification (mandatory for these suites)
+
+Isolation — each suite run alone:
+
+| Suite | Result |
+|---|---|
+| `beapInboxClonePrepare` | 15 passed |
+| `beapInboxClonePrepareSealGate` | 8 passed |
+| `b9OutboundCloneIntegrity` | 8 passed |
+| `pr52CloneDeterminism` | 14 passed |
+| `coordination-client` | 9 passed |
+
+Full workspace — `pnpm test:native-db --reporter=json --outputFile=…`:
+
+| | Pre-remediation `8089bb44` | Post-remediation |
+|---|---|---|
+| `testResults.length` (files) | 552 | 552 |
+| Validity guard (`>= 100`) | PASS | PASS |
+| `numTotalTests` | 5,976 | 5,976 |
+| `numFailedTests` | 201 | **166** |
+| `numPassedTests` | 5,718 | **5,753** |
+
+**Identity comparison: 35 removed, 0 new.** All 35 removed identities are the
+pinned inherited ones; none elsewhere changed state. Remaining failures inside
+the five suites in the full workspace: **0**. No A2-dependent remainder.
+
+### Ambient-state robustness
+
+Because the false green traced to ambient orchestrator mode, all five suites
+were additionally run with the shared `orchestrator-mode.json` forced to
+`sandbox` and to `host`: 45 passed in the four clone suites under each, and the
+coordination suite passed under `sandbox` both as a whole and with `CC_05b`
+alone. The coordination suite restores the ambient value it found, so it adds
+no pollution of its own.
+
+## 8. What the remediation found (and did not do)
+
+### A2 — no product defect; the tests encoded a retired read path
+
+`sealedQuery` picks the verification provider per row from `seal_key_source`:
+`'ledger'` → outer, anything else → inner, with no fallback. The four cases
+sealed rows with the inner key, tagged them `vmk`, unbound the inner provider,
+and expected the read to succeed. No product change can satisfy that without a
+verification bypass, and reject mode states there is none in any environment.
+The commits these tests came from are named “Fix sandbox clone trusted read
+**before** sealedQuery” — the pre-B-9 trusted read that “source read uses
+sealedQuery (Decision B)” deliberately removed.
+
+Three of the four are about content extraction per row shape, not key routing,
+so they now seal per the product's own policy: `effectiveInboxRowSealKeySource`
+returns `'ledger'` for every one of these shapes (two are `email_plain`, which
+is never confidential; two are `direct_beap` on a non-confidential handshake).
+The fourth asserted cloning a row with no canonical plaintext; it now pins the
+refusal.
+
+Also noted, not acted on: `verificationKeySourcesForInboxRow` declares a
+two-provider policy (`['outer','inner']`) for non-confidential rows and is used
+by `inboxSealedRead.ts`, but `sealedQuery` routes from `seal_key_source` alone.
+The two do not agree. It changes nothing here — the seal bytes were made with a
+key that was not available either way — but it is a real divergence between a
+policy module and the gate that should share it.
+
+### A4 — no silent drop; the never-fails-silently condition did not trigger
+
+`enqueueOutboundCapsule` returns a typed `EnqueueOutboundCapsuleResult` on every
+path and logs the refusal. The observed rejection was
+`SANDBOX_DATA_EGRESS_FORBIDDEN`, correctly refusing a content-bearing
+`message_package` from a node classified as sandbox. The authorized minimal
+typed rejection was therefore **not implemented — it already exists**. The
+silence was the test discarding the return value, which the test now asserts.
+
+### NAMED FINDING — “test-isolation bidirectional risk”, root cause identified
+
+Flagged only, per the ruling; recorded here because the mechanism turned out to
+be concrete and cheap to state. `test/mocks/electron.ts` points `userData` at a
+single shared `os.tmpdir()/vitest-electron-mock`, and `orchestrator-mode.json`
+inside it **persists across test files and across whole runs**. Two suites write
+it and neither restores it:
+
+- `handshake/__tests__/pairingCodeRelayGap.rig.test.ts` → `mode: 'sandbox'`, `instanceId: 'init-instance-11111111'`
+- `email/__tests__/userDataBootstrapPersistence.test.ts` → `mode: 'sandbox'`
+
+Whichever ran last decides whether a later suite is an “effective sandbox node”
+and may send outbound. That is why `CC_05b` was green in one full-workspace run
+and red in isolation. The state also survives between runs, so a suite's result
+can depend on a *previous* run. Not investigated further and not fixed beyond
+making the coordination suite self-determining.
+
+### NAMED ERROR-TAXONOMY ITEM — `MESSAGE_NOT_FOUND` conflation
+
+`readInboxRowForClonePrepare` returns `MESSAGE_NOT_FOUND` (“not found or could
+not be verified”) for three materially different states: the row is absent; the
+row exists but `sealedQuery` filtered it (bad seal, wrong key source, no
+provider); the row exists but carries no canonical plaintext column. Callers
+and operators cannot tell a missing message from a tampered one from a
+key-availability problem, and the diagnosis above needed a probe to establish
+which had occurred.
+
+**Remediation proposal (not implemented):** keep `MESSAGE_NOT_FOUND` for a
+genuinely absent row and add two sibling codes — `SOURCE_UNVERIFIABLE` (present,
+seal verification filtered it) and `SOURCE_NO_CANONICAL_CONTENT` (present, no
+canonical plaintext to clone). The existing failure branches already
+distinguish inner- and outer-vault unavailability, so this is the same pattern
+extended to the two cases that currently collapse. User-facing copy can stay
+identical where disclosure matters; the distinction is for logs, typed
+handling, and tests.
+
+### Discovered, reported, not implemented
+
+- The seal-policy divergence in A2 above.
+- The shared-userData isolation defect and its two writers.
+- The error-taxonomy item and its proposal.
