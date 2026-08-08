@@ -1,0 +1,34 @@
+# Initial graphify pass: codebase AST only.
+# PDFs and documentation are excluded; add selectively later with /graphify --update.
+*.pdf
+**/*.pdf
+*.md
+**/*.md
+*.mdx
+**/*.mdx
+*.txt
+**/*.txt
+*.html
+**/*.html
+*.rst
+**/*.rst
+*.qmd
+**/*.qmd
+*.yaml
+**/*.yaml
+*.yml
+**/*.yml
+*.png
+**/*.png
+*.jpg
+**/*.jpg
+*.jpeg
+**/*.jpeg
+*.webp
+**/*.webp
+*.gif
+**/*.gif
+*.svg
+**/*.svg
+**/THIRD_PARTY_LICENSES/**
+**/docs/**

@@ -108,7 +108,10 @@ import {
   getPairingCode as getOrchestratorPairingCode,
 } from '../orchestrator/orchestratorModeStore'
 import { safeFingerprint } from '../security/cryptoFingerprint'
-import { filterHandshakeRecordsForCurrentSession } from './handshakeAccountIsolation'
+import {
+  filterHandshakeRecordsForCurrentSession,
+  handshakeRowVisibilityForSession,
+} from './handshakeAccountIsolation'
 
 /** Set `WR_P2P_SEND_KEY_DIAG=1` to log legacy key-substring diagnostics (default: fingerprint-only on errors). */
 const P2P_SEND_KEY_DIAG = process.env.WR_P2P_SEND_KEY_DIAG === '1'
@@ -822,6 +825,21 @@ async function consentToStagedOffer(
   return { ok: true, record }
 }
 
+/**
+ * Row-level session authorization for single-handshake IPC reads/deletes.
+ * Fail closed (treat as not found) when there is no SSO session or the session
+ * is not a visible party on the row — same rules as handshake.list filtering.
+ */
+function assertRecordVisibleToCurrentSession(
+  record: HandshakeRecord | null | undefined,
+): { ok: true; record: HandshakeRecord } | { ok: false } {
+  if (!record) return { ok: false }
+  const session = getCurrentSession()
+  if (!session) return { ok: false }
+  if (!handshakeRowVisibilityForSession(record, session).ok) return { ok: false }
+  return { ok: true, record }
+}
+
 export async function handleHandshakeRPC(
   method: string,
   params: any,
@@ -829,20 +847,22 @@ export async function handleHandshakeRPC(
 ): Promise<any> {
   switch (method) {
     case 'handshake.queryStatus': {
-      const record = getHandshakeRecord(db, params.handshakeId)
+      const raw = getHandshakeRecord(db, params.handshakeId)
+      const gated = assertRecordVisibleToCurrentSession(raw)
       return {
         type: 'handshake-status',
-        record: record ?? null,
-        reason: record ? ReasonCode.OK : ReasonCode.HANDSHAKE_NOT_FOUND,
+        record: gated.ok ? gated.record : null,
+        reason: gated.ok ? ReasonCode.OK : ReasonCode.HANDSHAKE_NOT_FOUND,
       }
     }
 
     case 'handshake.get': {
       const { handshake_id } = params as { handshake_id: string }
       if (!handshake_id) return { error: 'handshake_id is required' }
-      const record = getHandshakeRecord(db, handshake_id)
-      if (!record) return { error: 'Handshake not found', reason: ReasonCode.HANDSHAKE_NOT_FOUND }
-      return { record }
+      const raw = getHandshakeRecord(db, handshake_id)
+      const gated = assertRecordVisibleToCurrentSession(raw)
+      if (!gated.ok) return { error: 'Handshake not found', reason: ReasonCode.HANDSHAKE_NOT_FOUND }
+      return { record: gated.record }
     }
 
     case 'handshake.getPendingP2PBeapMessages': {
@@ -1129,6 +1149,11 @@ export async function handleHandshakeRPC(
     case 'handshake.delete': {
       const { handshakeId } = params as { handshakeId: string }
       if (!handshakeId) return { success: false, error: 'handshakeId is required' }
+      const raw = getHandshakeRecord(db, handshakeId)
+      const gated = assertRecordVisibleToCurrentSession(raw)
+      if (!gated.ok) {
+        return { success: false, error: 'Handshake not found', reason: ReasonCode.HANDSHAKE_NOT_FOUND }
+      }
       const result = deleteHandshakeRecord(db, handshakeId)
       return result.success ? { success: true } : { success: false, error: result.error }
     }
