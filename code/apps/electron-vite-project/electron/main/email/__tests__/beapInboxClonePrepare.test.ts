@@ -1,6 +1,7 @@
 import { describe, test, expect, vi, beforeEach } from 'vitest'
 import { P2P_BEAP_INBOX_ACCOUNT_ID, type InternalSandboxListEntry } from '../../handshake/internalSandboxesApi'
 import { HandshakeState, type HandshakeRecord, type SSOSession } from '../../handshake/types'
+import { getInstanceId } from '../../orchestrator/orchestratorModeStore'
 import { prepareBeapInboxSandboxClone } from '../beapInboxClonePrepare'
 
 const { listAvailableInternalSandboxes, getHandshakeRecord } = vi.hoisted(() => ({
@@ -51,6 +52,9 @@ function makeHandshakeRecord(id: string): HandshakeRecord {
     local_role: 'initiator',
     initiator_device_role: 'host',
     acceptor_device_role: 'sandbox',
+    // Host/sandbox roles are derived from coordination device ids, not local_role.
+    initiator_coordination_device_id: getInstanceId(),
+    acceptor_coordination_device_id: 'dev-sandbox-peer',
     internal_coordination_identity_complete: true,
     p2p_endpoint: 'p2p://sandbox-target',
     local_x25519_public_key_b64: 'bG9jYWx4MjU1MTk=',
