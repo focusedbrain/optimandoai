@@ -392,9 +392,12 @@ prop) is verified by unit tests and source walking only.
   extension panel’s prop is fed from live data.
 - Phase-5 surfaces (Connect offer, consent preview) are not yet wired to the
   alert — they do not exist yet; Order v1.0 §2B schedules them for Phase 5.
-- `p2p/coordination-client` and the four clone-prepare suites fail on the
-  consolidated branch independently of this phase. Recorded here; not
-  investigated, not in scope.
+- **consolidation-inherited failures** — the named backlog item covering
+  `p2p/coordination-client` and the four clone-prepare suites, which fail on the
+  consolidated branch independently of this phase. Not in Phase-2 scope. A
+  bounded diagnosis-only pass was ordered for after this tag and before Phase 3;
+  its findings and the pinned failing identities live in
+  `consolidation-inherited-failures.md`.
 
 ---
 
