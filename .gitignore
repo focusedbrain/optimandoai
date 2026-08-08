@@ -46,5 +46,10 @@ code/apps/extension-chromium/build*/
 graphify-out/
 code/graphify-out/
 
+# Cursor tooling artefacts (untracked dumps / agent state). Already-tracked
+# hand-authored rules under .cursor/rules/ remain tracked — gitignore does
+# not untrack them.
+.cursor/
+
 # Accidental vitest JSON dumps (not source)
 code/phase2-before-native.json
