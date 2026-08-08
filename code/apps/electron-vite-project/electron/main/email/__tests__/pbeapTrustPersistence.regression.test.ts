@@ -202,6 +202,10 @@ describe.skipIf(!Database)('pBEAP trust verdict persists to inbox_messages.depac
         text: makePBeapPackage(hsId),
         date: new Date().toISOString(),
         attachments: [],
+        // [Order 02 / 2A] BEAP detection runs only for a channel-authenticated
+        // message. These cases are about the pBEAP trust verdict, which only
+        // exists on the BEAP route, so the fixture carries an aligned DKIM pass.
+        headers: { authenticationResults: ['mx.test; dkim=pass header.d=dev.test'] },
       }
       return detectAndRouteMessageInline(db, 'acc', raw as any, null, true)
     }
@@ -270,6 +274,7 @@ describe.skipIf(!Database)('pBEAP trust verdict persists to inbox_messages.depac
       const raw = {
         messageId: `mail-tamper-${hsId}`, from: { address: 'a@dev.test' }, to: [], subject: 'pBEAP',
         text: makePBeapPackage(hsId), date: new Date().toISOString(), attachments: [],
+        headers: { authenticationResults: ['mx.test; dkim=pass header.d=dev.test'] },
       }
       const res = await detectAndRouteMessageInline(db, 'acc', raw as any, null, true)
       expect(res.type).toBe('beap')

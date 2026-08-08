@@ -789,26 +789,27 @@ export async function detectAndRouteMessageInline(
       const rejectionReason = depackageError ?? 'depackage_failed'
       const sandboxHandshake = findPairedSandboxHandshake(db, session)
 
+      // [Order 02 / 2A] Fail-open closure, all three degradation branches.
+      //
+      // A depackage that failed produced a row we could not validate. The three
+      // ways quarantining can itself fail — no custody key, sealing failed,
+      // validator rejected — previously each fell back to a PLAIN inbox row,
+      // which presents unvalidated carrier content as ordinary mail. That is
+      // the fail-open: the worse the failure, the weaker the handling.
+      //
+      // All three now HOLD, matching what the seam path already does in
+      // `quarantineRawBytes`. Held means not inserted and not downgraded; the
+      // sync caller skips the message this round and retries. Consistency
+      // between the two paths is the point — an invariant that holds on only
+      // one of them is not an invariant.
       if (!sandboxHandshake) {
-        console.warn('[MessageRouter] No sandbox for quarantine; falling back to plain inbox row:', messageId)
-        writePayload = await buildPlainEmailInboxPayload(
-          inboxMessageId, messageId, accountId, rawMsg, fromAddr,
-          fromName, subject, bodyText, bodyHtml, toList, ccList,
-          receivedAt, attachmentsCanonical,
-          mergeChannelProvenanceMetadata(pbeapTrustMetaJson, channelProvenance),
-        )
+        throw new DepackageCutoverHeldError('no_paired_sandbox')
       } else {
         const emailBytes = Buffer.from(beapPackageJson, 'utf-8')
         const encResult = encryptForQuarantine(emailBytes, sandboxHandshake.peer_x25519_public_key_b64)
 
         if (!encResult.ok) {
-          console.error('[MessageRouter] encryptForQuarantine failed:', encResult.error)
-          writePayload = await buildPlainEmailInboxPayload(
-            inboxMessageId, messageId, accountId, rawMsg, fromAddr,
-            fromName, subject, bodyText, bodyHtml, toList, ccList,
-            receivedAt, attachmentsCanonical,
-            mergeChannelProvenanceMetadata(pbeapTrustMetaJson, channelProvenance),
-          )
+          throw new DepackageCutoverHeldError(`quarantine_seal_failed:${encResult.error}`)
         } else {
           const blobResult = writeQuarantineBlob(encResult.blob)
           const quarantineId = randomUUID()
@@ -829,13 +830,11 @@ export async function detectAndRouteMessageInline(
           })
 
           if (!qResp.outcome.ok) {
-            // Structural bug: host_quarantine content should always pass.
-            console.error('[MessageRouter] quarantine validator rejected (bug):', qResp.outcome.sealed_quarantine.rejection_reason)
-            writePayload = await buildPlainEmailInboxPayload(
-              inboxMessageId, messageId, accountId, rawMsg, fromAddr,
-              fromName, subject, bodyText, bodyHtml, toList, ccList,
-              receivedAt, attachmentsCanonical,
-              mergeChannelProvenanceMetadata(pbeapTrustMetaJson, channelProvenance),
+            // host_quarantine content should always pass; a reject is a
+            // structural bug, and a bug is the last condition under which to
+            // relax handling.
+            throw new DepackageCutoverHeldError(
+              `quarantine_validator_rejected:${qResp.outcome.sealed_quarantine.rejection_reason}`,
             )
           } else {
             const qSealed = qResp.outcome.sealed
