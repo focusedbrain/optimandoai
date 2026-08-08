@@ -372,6 +372,88 @@ export async function detectAndRouteMessage(
  * flag-off path AND the proven pipeline-2 path that the B2 seam consumer re-enters
  * for an extracted carrier package (passing the package JSON as `text`).
  */
+interface BeapDetection {
+  readonly beapPackageJson: string | null
+  readonly handshakeId: string | null
+  readonly detectedType: 'beap' | 'plain'
+}
+
+/**
+ * The verdict for a message no detector was allowed to look at. Distinct from
+ * "looked and found nothing" only in how it was reached — deliberately the same
+ * shape, so a provenance-failed message cannot be told apart downstream by
+ * anything other than its CPR, and no code path can special-case it into an
+ * affordance.
+ */
+const NO_DETECTION: BeapDetection = Object.freeze({
+  beapPackageJson: null,
+  handshakeId: null,
+  detectedType: 'plain',
+})
+
+/**
+ * Carrier detection: attachments first, then a JSON body, then JSON attachments.
+ *
+ * [Order 02 / 2A] Extracted so that the provenance gate at the call site is a
+ * single visible boundary. Every WR parse and code extraction of the inline
+ * path lives in here; if this function is not called, none of it happens.
+ */
+function detectBeapPackageFromMessage(
+  attachments: NonNullable<RawEmailMessage['attachments']>,
+  bodyText: string,
+): BeapDetection {
+  for (const att of attachments) {
+    if (!isBeapAttachment(att)) continue
+    const content = att.content
+    if (!content || content.length === 0) continue
+    const text = content.toString('utf-8')
+    if (text.length > 65536) continue
+    const capsule = detectBeapCapsule(text)
+    if (capsule.detected && capsule.capsuleJson) {
+      let handshakeId: string
+      try { handshakeId = extractHandshakeId(JSON.parse(capsule.capsuleJson)) ?? '__email_import__' } catch { handshakeId = '__email_import__' }
+      return { beapPackageJson: capsule.capsuleJson, handshakeId, detectedType: 'beap' }
+    }
+    const pkg = detectBeapMessagePackage(text)
+    if (pkg.detected && pkg.packageJson) {
+      let handshakeId: string
+      try { handshakeId = extractHandshakeId(JSON.parse(pkg.packageJson)) ?? '__email_import__' } catch { handshakeId = '__email_import__' }
+      return { beapPackageJson: pkg.packageJson, handshakeId, detectedType: 'beap' }
+    }
+  }
+
+  if (bodyText.trim().startsWith('{')) {
+    const capsule = detectBeapCapsule(bodyText)
+    if (capsule.detected && capsule.capsuleJson) {
+      let handshakeId: string
+      try { handshakeId = extractHandshakeId(JSON.parse(capsule.capsuleJson)) ?? '__email_import__' } catch { handshakeId = '__email_import__' }
+      return { beapPackageJson: capsule.capsuleJson, handshakeId, detectedType: 'beap' }
+    }
+    const pkg = detectBeapMessagePackage(bodyText)
+    if (pkg.detected && pkg.packageJson) {
+      let handshakeId: string
+      try { handshakeId = extractHandshakeId(JSON.parse(pkg.packageJson)) ?? '__email_import__' } catch { handshakeId = '__email_import__' }
+      return { beapPackageJson: pkg.packageJson, handshakeId, detectedType: 'beap' }
+    }
+  }
+
+  for (const att of attachments) {
+    if (!isJsonAttachment(att)) continue
+    const content = att.content
+    if (!content || content.length === 0) continue
+    const text = content.toString('utf-8')
+    if (text.length > 65536) continue
+    try {
+      const parsed = JSON.parse(text)
+      if (detectBeapInJson(parsed)) {
+        return { beapPackageJson: text, handshakeId: extractHandshakeId(parsed) ?? '__email_import__', detectedType: 'beap' }
+      }
+    } catch { /* not valid JSON */ }
+  }
+
+  return NO_DETECTION
+}
+
 export async function detectAndRouteMessageInline(
   db: any,
   accountId: string,
@@ -424,64 +506,20 @@ export async function detectAndRouteMessageInline(
   })
 
   // ── Step 1: Detect BEAP vs plain (sync) ──────────────────────────────────
+  //
+  // [Order 02 / 2A] Detection runs ONLY for a channel-authenticated message.
+  // A failing `channel_pass` (D5) short-circuits every WR parse and code
+  // extraction below: the message lands as plain carrying its CPR, and no
+  // affordance of any kind is derived from it. The suppression is structural
+  // — the detection code is never reached, rather than its result discarded
+  // afterwards, so there is no intermediate state a later change could leak.
+  const detection = channelProvenance.channel_pass
+    ? detectBeapPackageFromMessage(attachments, bodyText)
+    : NO_DETECTION
 
-  let beapPackageJson: string | null = null
-  let handshakeId: string | null = null
-  let detectedType: 'beap' | 'plain' = 'plain'
-
-  for (const att of attachments) {
-    if (!isBeapAttachment(att)) continue
-    const content = att.content
-    if (!content || content.length === 0) continue
-    const text = content.toString('utf-8')
-    if (text.length > 65536) continue
-    const capsule = detectBeapCapsule(text)
-    if (capsule.detected && capsule.capsuleJson) {
-      beapPackageJson = capsule.capsuleJson
-      try { handshakeId = extractHandshakeId(JSON.parse(capsule.capsuleJson)) ?? '__email_import__' } catch { handshakeId = '__email_import__' }
-      detectedType = 'beap'; break
-    }
-    const pkg = detectBeapMessagePackage(text)
-    if (pkg.detected && pkg.packageJson) {
-      beapPackageJson = pkg.packageJson
-      try { handshakeId = extractHandshakeId(JSON.parse(pkg.packageJson)) ?? '__email_import__' } catch { handshakeId = '__email_import__' }
-      detectedType = 'beap'; break
-    }
-  }
-
-  if (detectedType === 'plain' && bodyText.trim().startsWith('{')) {
-    const capsule = detectBeapCapsule(bodyText)
-    if (capsule.detected && capsule.capsuleJson) {
-      beapPackageJson = capsule.capsuleJson
-      try { handshakeId = extractHandshakeId(JSON.parse(capsule.capsuleJson)) ?? '__email_import__' } catch { handshakeId = '__email_import__' }
-      detectedType = 'beap'
-    }
-  }
-  if (detectedType === 'plain' && bodyText.trim().startsWith('{')) {
-    const pkg = detectBeapMessagePackage(bodyText)
-    if (pkg.detected && pkg.packageJson) {
-      beapPackageJson = pkg.packageJson
-      try { handshakeId = extractHandshakeId(JSON.parse(pkg.packageJson)) ?? '__email_import__' } catch { handshakeId = '__email_import__' }
-      detectedType = 'beap'
-    }
-  }
-  if (detectedType === 'plain') {
-    for (const att of attachments) {
-      if (!isJsonAttachment(att)) continue
-      const content = att.content
-      if (!content || content.length === 0) continue
-      const text = content.toString('utf-8')
-      if (text.length > 65536) continue
-      try {
-        const parsed = JSON.parse(text)
-        if (detectBeapInJson(parsed)) {
-          beapPackageJson = text
-          handshakeId = extractHandshakeId(parsed) ?? '__email_import__'
-          detectedType = 'beap'; break
-        }
-      } catch { /* not valid JSON */ }
-    }
-  }
+  const beapPackageJson: string | null = detection.beapPackageJson
+  const handshakeId: string | null = detection.handshakeId
+  const detectedType: 'beap' | 'plain' = detection.detectedType
 
   // ── Step 2a: Attachment preprocessing (Att-2, PR B-3.1) ──────────────────
   //
