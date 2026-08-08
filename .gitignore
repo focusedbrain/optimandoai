@@ -40,3 +40,11 @@ code/packages/ingestion-core/src/*.js
 
 # Chromium extension Vite outDir (versioned per release, e.g. build55647)
 code/apps/extension-chromium/build*/
+
+# graphify local/runtime sidecars (graph.json + report are committed)
+graphify-out/cost.json
+graphify-out/.graphify_python
+graphify-out/.graphify_root
+graphify-out/.needs_update
+# AST cache lands under the scan root (code/); keep local only
+code/graphify-out/
