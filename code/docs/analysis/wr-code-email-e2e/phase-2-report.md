@@ -393,11 +393,21 @@ prop) is verified by unit tests and source walking only.
 - Phase-5 surfaces (Connect offer, consent preview) are not yet wired to the
   alert — they do not exist yet; Order v1.0 §2B schedules them for Phase 5.
 - **consolidation-inherited failures** — the named backlog item covering
-  `p2p/coordination-client` and the four clone-prepare suites, which fail on the
-  consolidated branch independently of this phase. Not in Phase-2 scope. A
-  bounded diagnosis-only pass was ordered for after this tag and before Phase 3;
-  its findings and the pinned failing identities live in
-  `consolidation-inherited-failures.md`.
+  `p2p/coordination-client` and the four clone-prepare suites, which failed on
+  the consolidated branch independently of this phase. Not in Phase-2 scope. The
+  ordered diagnosis-only pass and the remediation that followed it are both
+  recorded in `consolidation-inherited-failures.md`; the item is now **resolved**
+  (35/35 green in isolation and in the full workspace, no product code changed).
+  Three discoveries carry forward from it under their own names:
+  - **test-isolation bidirectional risk** — root cause identified (shared
+    `vitest-electron-mock` userData, persistent `orchestrator-mode.json`, two
+    writers that never restore). Flagged; the mock stays untouched until a
+    dedicated decision.
+  - **inbox-read error taxonomy** — adopted in principle, scheduled as an
+    authorized bounded item **with Phase 4** (same never-fails-silently family
+    as the Phase-4 status surface).
+  - **seal-key-source policy unification** — bounded diagnosis at Phase-4
+    entry; implementation only on author approval.
 
 ---
 

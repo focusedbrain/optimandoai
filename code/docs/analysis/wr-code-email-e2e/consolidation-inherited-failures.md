@@ -401,3 +401,42 @@ handling, and tests.
 - The seal-policy divergence in A2 above.
 - The shared-userData isolation defect and its two writers.
 - The error-taxonomy item and its proposal.
+
+Dispositions for all three are in §9.
+
+## 9. Author dispositions (2026-08-08)
+
+Remediation ACCEPTED. The A2 and A4 resolutions are ratified as the correct
+outcomes: in both cases the product's refusal was the specified behaviour and
+the tests encoded removed or unasserted expectations. This named item is
+closed; the three discoveries below carry forward under their own names.
+
+### NAMED FINDING — “test-isolation bidirectional risk”
+
+Root cause attached (§8). Making the coordination suite self-determining was
+the accepted bounded move. **`test/mocks/electron.ts` stays untouched until a
+dedicated decision** — do not fold a mock change into unrelated work. The two
+unrestoring writers (`pairingCodeRelayGap.rig.test.ts`,
+`userDataBootstrapPersistence.test.ts`) remain as recorded.
+
+### NAMED ITEM — inbox-read error taxonomy — **ADOPTED IN PRINCIPLE**
+
+`MESSAGE_NOT_FOUND` narrows to a genuinely absent row; `SOURCE_UNVERIFIABLE`
+and `SOURCE_NO_CANONICAL_CONTENT` join it, following the vault-unavailability
+pattern already in `readInboxRowForClonePrepare`.
+
+**Not Phase-3 work.** Scheduled as an authorized bounded item **with Phase 4**,
+on the grounds that it belongs to the same never-fails-silently family as the
+Phase-4 status surface (A6: every failing leg visible, none collapsed into a
+neighbour). Authorized in principle; scope is the three codes and their call
+sites, nothing wider.
+
+### NAMED ITEM — “seal-key-source policy unification”
+
+`verificationKeySourcesForInboxRow` declares `['outer','inner']` for
+non-confidential rows and is used by `inboxSealedRead.ts`; `sealedQuery` routes
+from `seal_key_source` alone via `rowKeySource`. The two do not agree.
+
+**Bounded DIAGNOSIS at Phase-4 entry:** map both call sites, determine which is
+the authoritative source, propose a unification. **Implementation only on
+author approval** — diagnosis does not carry a fix mandate.
