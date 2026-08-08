@@ -3525,6 +3525,16 @@ export async function handleHandshakeRPC(
       }
     }
 
+    // ── Phase 3 (3B): WRC publisher resolution ──────────────────────────────
+    // Lives in main because MV3 has no DNS, and the dual-channel validation is
+    // not something a renderer may be trusted to have performed. The extension
+    // gets the client's typed result verbatim — including the distinct failure
+    // reason — so no caller has to re-derive why a code did not resolve.
+    case 'wrc.resolvePublisher': {
+      const { handleWrcResolvePublisher } = await import('../wrc/wrcRuntime')
+      return handleWrcResolvePublisher((params ?? {}) as Record<string, unknown>)
+    }
+
     // ── Phase B, PR B-8: Extension BEAP Inbox — sealed read + operational mutations ──
     // ── Phase B, PR B-8.1: cursor-based pagination helpers ──
 

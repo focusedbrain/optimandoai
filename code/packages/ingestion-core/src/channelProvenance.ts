@@ -452,6 +452,103 @@ export function ratchetChannelProvenance(
   }
 }
 
+// ── Sender-domain ↔ publisher-domain alignment (build item 6 / 3C) [IX.3.1 r7] ─
+
+/**
+ * The origin set a resolved publisher is bound to. In Phase 3 this is the
+ * single dual-channel-validated domain; it is a set because §IX.3.1 r7 speaks
+ * of a bound origin SET and a publisher may later declare more than one.
+ * Entries are compared case-insensitively as DNS names.
+ */
+export type PublisherBoundOriginSet = readonly string[]
+
+function normalizeOrigin(raw: string): string {
+  return raw.trim().toLowerCase().replace(/\.$/, '')
+}
+
+/**
+ * True when `domain` is the origin itself or a subdomain of it. A suffix test
+ * alone would match `evil-example.com` against `example.com`, so the label
+ * boundary is required.
+ */
+export function domainWithinOrigin(domain: string, origin: string): boolean {
+  const d = normalizeOrigin(domain)
+  const o = normalizeOrigin(origin)
+  if (!d || !o) return false
+  return d === o || d.endsWith(`.${o}`)
+}
+
+export type PublisherDomainAlignment =
+  /** Channel authenticated a domain inside the publisher's bound origin set. */
+  | 'aligned'
+  /** Channel authenticated a domain OUTSIDE the set — r7 misalignment. */
+  | 'misaligned'
+  /** Nothing was authenticated, so there is no domain to compare. */
+  | 'no_authenticated_domain'
+  /** No resolved publisher / empty origin set — nothing to compare against. */
+  | 'not_evaluated'
+
+export function evaluatePublisherDomainAlignment(
+  record: ChannelProvenanceRecord,
+  boundOrigins: PublisherBoundOriginSet,
+): PublisherDomainAlignment {
+  if (!boundOrigins || boundOrigins.length === 0) return 'not_evaluated'
+  const sender = record.authenticated_sender_domain
+  if (!sender) return 'no_authenticated_domain'
+  return boundOrigins.some((o) => domainWithinOrigin(sender, o)) ? 'aligned' : 'misaligned'
+}
+
+/**
+ * Fold the r7 alignment result into a CPR.
+ *
+ * Routed through {@link ratchetChannelProvenance} on purpose: alignment is a
+ * SECOND evaluation of a message that already has a verdict, and the ratchet is
+ * what makes it structurally impossible for this stage to loosen one. A
+ * misalignment therefore drops `channel_pass` and clears the alignment flags,
+ * while an alignment adds the Discovery Record verdict and changes nothing else.
+ *
+ * This also activates the CPR's `discovery_record` field: before Phase 3 there
+ * was no resolved publisher to be consistent WITH, so it stayed
+ * `not_evaluated` by construction.
+ */
+export function applyPublisherDomainAlignment(
+  record: ChannelProvenanceRecord,
+  boundOrigins: PublisherBoundOriginSet,
+  evaluatedAt?: string,
+): { record: ChannelProvenanceRecord; alignment: PublisherDomainAlignment } {
+  const alignment = evaluatePublisherDomainAlignment(record, boundOrigins)
+  if (alignment === 'not_evaluated') return { record, alignment }
+
+  const at = evaluatedAt ?? new Date().toISOString()
+
+  if (alignment === 'aligned') {
+    const incoming: ChannelProvenanceRecord = {
+      ...record,
+      evaluated_at: at,
+      discovery_record: 'present_and_consistent',
+    }
+    return { record: ratchetChannelProvenance(record, incoming), alignment }
+  }
+
+  // Misaligned, or authenticated nothing while a publisher WAS resolved: the
+  // channel cannot vouch for this message on the publisher's behalf.
+  const stripped = (m: ChannelMechanismResult): ChannelMechanismResult => ({
+    verdict: m.verdict,
+    aligned: false,
+  })
+  const incoming: ChannelProvenanceRecord = {
+    ...record,
+    evaluated_at: at,
+    spf: stripped(record.spf),
+    dkim: stripped(record.dkim),
+    dmarc: stripped(record.dmarc),
+    channel_pass: false,
+    discovery_record:
+      alignment === 'misaligned' ? 'present_and_inconsistent' : record.discovery_record,
+  }
+  return { record: ratchetChannelProvenance(record, incoming), alignment }
+}
+
 // ── Persistence shape ─────────────────────────────────────────────────────────
 
 /**

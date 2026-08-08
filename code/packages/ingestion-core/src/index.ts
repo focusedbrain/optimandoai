@@ -142,6 +142,9 @@ export {
   ratchetChannelProvenance,
   channelProvenanceMetadata,
   readChannelProvenanceMetadata,
+  domainWithinOrigin,
+  evaluatePublisherDomainAlignment,
+  applyPublisherDomainAlignment,
 } from './channelProvenance.js';
 export type {
   ChannelAuthVerdict,
@@ -151,6 +154,8 @@ export type {
   ChannelAuthenticationMaterial,
   ChannelAuthenticationEvaluation,
   CreateChannelProvenanceInput,
+  PublisherBoundOriginSet,
+  PublisherDomainAlignment,
 } from './channelProvenance.js';
 // Phase 5 — capability-token schema (T4, Q13) [XII.12.6 annex-number-provisional]
 export {
