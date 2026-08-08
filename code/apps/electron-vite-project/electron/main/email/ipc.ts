@@ -297,7 +297,11 @@ import {
 import { resolveInboxReplyMode } from '../../../src/lib/inboxAiCloneClassification'
 import { reconcileAnalyzeTriage, reconcileInboxClassification } from '../../../src/lib/inboxClassificationReconcile'
 import { streamInboxOllamaAnalyzeWithSandboxRouting } from './inboxOllamaChatStreamSandbox'
-import { appendScamWatchdogToSystemPrompt, buildScamWatchdogUserContext } from './scamWatchdog'
+import {
+  appendScamWatchdogToSystemPrompt,
+  buildScamWatchdogUserContext,
+  channelProvenanceAnalysisInput,
+} from './scamWatchdog'
 import { assembleScamWatchdog } from '../../../src/utils/parseInboxAiJson'
 import { buildInboxAiAnalyzeErrorPayload, buildInboxAiDraftIpcFailure } from './inboxAiErrorMapping'
 import { formatSourceWeightingForPrompt, sortSourceWeightingFromMessageRow } from '../../../src/lib/inboxSortSourceWeighting'
@@ -4377,7 +4381,7 @@ Write a reply specifically to the pbeap field above. Output ONLY the reply text.
       if (!db) return { ok: false, error: 'Database unavailable' }
       const row = db
         .prepare(
-          'SELECT from_address, from_name, subject, body_text, received_at, source_type, handshake_id, depackaged_json, beap_package_json FROM inbox_messages WHERE id = ?',
+          'SELECT from_address, from_name, subject, body_text, received_at, source_type, handshake_id, depackaged_json, depackaged_metadata, beap_package_json FROM inbox_messages WHERE id = ?',
         )
         .get(messageId) as
         | {
@@ -4389,6 +4393,7 @@ Write a reply specifically to the pbeap field above. Output ONLY the reply text.
             source_type?: string | null
             handshake_id?: string | null
             depackaged_json?: string | null
+            depackaged_metadata?: string | null
             beap_package_json?: string | null
           }
         | undefined
@@ -4407,7 +4412,8 @@ Write a reply specifically to the pbeap field above. Output ONLY the reply text.
         ? buildNativeBeapAnalyzeBody(row)
         : (row.body_text || '').trim().slice(0, 8000)
       const sortWAnalyze = sortSourceWeightingFromMessageRow(row)
-      const userPrompt = `From: ${sender}\nSubject: ${row.subject || '(No subject)'}\nDate: ${row.received_at || '—'}\n\n${body}\n\n${formatSourceWeightingForPrompt(sortWAnalyze)}${buildScamWatchdogUserContext(body)}`
+      const cprAnalyze = channelProvenanceAnalysisInput(row.depackaged_metadata)
+      const userPrompt = `From: ${sender}\nSubject: ${row.subject || '(No subject)'}\nDate: ${row.received_at || '—'}\n\n${body}\n\n${formatSourceWeightingForPrompt(sortWAnalyze)}${buildScamWatchdogUserContext(body, cprAnalyze)}`
 
       const { tone, sortRules } = getToneAndSortForPrompts(db)
       const contextBlock = getContextBlockForPrompts(db)
@@ -4750,7 +4756,7 @@ Respond ONLY with one valid JSON object. No markdown, no backticks, no preamble,
           }
           const row = db
             .prepare(
-              'SELECT from_address, from_name, subject, body_text, received_at, source_type, handshake_id, depackaged_json, beap_package_json FROM inbox_messages WHERE id = ?',
+              'SELECT from_address, from_name, subject, body_text, received_at, source_type, handshake_id, depackaged_json, depackaged_metadata, beap_package_json FROM inbox_messages WHERE id = ?',
             )
             .get(messageId) as
             | {
@@ -4762,6 +4768,7 @@ Respond ONLY with one valid JSON object. No markdown, no backticks, no preamble,
                 source_type?: string | null
                 handshake_id?: string | null
                 depackaged_json?: string | null
+                depackaged_metadata?: string | null
                 beap_package_json?: string | null
               }
             | undefined
@@ -4841,7 +4848,8 @@ Respond ONLY with one valid JSON object. No markdown, no backticks, no preamble,
             ? buildNativeBeapAnalyzeBody(row)
             : (row.body_text || '').trim().slice(0, 8000)
           const sortWStream = sortSourceWeightingFromMessageRow(row)
-          const userPrompt = `From: ${sender}\nSubject: ${row.subject || '(No subject)'}\nDate: ${row.received_at || '—'}\n\n${body}\n\n${formatSourceWeightingForPrompt(sortWStream)}${buildScamWatchdogUserContext(body)}`
+          const cprStream = channelProvenanceAnalysisInput(row.depackaged_metadata)
+          const userPrompt = `From: ${sender}\nSubject: ${row.subject || '(No subject)'}\nDate: ${row.received_at || '—'}\n\n${body}\n\n${formatSourceWeightingForPrompt(sortWStream)}${buildScamWatchdogUserContext(body, cprStream)}`
 
           const { tone, sortRules } = getToneAndSortForPrompts(db)
           const contextBlock = getContextBlockForPrompts(db)
