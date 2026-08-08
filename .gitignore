@@ -45,3 +45,6 @@ code/apps/extension-chromium/build*/
 # Keep hand-authored: .graphifyignore, code/.graphifyignore, .cursor/rules/graphify.mdc
 graphify-out/
 code/graphify-out/
+
+# Accidental vitest JSON dumps (not source)
+code/phase2-before-native.json
