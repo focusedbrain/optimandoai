@@ -7,7 +7,7 @@ One bounded package executed before Phase 4, per the author ruling of
 |---|---|
 | Branch | `integration/consolidated-current` |
 | Baseline | `de254927` |
-| Tip | `2a8f5f0e` (see §4 for the exact tip at capture) |
+| Tip | `97cb52a6` |
 | Do-not-regress | **Clean** — 166 = 166 by identity, 0 new, 0 repaired |
 | New tests | 14 across 2 files, all green |
 
