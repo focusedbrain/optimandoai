@@ -12,6 +12,7 @@
 import { describe, expect, it } from 'vitest'
 import { WrcResolutionClient } from '../resolutionClient'
 import { WrcResolvedRecordStore, createMemoryPersistence } from '../resolvedRecordStore'
+import { createMemoryEpochFloorStore } from '../epochFloorStore'
 import { createFixtureTransport, buildPublisherFixture, makeKeyPair, fingerprintOf } from './wrcFixtures'
 import type { WrcTransport } from '../wrcTransport'
 
@@ -289,11 +290,16 @@ describe('3D — epoch anti-rollback and freshness', () => {
   })
 
   it('the epoch floor survives eviction of the cached record', () => {
-    const p = createMemoryPersistence()
-    const s1 = new WrcResolvedRecordStore(p)
+    // The floor no longer lives in the cache persistence — it is its own store
+    // in the native-DB protection class (pre-Phase-4 item iii). Eviction of the
+    // record therefore cannot reopen a rollback window, and neither can
+    // deleting the cache file; the file case is covered in
+    // `epochFloorHardening.test.ts` against a real migrated DB.
+    const floor = createMemoryEpochFloorStore()
+    const s1 = new WrcResolvedRecordStore(createMemoryPersistence(), floor)
     s1.noteAcceptedEpoch('WR7X4K', 12)
-    // A fresh store over the same persistence still refuses a rollback.
-    const s2 = new WrcResolvedRecordStore(p)
+
+    const s2 = new WrcResolvedRecordStore(createMemoryPersistence(), floor)
     expect(s2.get('WR7X4K')).toBeNull()
     expect(s2.lastSeenEpoch('WR7X4K')).toBe(12)
     s2.noteAcceptedEpoch('WR7X4K', 3)
