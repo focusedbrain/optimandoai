@@ -80,7 +80,31 @@ export type BeapInboxClonePrepareOptions = {
 
 /** Structured failure for `inbox:cloneBeapToSandbox` / prepare (UI + logs). */
 export type BeapInboxCloneErrorCode =
+  /**
+   * The row is genuinely absent from `inbox_messages`.
+   *
+   * Narrowed by the error-taxonomy split: this code used to also cover a row
+   * that existed but could not be verified, and a row that existed with no
+   * canonical plaintext. Collapsing three states into one meant neither an
+   * operator nor a log could tell a missing message from a tampered one from a
+   * key-availability problem — the Phase-2 diagnosis needed a probe to find out
+   * which had happened. The two siblings below split those out.
+   */
   | 'MESSAGE_NOT_FOUND'
+  /**
+   * The row exists but `sealedQuery` returned nothing for it: a bad seal, a
+   * content-hash mismatch, or no usable provider for its `seal_key_source`.
+   * Distinct from absence because the row is there and something is wrong with
+   * it or with the key situation — a materially different operator story.
+   */
+  | 'SOURCE_UNVERIFIABLE'
+  /**
+   * The row exists but carries no canonical plaintext (`depackaged_json` is
+   * absent), so there is nothing a clone could copy. Production writes this
+   * shape for rows that genuinely have no plaintext yet — qBEAP pending main
+   * decode and main-process decode errors.
+   */
+  | 'SOURCE_NO_CANONICAL_CONTENT'
   | 'MESSAGE_CONTENT_NOT_EXTRACTABLE'
   | 'NO_ACTIVE_SANDBOX_HANDSHAKE'
   | 'INCOMPLETE_SANDBOX_KEYING'
@@ -405,7 +429,7 @@ export function readInboxRowForClonePrepare(
       result: {
         ok: false,
         code: 'MESSAGE_NOT_FOUND',
-        error: 'Inbox message was not found or could not be verified.',
+        error: 'Inbox message was not found.',
       },
     }
   }
@@ -466,16 +490,54 @@ export function readInboxRowForClonePrepare(
     }
   }
 
+  // The row IS present (the existence probe above passed) but `sealedQuery`
+  // returned nothing. Split the two reasons that hide behind that, so the log
+  // and the caller both say which one happened.
+  const canonicalPresent = typeof rawCanonicalColumn(db, srcId) === 'string'
+
+  if (!canonicalPresent) {
+    console.log(
+      `[CLONE_PREPARE] source_no_canonical_content sourceMessageId=${srcId} seal_key_source=${sealKeySource ?? 'unknown'}`,
+    )
+    return {
+      ok: false,
+      result: {
+        ok: false,
+        code: 'SOURCE_NO_CANONICAL_CONTENT',
+        error: 'This message has no decrypted content yet, so there is nothing to clone.',
+      },
+    }
+  }
+
   console.log(
-    `[CLONE_PREPARE] source_read_blocked sourceMessageId=${srcId} seal_key_source=${sealKeySource ?? 'unknown'} requiresInnerVault=${requiresInnerVault}`,
+    `[CLONE_PREPARE] source_unverifiable sourceMessageId=${srcId} seal_key_source=${sealKeySource ?? 'unknown'} requiresInnerVault=${requiresInnerVault}`,
   )
   return {
     ok: false,
     result: {
       ok: false,
-      code: 'MESSAGE_NOT_FOUND',
-      error: 'Inbox message was not found or could not be verified.',
+      code: 'SOURCE_UNVERIFIABLE',
+      error: 'Inbox message could not be verified.',
     },
+  }
+}
+
+/**
+ * Read the canonical column WITHOUT seal verification, for classification only.
+ *
+ * This is deliberately not a content read: the value is never returned to a
+ * caller, only its presence is, so it distinguishes "no plaintext exists" from
+ * "plaintext exists but did not verify". Returning unverified content here
+ * would defeat the gate this function sits behind.
+ */
+function rawCanonicalColumn(db: any, srcId: string): unknown {
+  try {
+    const row = db
+      .prepare('SELECT depackaged_json FROM inbox_messages WHERE id = ?')
+      .get(srcId) as { depackaged_json?: unknown } | undefined
+    return row?.depackaged_json ?? null
+  } catch {
+    return null
   }
 }
 

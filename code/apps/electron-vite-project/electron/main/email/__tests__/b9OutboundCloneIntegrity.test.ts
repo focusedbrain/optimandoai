@@ -5,14 +5,14 @@
  *
  * §1 — Source read uses sealedQuery (Decision B)
  *   §1.1  Valid sealed row → prepare succeeds (seal passes verification)
- *   §1.2  Tampered row (content hash mismatch) → MESSAGE_NOT_FOUND
+ *   §1.2  Tampered row (content hash mismatch) → SOURCE_UNVERIFIABLE
  *         (sealedQuery filters the row before content extraction)
- *   §1.3  Row with missing seal → MESSAGE_NOT_FOUND (reject mode filters)
- *   §1.4  Row missing from DB entirely → MESSAGE_NOT_FOUND
+ *   §1.3  Row with missing seal → SOURCE_UNVERIFIABLE (reject mode filters)
+ *   §1.4  Row missing from DB entirely → MESSAGE_NOT_FOUND (genuinely absent)
  *
  * §2 — No DB writes on the outbound path (Decision C / D)
  *   §2.1  Successful prepare produces zero DB writes
- *   §2.2  Failed prepare (MESSAGE_NOT_FOUND) produces zero DB writes
+ *   §2.2  Failed prepare (SOURCE_UNVERIFIABLE) produces zero DB writes
  *
  * §3 — Failure-path matrix (Decision A / E)
  *   §3.1  Tampered row: quarantine row unchanged after clone attempt
@@ -167,7 +167,7 @@ describe('B-9 §1 — source read uses sealedQuery (Decision B)', () => {
     }
   })
 
-  it('§1.2 tampered row (content hash mismatch) → MESSAGE_NOT_FOUND; no data extracted', () => {
+  it('§1.2 tampered row (content hash mismatch) → SOURCE_UNVERIFIABLE; no data extracted', () => {
     if (!ctx.db) return
 
     const entry = makeEligibleEntry()
@@ -198,14 +198,15 @@ describe('B-9 §1 — source read uses sealedQuery (Decision B)', () => {
 
     const r = prepareBeapInboxSandboxClone(ctx.db as any, makeSession(), msgId, hsId, 'tag')
 
-    // sealedQuery filters the tampered row → MESSAGE_NOT_FOUND, not the tampered content.
+    // sealedQuery filters the tampered row → SOURCE_UNVERIFIABLE (present, unverifiable),
+    // not MESSAGE_NOT_FOUND and not the tampered content.
     expect(r.ok).toBe(false)
     if (!r.ok) {
-      expect(r.code).toBe('MESSAGE_NOT_FOUND')
+      expect(r.code).toBe('SOURCE_UNVERIFIABLE')
     }
   })
 
-  it('§1.3 row with missing seal → MESSAGE_NOT_FOUND (reject mode)', () => {
+  it('§1.3 row with missing seal → SOURCE_UNVERIFIABLE (reject mode)', () => {
     if (!ctx.db) return
 
     const entry = makeEligibleEntry()
@@ -230,7 +231,7 @@ describe('B-9 §1 — source read uses sealedQuery (Decision B)', () => {
     // In reject mode, rows with missing seals are filtered out.
     expect(r.ok).toBe(false)
     if (!r.ok) {
-      expect(r.code).toBe('MESSAGE_NOT_FOUND')
+      expect(r.code).toBe('SOURCE_UNVERIFIABLE')
     }
   })
 
@@ -299,7 +300,7 @@ describe('B-9 §2 — no DB writes on the outbound prepare path (Decisions C / D
     expect(after).toEqual(before)
   })
 
-  it('§2.2 failed prepare (MESSAGE_NOT_FOUND) writes nothing to inbox_messages', () => {
+  it('§2.2 failed prepare (SOURCE_UNVERIFIABLE) writes nothing to inbox_messages', () => {
     if (!ctx.db) return
 
     // No mock setup — just verify no write on failure

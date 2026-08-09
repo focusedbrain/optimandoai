@@ -3478,7 +3478,9 @@ Rules:
    * `inbox:cloneBeapToSandbox` is the product channel name; both invoke the same logic.
    *
    * Host only: clone is a Host → Sandbox orchestration path (same identity, internal handshake).
-   * On failure, `code` may include `NO_ACTIVE_SANDBOX_HANDSHAKE`, `MESSAGE_NOT_FOUND`,
+   * On failure, `code` may include `NO_ACTIVE_SANDBOX_HANDSHAKE`, `MESSAGE_NOT_FOUND`
+   * (row genuinely absent), `SOURCE_UNVERIFIABLE` (row present, seal verification
+   * filtered it), `SOURCE_NO_CANONICAL_CONTENT` (row present, no plaintext to clone),
    * `outer_vault_unavailable`, `outer_vault_or_key_provider_unavailable`, `MESSAGE_CONTENT_NOT_EXTRACTABLE`,
    * `TARGET_HANDSHAKE_REQUIRED`, or `NOT_HOST_ORCHESTRATOR` (envelope) for structured UI.
    */

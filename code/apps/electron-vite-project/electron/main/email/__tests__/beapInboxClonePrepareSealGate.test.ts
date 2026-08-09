@@ -251,7 +251,7 @@ describe('prepareBeapInboxSandboxClone — seal provider routing', () => {
     }
   })
 
-  it('native direct_beap vmk row without depackaged content + outer-only → MESSAGE_NOT_FOUND', () => {
+  it('native direct_beap vmk row without depackaged content + outer-only → SOURCE_NO_CANONICAL_CONTENT', () => {
     if (!ctx.db) return
 
     const entry = makeEligibleEntry()
@@ -282,7 +282,7 @@ describe('prepareBeapInboxSandboxClone — seal provider routing', () => {
 
     expect(r.ok).toBe(false)
     if (!r.ok) {
-      expect(r.code).toBe('MESSAGE_NOT_FOUND')
+      expect(r.code).toBe('SOURCE_NO_CANONICAL_CONTENT')
     }
   })
 
@@ -291,7 +291,10 @@ describe('prepareBeapInboxSandboxClone — seal provider routing', () => {
   // `depackaged_json` only for rows that genuinely have no plaintext yet
   // (`beap_qbeap_pending_main`, main-process decode errors) — there is nothing to
   // clone. Pinned so the refusal cannot be relaxed into a body_text fallback.
-  it('email_plain ledger row + body_text only (no depackaged_json) + outer-only → refused', () => {
+  //
+  // Taxonomy: absence of content outranks unverifiability. You cannot verify
+  // what is not there, and "no content yet" is the actionable thing to say.
+  it('email_plain ledger row + body_text only (no depackaged_json) + outer-only → SOURCE_NO_CANONICAL_CONTENT', () => {
     if (!ctx.db) return
 
     const entry = makeEligibleEntry()
@@ -317,7 +320,7 @@ describe('prepareBeapInboxSandboxClone — seal provider routing', () => {
 
     expect(r.ok).toBe(false)
     if (!r.ok) {
-      expect(r.code).toBe('MESSAGE_NOT_FOUND')
+      expect(r.code).toBe('SOURCE_NO_CANONICAL_CONTENT')
     }
   })
 
