@@ -123,6 +123,16 @@ export interface WrcPublisherFixtureOptions {
   suspendEntry?: boolean
   /** Pad the EVP past the 64 KiB canonical budget (§3.3). */
   oversizedEvp?: boolean
+  /**
+   * Override the record embedded in the head (delta v1.1 §A). `null` produces a
+   * delegated head with NO embedded record; a record produces a substituted
+   * one. Leave undefined for the correct record.
+   */
+  headDelegationOverride?: WrcDelegationRecord | null
+  /** Sign the delegation with this key instead of the publisher root. */
+  delegationSigner?: WrcTestKeyPair
+  /** Override the delegation's `root_kid` — used to attempt sub-delegation. */
+  delegationRootKid?: string
 }
 
 export interface WrcPublisherFixture {
@@ -140,6 +150,8 @@ export interface WrcPublisherFixture {
   entryEnvelope: WrcEnvelope
   evpEnvelope: WrcEnvelope
   delegation: WrcDelegationRecord | null
+  /** Delta v1.1 §B history payload, oldest first. */
+  delegationHistory: WrcDelegationRecord[]
   txtRecords: string[]
   resolveClaim: Record<string, unknown>
 }
@@ -159,7 +171,7 @@ export function buildPublisherFixture(
   const ingest = makeKeyPair('wrc-ingest-1')
 
   const delegation: WrcDelegationRecord | null = options.useDelegation
-    ? signObject(
+    ? (signObject(
         {
           type: 'wrc/catalog-delegation',
           publisher_part: publisherPart,
@@ -168,11 +180,11 @@ export function buildPublisherFixture(
           authority: 'catalog-signing-only',
           valid_from_epoch: options.delegationValidFromEpoch ?? 1,
           revoked_from_epoch: options.delegationRevokedFromEpoch ?? null,
-          root_kid: root.kid,
+          root_kid: options.delegationRootKid ?? root.kid,
           sig: '',
         } as unknown as Record<string, unknown>,
-        root,
-      ) as unknown as WrcDelegationRecord
+        options.delegationSigner ?? root,
+      ) as unknown as WrcDelegationRecord)
     : null
 
   const manifest = signObject(
@@ -231,6 +243,8 @@ export function buildPublisherFixture(
 
   const { root: catalogRoot, proofs } = buildMerkle([entryHash, evpHash])
 
+  // Delta v1.1 §A: the delegation travels IN the head, so verification needs
+  // nothing but the DNS-pinned root and this object.
   const head = signObject(
     {
       type: 'wrc/catalog-head',
@@ -241,6 +255,9 @@ export function buildPublisherFixture(
       issued_at: issuedAt,
       freshness_window_s: freshnessWindowS,
       kid: catalogKey.kid,
+      delegation: (options.headDelegationOverride === undefined
+        ? delegation
+        : options.headDelegationOverride) as unknown as Record<string, unknown> | null,
       sig: '',
     } as unknown as Record<string, unknown>,
     catalogKey,
@@ -286,6 +303,7 @@ export function buildPublisherFixture(
     entryEnvelope,
     evpEnvelope,
     delegation,
+    delegationHistory: delegation ? [delegation] : [],
     txtRecords: [`v=wr1; root=${fingerprintOf(root.pub)}`],
     resolveClaim: {
       domain,
@@ -302,10 +320,13 @@ export function buildPublisherFixture(
 export interface FixtureTransportOverrides {
   resolve?: WrcTransportResult
   catalogHead?: WrcTransportResult
+  delegations?: WrcTransportResult
   entry?: WrcTransportResult
   object?: WrcTransportResult
   publisherManifest?: WrcTransportResult
   txt?: WrcTxtResult
+  /** Called on every transport method — lets a test prove what was NOT called. */
+  onCall?: (method: string) => void
 }
 
 /** Contract-faithful in-memory transport over a fixture. */
@@ -313,26 +334,38 @@ export function createFixtureTransport(
   fx: WrcPublisherFixture,
   overrides: FixtureTransportOverrides = {},
 ): WrcTransport {
+  const note = (m: string) => overrides.onCall?.(m)
   return {
     async resolve() {
+      note('resolve')
       return overrides.resolve ?? { ok: true, value: fx.resolveClaim }
     },
     async catalogHead() {
+      note('catalogHead')
       return overrides.catalogHead ?? { ok: true, value: fx.head }
     },
+    async delegations() {
+      note('delegations')
+      // Delta v1.1 §B: append-only rotation history, oldest first. Audit only.
+      return overrides.delegations ?? { ok: true, value: fx.delegationHistory }
+    },
     async entry() {
+      note('entry')
       return overrides.entry ?? { ok: true, value: fx.entryEnvelope }
     },
     async object(hash) {
+      note('object')
       if (overrides.object) return overrides.object
       if (hash === fx.evpEnvelope.hash) return { ok: true, value: fx.evpEnvelope }
       if (hash === fx.entryEnvelope.hash) return { ok: true, value: fx.entryEnvelope }
       return { ok: false, code: 'http_status', message: 'HTTP 404', status: 404 }
     },
     async publisherManifest() {
+      note('publisherManifest')
       return overrides.publisherManifest ?? { ok: true, value: fx.manifest }
     },
     async wrTxtRecords() {
+      note('wrTxtRecords')
       return overrides.txt ?? { ok: true, records: fx.txtRecords }
     },
   }

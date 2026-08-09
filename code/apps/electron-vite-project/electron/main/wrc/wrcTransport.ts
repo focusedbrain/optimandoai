@@ -33,6 +33,12 @@ export interface WrcTransport {
   resolve(publisherPart: string): Promise<WrcTransportResult>
   /** `GET /v1/publishers/{part}/catalog/head`. */
   catalogHead(publisherPart: string): Promise<WrcTransportResult>
+  /**
+   * `GET /v1/publishers/{part}/delegations` (delta v1.1 §B) — the append-only
+   * rotation history. AUDIT ONLY. It must never be called from a verification
+   * path; head verification uses the record embedded in the head.
+   */
+  delegations(publisherPart: string): Promise<WrcTransportResult>
   /** `GET /v1/publishers/{part}/entries/{entry_id}` → DualAssuranceEnvelope. */
   entry(publisherPart: string, entryId: string): Promise<WrcTransportResult>
   /** `GET /v1/objects/{sha256}` → DualAssuranceEnvelope for any published object. */
@@ -74,6 +80,8 @@ export function createWrcHttpTransport(config: WrcHttpTransportConfig): WrcTrans
     resolve: (part) => get(`${base}/v1/resolve/${encodeURIComponent(part)}`, HEAD_MAX_BYTES),
     catalogHead: (part) =>
       get(`${base}/v1/publishers/${encodeURIComponent(part)}/catalog/head`, HEAD_MAX_BYTES),
+    delegations: (part) =>
+      get(`${base}/v1/publishers/${encodeURIComponent(part)}/delegations`, OBJECT_MAX_BYTES),
     entry: (part, entryId) =>
       get(
         `${base}/v1/publishers/${encodeURIComponent(part)}/entries/${encodeURIComponent(entryId)}`,
@@ -107,6 +115,7 @@ export function createUnconfiguredWrcTransport(): WrcTransport {
   return {
     resolve: refuse,
     catalogHead: refuse,
+    delegations: refuse,
     entry: refuse,
     object: refuse,
     publisherManifest: refuse,

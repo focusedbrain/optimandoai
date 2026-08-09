@@ -31,12 +31,18 @@ import {
 } from './wrcCrypto'
 
 export type WrcVerifyReason =
-  // Catalog head (3D)
+  // Catalog head (3D, amended by contract delta v1.1 §A)
   | 'head_signature_invalid'
   | 'head_unknown_kid'
   | 'head_delegation_invalid'
   | 'head_delegation_revoked'
   | 'head_delegation_not_yet_valid'
+  /** Delegated `kid` with no embedded delegation record. No fallback fetch. */
+  | 'head_delegation_missing'
+  /** Embedded record delegates a key other than the head's `kid`. */
+  | 'head_delegation_kid_mismatch'
+  /** `root_kid` is not the DNS-pinned root — a sub-delegation attempt. */
+  | 'head_delegation_not_rooted'
   | 'head_epoch_rollback'
   | 'head_part_mismatch'
   | 'head_domain_mismatch'
@@ -64,15 +70,28 @@ export interface WrcPublisherKeys {
   /** Raw base64url Ed25519 root public key, anchored via DNS `_wr` + manifest. */
   rootKid: string
   rootPub: string
-  /** Delegations seen for this publisher; may be empty. */
-  delegations: readonly WrcDelegationRecord[]
+  /**
+   * The delegation carried BY THE HEAD (delta v1.1 §A), or null for a
+   * root-signed head. There is deliberately no list and no store lookup here:
+   * the contract requires head verification to complete from the DNS-pinned
+   * root plus this record alone, and a collection-shaped field would be an
+   * invitation to satisfy a delegated head from somewhere else.
+   */
+  headDelegation: WrcDelegationRecord | null
 }
 
 /**
- * Resolve the signing key for a `kid` at a given epoch: either the root key, or
- * a delegation that is in force at that epoch. A delegation outside its
- * validity window is not "close enough" — it is a distinct typed failure so an
- * expired rotation cannot be mistaken for a forged signature.
+ * Resolve the signing key for a `kid` at a given epoch: the root key, or the
+ * head-embedded delegation when it is in force at that epoch.
+ *
+ * Every rejection is its own reason. An expired rotation, a record for a
+ * different key, and an attempted sub-delegation are three different events,
+ * and a status surface that collapses them into "bad signature" cannot tell an
+ * operator what actually happened.
+ *
+ * Sub-delegation is unrepresentable rather than merely refused: `authority` is
+ * `catalog-signing-only`, so a record whose `root_kid` is anything other than
+ * the DNS-pinned root is rejected before its signature is even considered.
  */
 export function resolveSigningKey(
   keys: WrcPublisherKeys,
@@ -81,14 +100,20 @@ export function resolveSigningKey(
 ): { ok: true; pub: string } | { ok: false; reason: WrcVerifyReason } {
   if (kid === keys.rootKid) return { ok: true, pub: keys.rootPub }
 
-  const d = keys.delegations.find((x) => x.delegate_kid === kid)
-  if (!d) return { ok: false, reason: 'head_unknown_kid' }
-  if (d.root_kid !== keys.rootKid) return { ok: false, reason: 'head_delegation_invalid' }
+  const d = keys.headDelegation
+  // Delegated kid with nothing embedded: verification failure, no fallback fetch.
+  if (!d) return { ok: false, reason: 'head_delegation_missing' }
+  if (d.delegate_kid !== kid) return { ok: false, reason: 'head_delegation_kid_mismatch' }
+  if (d.authority !== 'catalog-signing-only') {
+    return { ok: false, reason: 'head_delegation_invalid' }
+  }
+  if (d.root_kid !== keys.rootKid) return { ok: false, reason: 'head_delegation_not_rooted' }
   if (!wrcVerifyObjectSignature(d as unknown as Record<string, unknown>, keys.rootPub)) {
     return { ok: false, reason: 'head_delegation_invalid' }
   }
+  // v1.1 §A.3: valid_from_epoch <= epoch AND (revoked null OR revoked > epoch).
   if (epoch < d.valid_from_epoch) return { ok: false, reason: 'head_delegation_not_yet_valid' }
-  if (d.revoked_from_epoch !== null && epoch >= d.revoked_from_epoch) {
+  if (d.revoked_from_epoch !== null && d.revoked_from_epoch <= epoch) {
     return { ok: false, reason: 'head_delegation_revoked' }
   }
   return { ok: true, pub: d.delegate_pub }

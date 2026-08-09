@@ -66,34 +66,13 @@ describe('happy path — full chain', () => {
     expect(r.record.cache_state).toBe('validated')
   })
 
-  it('verifies a head signed by a live delegated catalog key', async () => {
+  it('verifies a head signed by a delegated catalog key using the embedded record', async () => {
+    // Delta v1.1 §A: nothing is seeded into the store and nothing is fetched —
+    // the head carries its own delegation.
     const fx = buildPublisherFixture({ useDelegation: true })
-    const store = new WrcResolvedRecordStore(createMemoryPersistence())
-    // The delegation is known to the client (Phase 4 fetches it; here it is seeded).
-    store.upsert({
-      publisher_part: fx.publisherPart,
-      domain: fx.domain,
-      status: 'active',
-      generation: 1,
-      root_kid: fx.root.kid,
-      root_pub: fx.root.pub,
-      root_fingerprint: fingerprintOf(fx.root.pub),
-      last_seen_epoch: 0,
-      catalog_root: '',
-      head_issued_at: 0,
-      freshness_window_s: 0,
-      delegation_kid: null,
-      cache_state: 'validated',
-      resolved_at: 0,
-      delegations: [fx.delegation!],
+    const r = await clientFor(createFixtureTransport(fx), fx).resolvePublisher(fx.publisherPart, {
+      entryId: fx.entryId,
     })
-    const c = new WrcResolutionClient({
-      transport: createFixtureTransport(fx),
-      store,
-      ingestPublicKey: fx.ingest.pub,
-      now: () => NOW,
-    })
-    const r = await c.resolvePublisher(fx.publisherPart, { entryId: fx.entryId })
     expect(r.ok, r.ok ? '' : `${r.reason} ${r.detail ?? ''}`).toBe(true)
     if (r.ok) expect(r.record.delegation_kid).toBe(fx.catalogKey.kid)
   })

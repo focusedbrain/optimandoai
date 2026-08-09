@@ -56,6 +56,18 @@ export interface WrcCatalogHead {
   issued_at: number
   freshness_window_s: number
   kid: string
+  /**
+   * Delta v1.1 §A. REQUIRED non-null whenever `kid` is not the publisher's
+   * root key; null for a root-signed head. Carried in the head so that
+   * verification completes from the DNS-pinned root plus this record alone —
+   * no fetch may occur in the verification path, which also makes the chain
+   * immune to selective blocking of a side-fetch.
+   *
+   * Decoded as `null` when absent so v1.0 heads still parse; the requirement
+   * is enforced in `verifyCatalogHead`, which is the only place that knows
+   * which key is the root.
+   */
+  delegation: WrcDelegationRecord | null
   sig: string
 }
 
@@ -68,6 +80,16 @@ export function decodeCatalogHead(value: unknown): WrcCatalogHead | null {
   if (!isSafeNonNegativeInt(o.epoch) || !isSafeNonNegativeInt(o.issued_at)) return null
   if (!isSafeNonNegativeInt(o.freshness_window_s)) return null
   if (!isNonEmptyString(o.kid) || !isB64Url(o.sig)) return null
+
+  // A present-but-malformed delegation is a decode failure, not a silent null:
+  // downgrading it would turn a broken chain into "root-signed head" and hand
+  // the verifier the wrong question.
+  let delegation: WrcDelegationRecord | null = null
+  if (o.delegation !== null && o.delegation !== undefined) {
+    delegation = decodeDelegationRecord(o.delegation)
+    if (!delegation) return null
+  }
+
   return {
     type: 'wrc/catalog-head',
     publisher_part: o.publisher_part,
@@ -77,6 +99,7 @@ export function decodeCatalogHead(value: unknown): WrcCatalogHead | null {
     issued_at: o.issued_at,
     freshness_window_s: o.freshness_window_s,
     kid: o.kid,
+    delegation,
     sig: o.sig,
   }
 }

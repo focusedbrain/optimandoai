@@ -159,10 +159,13 @@ export class WrcResolutionClient {
     if (!channels.ok) return fail(channels.reason, channels.detail)
 
     // ── 3. Catalog head: signature, epoch floor, freshness ───────────────────
+    // Delta v1.1 §A: the delegation comes from the head itself. Nothing is read
+    // from the store and nothing is fetched — verification is deterministic
+    // from the DNS-pinned root plus the embedded record.
     const keys: WrcPublisherKeys = {
       rootKid: channels.rootKid,
       rootPub: channels.rootPub,
-      delegations: this.deps.store.get(part)?.delegations ?? [],
+      headDelegation: claim.catalog_head.delegation,
     }
     const headVerdict = verifyCatalogHead({
       head: claim.catalog_head,
@@ -194,7 +197,9 @@ export class WrcResolutionClient {
       cache_state:
         claim.status === 'active' ? (freshness === 'stale' ? 'stale' : 'validated') : 'demoted',
       resolved_at: this.now(),
-      delegations: this.deps.store.get(part)?.delegations ?? [],
+      // Retained for audit/rotation review only. Verification above never reads
+      // this field — it used the head-embedded record.
+      delegations: head.delegation ? [head.delegation] : [],
     }
     this.deps.store.upsert(record)
 
