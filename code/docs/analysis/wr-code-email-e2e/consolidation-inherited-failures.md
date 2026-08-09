@@ -431,6 +431,22 @@ Phase-4 status surface (A6: every failing leg visible, none collapsed into a
 neighbour). Authorized in principle; scope is the three codes and their call
 sites, nothing wider.
 
+### Pre-Phase-4 block (author, 2026-08-09)
+
+The two items below plus a third are confirmed as ONE bounded block at Phase-4
+entry:
+
+1. Error-taxonomy split (adopted in principle, below).
+2. Seal-key-source policy unification — DIAGNOSIS only (below).
+3. **NEW — epoch-floor hardening.** The WRC resolved-record store carries the
+   per-publisher anti-rollback floor (A3) in plain JSON under userData. That
+   floor is TRUST state, not cache: a deletable file must not be able to reset
+   it. Move it into the native DB protection class. Origin: reported in the
+   Phase-3 report §5.
+
+Bound-origin-set plurality (§IX.3.1 r7) is scheduled with the 5A wiring, not
+with this block.
+
 ### NAMED ITEM — “seal-key-source policy unification”
 
 `verificationKeySourcesForInboxRow` declares `['outer','inner']` for

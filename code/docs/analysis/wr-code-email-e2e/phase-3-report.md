@@ -149,6 +149,23 @@ stubs that return `true`.
 
 ---
 
+## 2b. Standing rules codified by this phase (author rulings)
+
+**Node-only guards never live in browser-reachable packages.** A module whose
+guarantees require node-only capabilities is placed beside its consumer, never
+in a package imported by a browser build. A browser-safe fallback that silently
+drops guards is a prohibited construction — the fallback would be
+indistinguishable from the guarded path at every call site. This is what the 3A
+placement below follows.
+
+**Every negative-test mutation helper must assert its own semantic effect.** A
+helper that mutates an artifact to prove a check fires MUST verify that the
+mutation actually changed the verified content, or that verification fails for
+the intended reason. A helper whose effect depends on fixture randomness is
+invalid by construction: it produces a test that is green when it should be red,
+some of the time, for reasons unrelated to the property under test. This rule
+comes from the tamper-helper finding in §3 and is applied throughout §8.
+
 ## 3. Two findings from writing the tests
 
 **A bracketed IPv6 literal bypassed the URL guard.** `URL.hostname` keeps the
@@ -188,21 +205,19 @@ trust path was built in their place:
 
 ## 5. Discovered, reported, not implemented
 
-- **Contract gap — no read path for DelegationRecords.** §4.1 defines
-  `POST /v1/publishers/{part}/delegation` for submission, and §3.6 defines the
-  record, but §4.2 exposes no endpoint from which a client can *fetch* the
-  delegation chain for a publisher. A client that has never seen a delegation
-  cannot verify a head signed by a delegated catalog key. Either the head should
-  carry its delegation chain, or a read endpoint is needed. Not resolvable by
-  the agent; it is a contract question.
+- ~~**Contract gap — no read path for DelegationRecords.**~~ **RULED and
+  closed.** The author bumped the contract to v1.1: the head carries its own
+  delegation and a separate audit-only read endpoint was added. Implemented in
+  addendum 3G — see §8.
 - **Resolved-record store is plain JSON in userData.** It is a cache, but it
   also carries the epoch floor, which is anti-rollback state. A local attacker
-  who can write that file can lower the floor. Sealed storage exists in this
-  repo; whether the floor belongs there is a decision, not an oversight.
+  who can write that file can lower the floor. **Scheduled** as
+  "epoch-floor hardening" in the pre-Phase-4 block: the floor is trust state,
+  not cache, and moves into the native DB protection class.
 - **Bound origin set is currently a single domain.** §IX.3.1 r7 speaks of a
   bound origin *set*; the resolved record carries one dual-channel-validated
   domain. The API takes a set so the shape is right, but multi-origin publishers
-  need a contract field.
+  need a contract field. **Scheduled with the 5A wiring**, not Phase 4.
 - **3C is not yet wired into the live mail path.** The function and its tests
   exist; the email→offer path that would call it is 5A. Deliberate, per the
   phase boundary.
@@ -248,6 +263,98 @@ New Phase-3 suites in isolation: `httpsClient.hardening` 12,
 **Platform caveat.** Linux, agent sandbox. No app build, no app start.
 
 ---
+
+## 8. Addendum 3G — contract v1.1, delegation travels in the head
+
+Authorized after Phase-3 ratification, before Phase 4, in response to the
+contract gap reported in §5.
+
+| | |
+|---|---|
+| Baseline | `1c1cb3ef` |
+| Tip | `d8ac21b1` |
+| Amendment | `code/docs/spec/WRC-Registry-API-Contract_Delta_v1.1.md` |
+| New tests | 16 in one file, all green |
+| Do-not-regress | **Clean** — 166 = 166 by identity, 0 new, 0 repaired |
+
+### The amendment
+
+Committed as an additive delta beside the byte-exact v1.0 author drop, CRLF
+preserved, following the `Order v1.0` + `Delta v1.1` precedent already in this
+repo rather than editing the author's artifact in place.
+
+- **§A** — `CatalogHead` gains `delegation: DelegationRecord | null`, REQUIRED
+  non-null whenever `kid` is not the root key. Head verification completes from
+  the DNS-pinned root plus the embedded record alone; no fetch in the
+  verification path. Valid only when
+  `valid_from_epoch <= epoch AND (revoked_from_epoch null OR > epoch)`.
+  Delegated `kid` with a missing or invalid record is a verification failure
+  with no fallback fetch.
+- **§B** — `GET /v1/publishers/{part}/delegations`, the append-only rotation
+  history, public read, for audit only and never required for verification.
+- **§C** — obligation 3 restated: publisher signature is the root, or delegated
+  via the head-embedded record verified against the DNS-pinned root.
+
+### What changed in the client
+
+`resolveSigningKey` now takes a single `headDelegation` instead of a list. That
+shape change is the point rather than a detail: a collection-shaped field is an
+invitation to satisfy a delegated head from somewhere other than the head, which
+is exactly the property the amendment buys. The store is no longer consulted
+during verification; it retains the record for audit only.
+
+A malformed embedded record fails the *decode* rather than degrading to `null`.
+Degrading would silently turn a broken chain into "root-signed head" and hand
+the verifier the wrong question.
+
+### Negative coverage — each with its own reason
+
+| Case | Reason |
+|---|---|
+| Delegated kid, no embedded record | `head_delegation_missing` |
+| Record signed by a key other than the DNS-pinned root | `head_delegation_invalid` |
+| Sub-delegation attempt (`root_kid` names a delegate) | `head_delegation_not_rooted` |
+| `revoked_from_epoch == epoch` (boundary) | `head_delegation_revoked` |
+| `valid_from_epoch > epoch` | `head_delegation_not_yet_valid` |
+| Record delegates a different kid | `head_delegation_kid_mismatch` |
+| `delegate_pub` swapped, kid unchanged | `head_delegation_invalid` |
+| Malformed embedded record | decode returns null |
+
+The epoch window is asserted at all four boundaries (`4/5/8/9` for a window of
+`[5, 9)`). Sub-delegation is unrepresentable rather than refused: `authority` is
+`catalog-signing-only`, so a record naming anything but the root as `root_kid`
+is rejected before its signature is considered.
+
+Two guards keep §B honest: source-walking asserts `wrcVerify.ts`,
+`dualChannel.ts` and `resolutionClient.ts` never reference the delegations
+endpoint, and a deliberately broken audit endpoint leaves verification green.
+
+Per the mutation rule in §2b, the `delegate_pub` swap case exists specifically
+to pin branch ORDER — it proves a substituted public key cannot slip through as
+a mere kid mismatch. The kid-mismatch case uses a correctly root-signed,
+in-window, properly rooted record whose only defect is the delegated kid, so it
+reaches the branch it names rather than failing earlier on a signature.
+
+### Captures
+
+| | Baseline `1c1cb3ef` | After `d8ac21b1` |
+|---|---|---|
+| `testResults.length` (files) | 555 | 556 |
+| Validity guard (`>= 100`) | PASS | PASS |
+| `numTotalTests` | 6,024 | 6,040 |
+| `numFailedTests` | 166 | 166 |
+| `numPassedTests` | 5,801 | 5,817 |
+
+Identity comparison: **0 new, 0 repaired**. Deltas are exactly the addendum:
++1 file, +16 tests, +16 passing. All WRC suites were run three times over fresh
+random keys to confirm stability. Five remediated suites re-verified in both
+modes: 15 / 8 / 8 / 14 / 9 in isolation, 0 failures in the full workspace.
+
+### Still integration-pending after 3G
+
+The live legs are unchanged. Note one narrowing: delegation fetch is no longer
+integration-pending for *verification* — verification never fetches. What
+remains pending is the live audit round-trip against `GET /delegations`.
 
 ## 7. Standing disciplines observed
 
