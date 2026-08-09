@@ -12,11 +12,11 @@ import {
   buildConnectOfferPreview,
   ensureConnectOfferSchema,
   insertConsentRecord,
+  revalidateOfferStatusForConsent,
   stageConnectOffer,
   type ConnectOfferRow,
   type WrCodeOfferResolution,
 } from '../connectOfferStaging'
-import { revalidateOfferStatusForConsent } from '../ipc'
 
 const _require = createRequire(import.meta.url)
 let Database: any = null

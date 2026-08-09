@@ -569,3 +569,52 @@ export function consentRecordResolves(
   }
   return { valid: true }
 }
+
+/**
+ * O6 status re-validation for a staged WR-code offer at consent time.
+ *
+ * Non-WR-code offers (no `publisher_part` on the row) are unaffected: they have
+ * no resolution layers to re-check, so they pass through. For WR-code offers
+ * the A6 composition is recomputed from the row and admission must still hold.
+ */
+export function revalidateOfferStatusForConsent(
+  db: any,
+  offerId: string,
+): { ok: true } | { ok: false; reason: string; error?: string } {
+  let row:
+    | { publisher_part?: string | null; entry_status?: string | null; session_bound_expires_at?: string | null }
+    | undefined
+  try {
+    row = db
+      .prepare(
+        `SELECT publisher_part, entry_status, session_bound_expires_at
+           FROM wr_connect_offers WHERE offer_id = ?`,
+      )
+      .get(offerId) as typeof row
+  } catch {
+    // Pre-Phase-4 schema: nothing to re-validate.
+    return { ok: true }
+  }
+  if (!row?.publisher_part) return { ok: true }
+
+  if (row.session_bound_expires_at) {
+    const expires = Date.parse(row.session_bound_expires_at)
+    if (Number.isFinite(expires) && Date.now() >= expires) {
+      return {
+        ok: false,
+        reason: 'OFFER_RESOLUTION_EXPIRED',
+        error: 'This offer’s session-bound resolution has expired. Capture the code again.',
+      }
+    }
+  }
+
+  if (row.entry_status && row.entry_status !== 'published') {
+    return {
+      ok: false,
+      reason: 'ENTRY_NOT_PUBLISHED',
+      error: `This entry is no longer offered (${row.entry_status}).`,
+    }
+  }
+
+  return { ok: true }
+}
