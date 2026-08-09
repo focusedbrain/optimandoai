@@ -58,6 +58,21 @@ export function ensureConnectOfferSchema(db: any): void {
       consumed_at TEXT,
       consumed_action TEXT CHECK (consumed_action IN ('consented', 'declined', 'expired')),
       consent_id TEXT,
+      -- Phase 4 (4B): WR-code resolution output. Every one of these is sourced
+      -- from the resolved, dual-channel-validated material, NEVER from carrier
+      -- bytes -- the carrier may say anything and is not a party to the offer.
+      wr_code_canonical TEXT,
+      publisher_part TEXT,
+      entry_local_part TEXT,
+      umbrella_handshake_id TEXT,
+      entry_status TEXT,
+      resolution_mode TEXT CHECK (resolution_mode IS NULL OR resolution_mode IN ('public', 'session_bound')),
+      session_bound_expires_at TEXT,
+      -- Delta v1.1 Phase-4 additions: EVP-first-render material + audit link.
+      evp_ref TEXT,
+      value_statement TEXT,
+      catalog_epoch INTEGER,
+      audit_url TEXT,
       UNIQUE (handshake_id, capsule_hash)
     );
     CREATE INDEX IF NOT EXISTS idx_wr_connect_offers_pending
@@ -75,7 +90,9 @@ export function ensureConnectOfferSchema(db: any): void {
       ingress_path TEXT NOT NULL,
       source_reference TEXT,
       actor_wrdesk_user_id TEXT NOT NULL,
-      consented_at TEXT NOT NULL
+      consented_at TEXT NOT NULL,
+      -- Phase 4 (4B): what the operator consented to includes HOW it resolved.
+      resolution_mode TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_wr_consent_records_handshake
       ON wr_consent_records (handshake_id);
@@ -85,9 +102,46 @@ export function ensureConnectOfferSchema(db: any): void {
       value TEXT NOT NULL
     );
   `)
+  // `CREATE TABLE IF NOT EXISTS` does nothing for a database that already has
+  // the table, so Phase-4 columns are added explicitly and idempotently.
+  addMissingColumns(db, 'wr_connect_offers', [
+    ['wr_code_canonical', 'TEXT'],
+    ['publisher_part', 'TEXT'],
+    ['entry_local_part', 'TEXT'],
+    ['umbrella_handshake_id', 'TEXT'],
+    ['entry_status', 'TEXT'],
+    // No CHECK on the added column: SQLite cannot add a constrained column to
+    // an existing table, and the value is written only from resolution output.
+    ['resolution_mode', 'TEXT'],
+    ['session_bound_expires_at', 'TEXT'],
+    ['evp_ref', 'TEXT'],
+    ['value_statement', 'TEXT'],
+    ['catalog_epoch', 'INTEGER'],
+    ['audit_url', 'TEXT'],
+  ])
+  addMissingColumns(db, 'wr_consent_records', [['resolution_mode', 'TEXT']])
+
   db.prepare(
     `INSERT OR IGNORE INTO wr_connect_offer_meta (key, value) VALUES ('schema_version', ?)`,
   ).run(String(CONNECT_OFFER_SCHEMA_VERSION))
+}
+
+function addMissingColumns(db: any, table: string, columns: Array<[string, string]>): void {
+  let existing: Set<string>
+  try {
+    const info = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name?: string }>
+    existing = new Set(info.map((c) => String(c.name)))
+  } catch {
+    return
+  }
+  for (const [name, type] of columns) {
+    if (existing.has(name)) continue
+    try {
+      db.prepare(`ALTER TABLE ${table} ADD COLUMN ${name} ${type}`).run()
+    } catch {
+      /* another process added it concurrently — idempotent by intent */
+    }
+  }
 }
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -113,6 +167,44 @@ export interface ConnectOfferRow {
   consumed_at: string | null
   consumed_action: 'consented' | 'declined' | 'expired' | null
   consent_id: string | null
+  // Phase 4 (4B) — resolution output. Null on offers staged before Phase 4 and
+  // on any offer that did not come from a WR code.
+  wr_code_canonical?: string | null
+  publisher_part?: string | null
+  entry_local_part?: string | null
+  umbrella_handshake_id?: string | null
+  entry_status?: string | null
+  resolution_mode?: WrResolutionMode | null
+  session_bound_expires_at?: string | null
+  evp_ref?: string | null
+  value_statement?: string | null
+  catalog_epoch?: number | null
+  audit_url?: string | null
+}
+
+/** How the entry resolved. Part of what the operator consents to (4B). */
+export type WrResolutionMode = 'public' | 'session_bound'
+
+/**
+ * Resolution-derived offer material. Every field here comes from the verified
+ * resolution chain — the registry claim after dual-channel validation, the
+ * verified head, and the verified EVP. None of it may be read off the carrier.
+ */
+export interface WrCodeOfferResolution {
+  wr_code_canonical: string
+  publisher_part: string
+  entry_local_part: string
+  umbrella_handshake_id?: string | null
+  entry_status: string
+  resolution_mode: WrResolutionMode
+  session_bound_expires_at?: string | null
+  /** Delta v1.1: EVP-first-render material. */
+  evp_ref?: string | null
+  value_statement?: string | null
+  catalog_epoch?: number | null
+  audit_url?: string | null
+  /** Whether the publisher domain completed dual-channel validation. */
+  publisher_domain_verified: boolean
 }
 
 export interface StageConnectOfferInput {
@@ -130,6 +222,8 @@ export interface StageConnectOfferInput {
   invitation_class?: string
   /** Verification chain verdict. `ok: false` suppresses the offer entirely. */
   verification: { ok: true } | { ok: false; reason: string }
+  /** Phase 4 (4B): resolution output for WR-code offers. Absent otherwise. */
+  wr_code?: WrCodeOfferResolution
 }
 
 export interface ConsentRecordRow {
@@ -174,8 +268,11 @@ export function stageConnectOffer(db: any, input: StageConnectOfferInput): Stage
        sender_email, sender_iss, sender_sub, sender_wrdesk_user_id, receiver_email,
        profile_id, ingress_path, invitation_class,
        verification_status, verification_reason, suppressed,
-       staged_at, expires_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       staged_at, expires_at,
+       wr_code_canonical, publisher_part, entry_local_part, umbrella_handshake_id,
+       entry_status, resolution_mode, session_bound_expires_at,
+       evp_ref, value_statement, catalog_epoch, audit_url
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     offerId,
     input.handshake_id,
@@ -194,6 +291,17 @@ export function stageConnectOffer(db: any, input: StageConnectOfferInput): Stage
     suppressed,
     new Date(now).toISOString(),
     new Date(now + INPUT_LIMITS.PENDING_TIMEOUT_MS).toISOString(),
+    input.wr_code?.wr_code_canonical ?? null,
+    input.wr_code?.publisher_part ?? null,
+    input.wr_code?.entry_local_part ?? null,
+    input.wr_code?.umbrella_handshake_id ?? null,
+    input.wr_code?.entry_status ?? null,
+    input.wr_code?.resolution_mode ?? null,
+    input.wr_code?.session_bound_expires_at ?? null,
+    input.wr_code?.evp_ref ?? null,
+    input.wr_code?.value_statement ?? null,
+    input.wr_code?.catalog_epoch ?? null,
+    input.wr_code?.audit_url ?? null,
   )
   if (suppressed) {
     console.warn('[CONNECT_OFFER] Offer suppressed (verification failed):', {
@@ -318,6 +426,25 @@ export function buildConnectOfferPreview(offer: ConnectOfferRow): ConnectOfferPr
     sender_wrdesk_user_id: offer.sender_wrdesk_user_id ?? '',
     receiver_email: offer.receiver_email ?? '',
     profile_id: offer.profile_id,
+    // 4B: whether the publisher domain completed dual-channel validation is
+    // part of WHO this offer binds, not decoration around it.
+    publisher_domain_verified: offer.publisher_part != null,
+  }
+
+  // 4B + delta O2 extension: the preview hash covers the resolved entry, the
+  // resolution mode, and the EVP material the operator is shown. Consenting to
+  // a value promise the publisher signed means the hash has to cover that
+  // promise; otherwise two offers showing different value statements would be
+  // indistinguishable at consent time.
+  const entryContext: Record<string, CanonicalJsonValue> = {
+    wr_code_canonical: offer.wr_code_canonical ?? '',
+    publisher_part: offer.publisher_part ?? '',
+    entry_local_part: offer.entry_local_part ?? '',
+    entry_status: offer.entry_status ?? '',
+    umbrella_handshake_id: offer.umbrella_handshake_id ?? '',
+    catalog_epoch: typeof offer.catalog_epoch === 'number' ? offer.catalog_epoch : 0,
+    evp_ref: offer.evp_ref ?? '',
+    value_statement: offer.value_statement ?? '',
   }
   const preview: Record<string, CanonicalJsonValue> = {
     offer_id: offer.offer_id,
@@ -329,6 +456,9 @@ export function buildConnectOfferPreview(offer: ConnectOfferRow): ConnectOfferPr
     ingress_path: offer.ingress_path,
     staged_at: offer.staged_at,
     expires_at: offer.expires_at,
+    entry: entryContext,
+    resolution_mode: offer.resolution_mode ?? '',
+    session_bound_expires_at: offer.session_bound_expires_at ?? '',
   }
   const previewHash = sha256Hex(PREVIEW_DOMAIN, canonicalJsonString(preview))
   const boundDefinitionHash = sha256Hex(BOUND_DEF_DOMAIN, canonicalJsonString(boundDefinition))
@@ -351,6 +481,8 @@ export interface InsertConsentInput {
   ingress_path: string
   source_reference?: string | null
   actor_wrdesk_user_id: string
+  /** 4B: how the entry resolved, recorded with the consent it belongs to. */
+  resolution_mode?: WrResolutionMode | null
 }
 
 export function insertConsentRecord(db: any, input: InsertConsentInput): ConsentRecordRow {
@@ -374,8 +506,8 @@ export function insertConsentRecord(db: any, input: InsertConsentInput): Consent
        consent_id, offer_id, handshake_id, role,
        preview_hash, bound_definition_hash, contract_state_hash,
        capture_method, ingress_path, source_reference,
-       actor_wrdesk_user_id, consented_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       actor_wrdesk_user_id, consented_at, resolution_mode
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     row.consent_id,
     row.offer_id,
@@ -389,6 +521,7 @@ export function insertConsentRecord(db: any, input: InsertConsentInput): Consent
     row.source_reference,
     row.actor_wrdesk_user_id,
     row.consented_at,
+    input.resolution_mode ?? null,
   )
   return row
 }
