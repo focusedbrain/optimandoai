@@ -1376,6 +1376,23 @@ const HANDSHAKE_MIGRATIONS: Array<{
       `CREATE INDEX IF NOT EXISTS idx_wr_grant_offscope_handshake ON wr_grant_offscope_events (handshake_id)`,
     ],
   },
+  {
+    version: 77,
+    description:
+      'Schema v77 (WR Code Phase 3 / A3): wrc_publisher_epoch_floor — per-publisher ' +
+      'anti-rollback floor for WRC CatalogHead epochs. This is TRUST state, not cache: ' +
+      'the rest of the resolved record may be evicted freely, but the floor must never ' +
+      'move down, and deleting or editing a userData file must not be able to reset it. ' +
+      'It therefore lives in the native DB rather than the plain-JSON resolved-record ' +
+      'store. Insert-or-raise only; there is no lowering path in schema or code.',
+    sql: [
+      `CREATE TABLE IF NOT EXISTS wrc_publisher_epoch_floor (
+        publisher_part TEXT PRIMARY KEY,
+        epoch_floor INTEGER NOT NULL,
+        updated_at TEXT NOT NULL
+      )`,
+    ],
+  },
 ]
 
 /**

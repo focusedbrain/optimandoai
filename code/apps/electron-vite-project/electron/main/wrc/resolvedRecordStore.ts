@@ -1,26 +1,26 @@
 /**
  * D6 — per-publisher resolved record, plus the persisted epoch floor (A3).
  *
- * Two different things live here and they must not be confused:
+ * This store is a CACHE of registry state. It may be demoted, refreshed, or
+ * discarded at any time (§XVI.15.3); the authoritative append-only assignment
+ * ledger lives in the registry service.
  *
- *  - The resolved record is a CACHE of registry state. It may be demoted,
- *    refreshed, or discarded at any time (§XVI.15.3). The authoritative
- *    append-only assignment ledger lives in the registry service.
- *  - `last_seen_epoch` is NOT a cache. It is anti-rollback state (A3): the
- *    highest epoch this client has ever accepted for a publisher. Losing it
- *    weakens a security property, so it is written through on every accepted
- *    head and only ever moves upward.
+ * The anti-rollback epoch floor (A3) USED to live here too, in the same plain
+ * JSON file. It no longer does. A floor that a deletable userData file can
+ * reset is decorative: anyone able to remove the file could let a publisher
+ * replay an older, correctly signed CatalogHead. The floor now lives in the
+ * native DB protection class — see `epochFloorStore.ts` — and this module holds
+ * only a snapshot of it for display, never as the source of truth.
  *
  * `TierSignals` / `tierSteps` are untouched by this module, per 3B.5 — a
  * resolved publisher is not a trust tier and must not feed one.
  *
- * Persistence is injectable so tests are in-memory and deterministic. The
- * default file store is deliberately plain JSON in userData: this is cache
- * state plus a monotonic counter, not key material.
+ * Persistence is injectable so tests are in-memory and deterministic.
  */
 
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+import { createMemoryEpochFloorStore, type WrcEpochFloorStore } from './epochFloorStore'
 import type { WrcDelegationRecord, WrcPublisherStatus } from './wrcContract'
 
 /** Cache demotion states per §XVI.15.3 / A3. */
@@ -110,10 +110,16 @@ export function defaultResolvedRecordPath(userDataDir: string): string {
 
 export class WrcResolvedRecordStore {
   private records = new Map<string, WrcResolvedRecord>()
-  /** Epoch floor survives record eviction; keyed by publisher part. */
-  private epochFloor = new Map<string, number>()
 
-  constructor(private readonly persistence: WrcStorePersistence) {
+  /**
+   * @param persistence cache persistence (plain JSON is fine — it is cache)
+   * @param epochFloor  the authoritative anti-rollback floor. Native-DB backed
+   *   in production; in-memory only in tests. Never read from `persistence`.
+   */
+  constructor(
+    private readonly persistence: WrcStorePersistence,
+    private readonly epochFloor: WrcEpochFloorStore = createMemoryEpochFloorStore(),
+  ) {
     const raw = persistence.read()
     if (!raw) return
     const recs = raw.records
@@ -122,19 +128,14 @@ export class WrcResolvedRecordStore {
         this.records.set(k, v as WrcResolvedRecord)
       }
     }
-    const floors = raw.epoch_floor
-    if (floors && typeof floors === 'object') {
-      for (const [k, v] of Object.entries(floors as Record<string, unknown>)) {
-        if (typeof v === 'number' && Number.isSafeInteger(v)) this.epochFloor.set(k, v)
-      }
-    }
+    // `epoch_floor` in a legacy cache file is deliberately ignored. Reading it
+    // back would reintroduce exactly the reset path this move removes.
   }
 
   private flush(): void {
     this.persistence.write({
-      version: 1,
+      version: 2,
       records: Object.fromEntries(this.records),
-      epoch_floor: Object.fromEntries(this.epochFloor),
     })
   }
 
@@ -143,27 +144,22 @@ export class WrcResolvedRecordStore {
   }
 
   /**
-   * The epoch floor for anti-rollback. Survives record eviction on purpose:
-   * forgetting a publisher must not reopen a rollback window.
+   * The anti-rollback floor, read from the protected store. Survives eviction
+   * of the cached record on purpose: forgetting a publisher must not reopen a
+   * rollback window.
    */
   lastSeenEpoch(publisherPart: string): number | null {
-    return this.epochFloor.get(publisherPart) ?? null
+    return this.epochFloor.get(publisherPart)
   }
 
-  /** Raise the floor. Never lowers it, whatever the caller passes. */
+  /** Raise the floor. There is no lowering path here or in the floor store. */
   noteAcceptedEpoch(publisherPart: string, epoch: number): void {
-    const current = this.epochFloor.get(publisherPart)
-    if (current !== undefined && epoch <= current) return
-    this.epochFloor.set(publisherPart, epoch)
-    this.flush()
+    this.epochFloor.raise(publisherPart, epoch)
   }
 
   upsert(record: WrcResolvedRecord): void {
     this.records.set(record.publisher_part, record)
-    const current = this.epochFloor.get(record.publisher_part)
-    if (current === undefined || record.last_seen_epoch > current) {
-      this.epochFloor.set(record.publisher_part, record.last_seen_epoch)
-    }
+    this.epochFloor.raise(record.publisher_part, record.last_seen_epoch)
     this.flush()
   }
 
