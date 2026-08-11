@@ -619,7 +619,7 @@ const MessageContentPanel: React.FC<MessageContentPanelProps> = ({
 
       <div style={{ padding: '10px 16px 0', flexShrink: 0 }}>
         <ChannelProvenanceAlert
-          record={channelProvenanceRecord}
+          record={channelProvenanceRecord ?? message.channelProvenance}
           surface="extension-beap-message-detail"
         />
       </div>

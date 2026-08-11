@@ -127,10 +127,37 @@ const SOURCE_INGRESS_MAP: Readonly<Record<string, { ingress_path: string; captur
   coordination_ws: { ingress_path: 'beap_invitation', capture_method: 'assisted_email' },
   api: { ingress_path: 'beap_invitation', capture_method: 'assisted_email' },
   extension: { ingress_path: 'beap_invitation', capture_method: 'assisted_email' },
+  // Phase 5 (5A): WR-code captures are real producers now, so they get their
+  // own registered ingress paths instead of borrowing the invitation path.
+  wr_code_email: { ingress_path: 'wr_code_public', capture_method: 'assisted_email' },
+  wr_code_manual: { ingress_path: 'wr_code_public', capture_method: 'manual_entry' },
+  wr_code_scan: { ingress_path: 'wr_code_public', capture_method: 'scan' },
+  wr_code_red: { ingress_path: 'wr_code_red', capture_method: 'scan' },
+})
+
+/**
+ * Sentinel for an unmapped transport source.
+ *
+ * Phase-1 carry-over, ruled at Phase-5 start. The old default returned
+ * `beap_invitation` / `assisted_email` for ANY unknown source type. That was
+ * tolerable only while `assisted_email` had no live producer; 5A makes it a
+ * truthful capture method, so a default that silently attests "the user
+ * received this by assisted email" is a fabrication about how consent was
+ * obtained.
+ *
+ * Totality is preserved — the acceptance test asserting every transport source
+ * resolves to a recordable pair still holds — but the pair is now honest. It
+ * deliberately matches no entry in {@link SOURCE_INGRESS_MAP}, so
+ * `ingressCaptureMethodForOffer` returns null for it and consent FAILS rather
+ * than recording a capture nobody performed.
+ */
+export const UNMAPPED_SOURCE_INGRESS = Object.freeze({
+  ingress_path: 'unmapped_transport_source',
+  capture_method: 'unmapped_transport_source',
 })
 
 export function ingressMappingForSource(sourceType: SourceType | string): { ingress_path: string; capture_method: string } {
-  return SOURCE_INGRESS_MAP[sourceType] ?? { ingress_path: 'beap_invitation', capture_method: 'assisted_email' }
+  return SOURCE_INGRESS_MAP[sourceType] ?? UNMAPPED_SOURCE_INGRESS
 }
 
 // ── Wire → profile mapping (compat boundary) ─────────────────────────────────

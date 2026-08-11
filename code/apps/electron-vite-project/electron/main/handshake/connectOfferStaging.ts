@@ -618,3 +618,72 @@ export function revalidateOfferStatusForConsent(
 
   return { ok: true }
 }
+
+/**
+ * Delta v1.1 Phase-5 addition to O6: consent-time CatalogHead re-check.
+ *
+ * The status re-check above reads what was recorded at staging. This one is
+ * about the head itself — epoch, freshness, and platform suspension — because
+ * between staging and consent a publisher can publish a new epoch, a head can
+ * go stale, or the platform can suspend the object, and none of those change
+ * the staged row.
+ *
+ * Pure over its inputs: the caller supplies the freshly re-resolved head state
+ * and the epoch floor. Keeping the network out of here means the rule is
+ * testable and the fetch policy stays with the resolution client.
+ */
+export interface ConsentHeadRecheckInput {
+  /** Epoch recorded on the offer when it was staged. */
+  stagedEpoch: number | null
+  /** Epoch of the head re-resolved at consent time. */
+  currentEpoch: number
+  /** Persisted anti-rollback floor for this publisher. */
+  epochFloor: number | null
+  /** Whether the re-resolved head is inside its freshness window. */
+  fresh: boolean
+  /** Platform suspension observed at consent time, if any. */
+  suspended: boolean
+}
+
+export type ConsentHeadRecheckResult =
+  | { ok: true }
+  | { ok: false; reason: string; error: string }
+
+export function recheckCatalogHeadForConsent(
+  input: ConsentHeadRecheckInput,
+): ConsentHeadRecheckResult {
+  // Anti-rollback first: a lower epoch than the floor is an attack shape, not
+  // staleness, and must not be reported as merely out of date.
+  if (input.epochFloor !== null && input.currentEpoch < input.epochFloor) {
+    return {
+      ok: false,
+      reason: 'CATALOG_EPOCH_ROLLBACK',
+      error: 'The publisher catalog moved backwards. Consent refused.',
+    }
+  }
+  if (input.suspended) {
+    return {
+      ok: false,
+      reason: 'ENTRY_SUSPENDED_AT_CONSENT',
+      error: 'This entry was suspended by the platform. Consent refused.',
+    }
+  }
+  if (!input.fresh) {
+    return {
+      ok: false,
+      reason: 'CATALOG_HEAD_STALE',
+      error: 'The publisher catalog is out of date. Try again once it refreshes.',
+    }
+  }
+  // A NEW epoch is not itself a refusal — publishing is normal — but the offer
+  // was built from the old one, so what the operator saw may no longer be what
+  // they would get. Re-stage rather than bind them to a stale preview.
+  if (input.stagedEpoch !== null && input.currentEpoch !== input.stagedEpoch) {
+    return {
+      ok: false,
+      reason: 'CATALOG_EPOCH_MOVED',
+      error: 'The publisher updated this entry. Review the new offer before consenting.',
+    }
+  }
+  return { ok: true }
+}

@@ -279,6 +279,17 @@ export interface BeapMessage {
    */
   contentProvenance?: Record<string, unknown>
 
+  /**
+   * Channel Provenance Record projection — the two verdicts the §IX.3.1 rule-8
+   * alert reads. Phase 5, named item "extension CPR plumbing": before this the
+   * extension had the alert component but no data to trigger it, because
+   * `beapInbox.list` did not return `depackaged_metadata`.
+   *
+   * Absent (not `null`) when the row carries no CPR: the shared component
+   * treats absence as "do not render", never as a pass.
+   */
+  channelProvenance?: { dkim: { verdict: string }; dmarc: { verdict: string } } | null
+
   // -------------------------------------------------------------------------
   // Deletion scheduling
   // -------------------------------------------------------------------------

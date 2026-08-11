@@ -3609,7 +3609,7 @@ export async function handleHandshakeRPC(
 
       type InboxRow = {
         id: string; handshake_id: string | null; subject: string | null; body_text: string | null
-        depackaged_json: string | null; received_at: number; read_status: number; archived: number
+        depackaged_json: string | null; depackaged_metadata: string | null; received_at: number; read_status: number; archived: number
         has_attachments: number; attachment_count: number; ai_analysis_json: string | null
         urgency_score: number | null; from_address: string | null; from_name: string | null
         source_type: string | null; seal: string | null; seal_input_json: string | null
@@ -3623,7 +3623,7 @@ export async function handleHandshakeRPC(
       const rows = pos
         ? sealedQuery<InboxRow>(
             db,
-            `SELECT id, handshake_id, subject, body_text, depackaged_json, received_at, read_status, archived,
+            `SELECT id, handshake_id, subject, body_text, depackaged_json, depackaged_metadata, received_at, read_status, archived,
                     has_attachments, attachment_count, ai_analysis_json, urgency_score, from_address, from_name,
                     source_type, seal, seal_input_json, seal_key_source,
                     validated_at, validation_reason
@@ -3638,7 +3638,7 @@ export async function handleHandshakeRPC(
           )
         : sealedQuery<InboxRow>(
             db,
-            `SELECT id, handshake_id, subject, body_text, depackaged_json, received_at, read_status, archived,
+            `SELECT id, handshake_id, subject, body_text, depackaged_json, depackaged_metadata, received_at, read_status, archived,
                     has_attachments, attachment_count, ai_analysis_json, urgency_score, from_address, from_name,
                     source_type, seal, seal_input_json, seal_key_source,
                     validated_at, validation_reason
@@ -3664,6 +3664,7 @@ export async function handleHandshakeRPC(
         subject: row.subject,
         body_text: row.body_text,
         depackaged_json: row.depackaged_json,
+        depackaged_metadata: row.depackaged_metadata,
         received_at: row.received_at,
         read_status: row.read_status,
         archived: row.archived,
@@ -3703,7 +3704,7 @@ export async function handleHandshakeRPC(
 
       type InboxRow = {
         id: string; handshake_id: string | null; subject: string | null; body_text: string | null
-        depackaged_json: string | null; received_at: number; read_status: number; archived: number
+        depackaged_json: string | null; depackaged_metadata: string | null; received_at: number; read_status: number; archived: number
         has_attachments: number; attachment_count: number; ai_analysis_json: string | null
         urgency_score: number | null; from_address: string | null; from_name: string | null
         source_type: string | null; seal: string | null; seal_input_json: string | null
@@ -3713,7 +3714,7 @@ export async function handleHandshakeRPC(
       const placeholders = ids.map(() => '?').join(', ')
       const rows = sealedQuery<InboxRow>(
         db,
-        `SELECT id, handshake_id, subject, body_text, depackaged_json, received_at, read_status, archived,
+        `SELECT id, handshake_id, subject, body_text, depackaged_json, depackaged_metadata, received_at, read_status, archived,
                 has_attachments, attachment_count, ai_analysis_json, urgency_score, from_address, from_name,
                 source_type, seal, seal_input_json, seal_key_source,
                 validated_at, validation_reason
@@ -3737,6 +3738,7 @@ export async function handleHandshakeRPC(
         subject: row.subject,
         body_text: row.body_text,
         depackaged_json: row.depackaged_json,
+        depackaged_metadata: row.depackaged_metadata,
         received_at: row.received_at,
         read_status: row.read_status,
         archived: row.archived,

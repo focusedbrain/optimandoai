@@ -398,10 +398,20 @@ export async function runBeapSyncCycle(
 }
 
 /**
- * Start periodic BEAP email sync.
+ * RETIRED — Phase 5 (5A). Do not revive; do not call.
  *
- * Polls configured accounts at the specified interval and submits any
- * detected BEAP capsules to the ingestion pipeline.
+ * Polls configured accounts and submits detected BEAP capsules to ingestion.
+ * It has had **no caller** since before this slice began: the live email path
+ * runs through `syncOrchestrator` → `messageRouter`, which is where Phase 2
+ * put the provenance gate and where 5A attaches the email→offer route.
+ *
+ * Retired explicitly rather than deleted, per the order's choice: the module
+ * still exports `setEmailFunctions`, which main.ts uses, so removing the file
+ * is a wider change than this phase's scope. Retiring it in place records WHY
+ * it must stay dead — a second, ungated ingest path would bypass the CPR gate
+ * entirely, which is exactly the fail-open Phase 2 closed.
+ *
+ * @deprecated Retired in Phase 5; the sync path is `syncOrchestrator`.
  */
 export function startBeapEmailSync(
   config: BeapSyncConfig,

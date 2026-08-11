@@ -453,6 +453,13 @@ export interface BeapInboxRow {
   subject: string | null
   body_text: string | null
   depackaged_json: string | null
+  /**
+   * Phase 5 — "extension CPR plumbing". Carries the Channel Provenance Record
+   * (and any pBEAP trust verdict) so the extension can render the rule-8 alert
+   * from the same verdict Electron uses, instead of a surface that can never
+   * alert.
+   */
+  depackaged_metadata: string | null
   received_at: number
   read_status: number
   archived: number
