@@ -419,6 +419,19 @@ dedicated decision** — do not fold a mock change into unrelated work. The two
 unrestoring writers (`pairingCodeRelayGap.rig.test.ts`,
 `userDataBootstrapPersistence.test.ts`) remain as recorded.
 
+**Third suite observed (2026-08-11).** `llm/__tests__/diagnostics.test.ts`
+fails 7 of 19 consistently in isolation, but its full-workspace count moves with
+scheduling — 8 failing at one commit, 6 at the next, with no related code
+change. Two of its identities flipped to passing across the seal-key-source fix
+and were explicitly NOT credited to it (see `seal-key-source-fix-report.md`).
+
+Also recorded there: the VM was reprovisioned on 2026-08-11, and a fresh
+baseline at the unchanged commit `0a7ca3ae` read 168 failures where the Aug-9
+capture read 166. Same commit, different environment. This is why every
+do-not-regress pair must be taken within one environment, and why the earlier
+captures could not be diffed identity-by-identity — `/tmp` was wiped with the
+VM.
+
 ### NAMED ITEM — inbox-read error taxonomy — **ADOPTED IN PRINCIPLE**
 
 `MESSAGE_NOT_FOUND` narrows to a genuinely absent row; `SOURCE_UNVERIFIABLE`
