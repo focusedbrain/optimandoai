@@ -460,6 +460,18 @@ entry:
 Bound-origin-set plurality (§IX.3.1 r7) is scheduled with the 5A wiring, not
 with this block.
 
+### NAMED NOTE (low priority) — “legacy reseal drift”
+
+Recorded 2026-08-11 with the seal-key-source fix. The extension's sealed inbox
+read is read-only, so unlike `inboxSealedRead` it does not reseal a legacy
+inner-sealed non-confidential row forward to the ledger key. Such rows remain
+legacy-tagged and keep relying on the policy try-list; the drift clears only
+when the Electron detail path touches one.
+
+Not a correctness problem — the `seal_key_source` tag is descriptive, not
+authoritative, and the policy list makes the row readable either way. Recorded
+so that "why is this row still tagged vmk" has an answer.
+
 ### NAMED ITEM — “seal-key-source policy unification”
 
 `verificationKeySourcesForInboxRow` declares `['outer','inner']` for
