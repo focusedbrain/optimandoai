@@ -15,6 +15,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { channelAlertRequiredForDisplay } from '@repo/shared-beap-ui'
+import type { ChannelProvenanceAlertProps } from '@repo/shared-beap-ui'
 import { inboxRowToBeapMessage } from '../inboxRowToBeapMessage'
 import type { BeapInboxRow } from '../../handshake/handshakeRpc'
 
@@ -85,6 +86,36 @@ describe('extension CPR plumbing — the field reaches BeapMessage', () => {
     expect(src).toContain('channelProvenanceAlertRecordFromUnknown')
     // A hand-rolled parse here would be a second rule over the same field.
     expect(src).not.toMatch(/channel_provenance/)
+  })
+})
+
+describe('the producer output is assignable to the component prop', () => {
+  /**
+   * Compile-time assertion, not a runtime one. The defect this pins was a type
+   * widening: `channelProvenance` was declared with `verdict: string`, which
+   * still *ran* correctly but no longer proved the field carried the union the
+   * component requires. `vite build` does not typecheck, so nothing downstream
+   * would have caught the re-widening — this line fails `tsc` if it happens.
+   */
+  it('typechecks: BeapMessage.channelProvenance fits ChannelProvenanceAlertProps["record"]', () => {
+    const produced = inboxRowToBeapMessage(row(ALERTING)).channelProvenance
+    const asProp: ChannelProvenanceAlertProps['record'] = produced
+    expect(asProp).not.toBeNull()
+
+    // …and the same holds for the absent case the component treats as silence.
+    const absent: ChannelProvenanceAlertProps['record'] =
+      inboxRowToBeapMessage(row(null)).channelProvenance
+    expect(absent).toBeNull()
+  })
+
+  it('the field is the SHARED record type, not a local redeclaration', () => {
+    const src = readFileSync(join(here, '..', 'beapInboxTypes.ts'), 'utf8')
+    expect(src).toMatch(
+      /import type \{ ChannelProvenanceAlertRecord \} from '@repo\/shared-beap-ui'/,
+    )
+    expect(src).toMatch(/channelProvenance\?: ChannelProvenanceAlertRecord \| null/)
+    // A structural copy here is how the two drift apart again.
+    expect(src).not.toMatch(/dkim: \{ verdict: string \}/)
   })
 })
 

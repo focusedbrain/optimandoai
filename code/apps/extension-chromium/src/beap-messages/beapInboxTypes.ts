@@ -17,6 +17,7 @@
  * @version 1.0.0
  */
 
+import type { ChannelProvenanceAlertRecord } from '@repo/shared-beap-ui'
 import type { ProcessingEventOffer } from './services/processingEvents'
 
 // =============================================================================
@@ -287,8 +288,14 @@ export interface BeapMessage {
    *
    * Absent (not `null`) when the row carries no CPR: the shared component
    * treats absence as "do not render", never as a pass.
+   *
+   * Typed as the shared record, imported rather than redeclared. A local copy
+   * with `verdict: string` is what this field originally was, and it widened
+   * the verdict away from the union the component requires — the field then no
+   * longer proved anything about what it carried, and the mismatch was
+   * invisible to the rig because `vite build` does not typecheck.
    */
-  channelProvenance?: { dkim: { verdict: string }; dmarc: { verdict: string } } | null
+  channelProvenance?: ChannelProvenanceAlertRecord | null
 
   // -------------------------------------------------------------------------
   // Deletion scheduling
