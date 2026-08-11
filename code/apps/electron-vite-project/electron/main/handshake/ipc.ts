@@ -50,6 +50,30 @@ import {
 // acceptance test: no second module may read or build an alternate listing),
 // so the O6 status gate lives there and is imported here.
 import { revalidateOfferStatusForConsent } from './connectOfferStaging'
+// Seal-key-source policy: which providers a row MAY be verified with, derived
+// from the row's content class. The row's own `seal_key_source` tag records
+// only how it WAS written, and is stale on legacy rows.
+import { verificationKeySourcesForInboxRow } from '../email/inboxRowSealPolicy'
+
+/**
+ * Per-row key-source policy for the extension's sealed inbox reads.
+ *
+ * Before this, these reads routed from `seal_key_source` alone, so a legacy
+ * inner-sealed NON-confidential row was filtered whenever the inner vault was
+ * locked — invisible in the extension while the Electron inbox showed it, and
+ * recorded as a tamper event even though nothing about the row was tampered.
+ *
+ * The policy is applied per row, not per query: a batch mixes confidential rows
+ * (inner only) with non-confidential ones (outer, then inner), and one union
+ * list for the whole batch would let a confidential row verify against the
+ * outer key.
+ */
+function inboxRowKeySources(row: { source_type?: unknown; handshake_id?: unknown }) {
+  return verificationKeySourcesForInboxRow({
+    source_type: typeof row.source_type === 'string' ? row.source_type : null,
+    handshake_id: typeof row.handshake_id === 'string' ? row.handshake_id : null,
+  })
+}
 import { handleIngestionRPC } from '../ingestion/ipc'
 import { resolveProfile } from '@repo/ingestion-core'
 import { attachHandshakeProfilesAndSyncScope } from './handshakeConfidentiality'
@@ -3610,6 +3634,7 @@ export async function handleHandshakeRPC(
              LIMIT ?`,
             [pos.received_at, pos.received_at, pos.id, effectiveLimit],
             'depackaged_json',
+            { keySources: inboxRowKeySources },
           )
         : sealedQuery<InboxRow>(
             db,
@@ -3623,6 +3648,7 @@ export async function handleHandshakeRPC(
              LIMIT ?`,
             [effectiveLimit],
             'depackaged_json',
+            { keySources: inboxRowKeySources },
           )
 
       let attStmt: { all: (id: string) => Array<{ attachment_id: string; filename: string | null; mime_type: string | null; size_bytes: number | null; content_sha256: string | null }> } | null = null
@@ -3695,6 +3721,7 @@ export async function handleHandshakeRPC(
          WHERE deleted = 0 AND id IN (${placeholders})`,
         ids,
         'depackaged_json',
+        { keySources: inboxRowKeySources },
       )
 
       let attStmt: { all: (id: string) => Array<{ attachment_id: string; filename: string | null; mime_type: string | null; size_bytes: number | null; content_sha256: string | null }> } | null = null
