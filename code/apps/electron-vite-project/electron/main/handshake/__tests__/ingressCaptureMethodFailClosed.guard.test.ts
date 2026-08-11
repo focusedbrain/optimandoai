@@ -89,20 +89,26 @@ describe.skipIf(!Database)('capture method is derived, never defaulted', () => {
     if (prep.ok) expect(prep.consentRef.formation.capture_method).toBe('manual_entry')
   })
 
+  // Fixture note: this guard originally used `wr_code_public`, which Phase 1
+  // recorded as registered-but-unmapped and predicted Phase 5 would have to
+  // map once the email→offer path went live. Phase 5 mapped it, so the fixture
+  // moved to a path that is still registered and still unmapped. The guard is
+  // about the fail-closed rule, not about which particular path lacks a
+  // mapping today.
   it('an unmapped but recordable path fails closed instead of claiming an email capture', () => {
     // Precondition: this really is a registered, recordable path — the failure
     // below is the missing mapping, not an unknown identifier.
-    expect(isRegisteredIngressPath('wr_code_public')).toBe(true)
-    expect(isRecordableIngressPath('wr_code_public')).toBe(true)
+    expect(isRegisteredIngressPath('relay_code_claim')).toBe(true)
+    expect(isRecordableIngressPath('relay_code_claim')).toBe(true)
 
-    const offerId = stageOn('wr_code_public')
+    const offerId = stageOn('relay_code_claim')
     const prep = formation.prepareFormationConsent({ offerId, actorWrdeskUserId: 'me' })
     expect(prep.ok).toBe(false)
     if (!prep.ok) expect(prep.reason).toMatch(/^INGRESS_PATH_HAS_NO_CAPTURE_METHOD:/)
   })
 
   it('the failed consent wrote no consent record and left the offer consentable', () => {
-    const offerId = stageOn('wr_code_public')
+    const offerId = stageOn('relay_code_claim')
     formation.prepareFormationConsent({ offerId, actorWrdeskUserId: 'me' })
     const consents = stagingDb
       .prepare('SELECT COUNT(*) AS c FROM wr_consent_records WHERE offer_id = ?')

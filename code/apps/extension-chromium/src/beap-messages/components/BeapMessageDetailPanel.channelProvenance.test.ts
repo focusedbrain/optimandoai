@@ -1,10 +1,10 @@
 /**
  * Option-2 prop-supplied CPR alert wiring for BeapMessageDetailPanel.
  *
- * Sync-path plumbing (beapInbox.list → depackaged_metadata → BeapMessage) is
- * deferred to the named Phase-5 item "extension CPR plumbing (Phase 5)".
- * Until then the shared alert is reachable only via the optional prop — this
- * test locks that contract so a never-alerting surface cannot silently ship.
+ * Sync-path plumbing (beapInbox.list → depackaged_metadata → BeapMessage) landed
+ * in Phase 5 as the named item "extension CPR plumbing"; see
+ * `extensionCprPlumbing.test.ts`. The optional prop remains the explicit
+ * override, and this test still locks that contract.
  *
  * @vitest-environment node
  */
@@ -37,7 +37,10 @@ describe('BeapMessageDetailPanel — channelProvenanceRecord prop (Option 2)', (
     expect(src).toMatch(/channelProvenanceRecord\?:/)
     expect(src).toContain("from '@repo/shared-beap-ui'")
     expect(src).toContain('<ChannelProvenanceAlert')
-    expect(src).toContain('record={channelProvenanceRecord}')
+    // Phase 5 closed "extension CPR plumbing": the prop remains, and falls back
+    // to the record the mapper now puts on the message. Before that the surface
+    // could not alert at all, which was the whole point of the named item.
+    expect(src).toContain('record={channelProvenanceRecord ?? message.channelProvenance}')
     expect(src).toContain('surface="extension-beap-message-detail"')
     // Must not invent a local trigger — the shared component owns the rule.
     expect(src).not.toMatch(/channelAlertRequiredForDisplay\s*\(/)
