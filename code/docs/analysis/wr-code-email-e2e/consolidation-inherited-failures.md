@@ -460,6 +460,36 @@ entry:
 Bound-origin-set plurality (§IX.3.1 r7) is scheduled with the 5A wiring, not
 with this block.
 
+### NAMED ITEM — “typecheck blind spot”
+
+Recorded 2026-08-11 from the pre-flight pass. **Bounded diagnosis scheduled
+AFTER the rig pass; no changes without approval.**
+
+The workspace typecheck reports 46 × `Cannot find module '@repo/ingestion-core'`.
+The cause is structural, not incidental: that package's `package.json` points
+`main`/`types` at `./dist/…`, its build script is `tsc`, and `dist/` does not
+exist in a fresh checkout. Vitest resolves it through the root config alias, so
+the suites are green and the hole is invisible from test results.
+
+The consequence is the finding: **files that fail to resolve that import are
+not effectively typechecked headlessly**, and three of the 46 are Phase-4/5
+files this slice added — `connectOfferStaging.ts`, `wrc/offerPresentation.ts`,
+`wrc/wrcCrypto.ts`. A hole in exactly the code the slice introduced.
+
+Diagnosis scope when authorised:
+
+1. Whether building `@repo/ingestion-core` first, or a TypeScript
+   project-references / paths setup, makes the workspace typecheck meaningful
+   for those files.
+2. Which Phase-4/5 errors, if any, were **masked** by the unresolved import —
+   this is the part that matters. A resolution failure can suppress downstream
+   errors in the same file.
+
+Related in kind to the pre-flight finding it sat beside: `vite build` does not
+typecheck either, so neither the build nor the test run would have surfaced the
+`channelProvenance` widening. Both are cases of a green signal that was not
+measuring what it appeared to measure.
+
 ### NAMED NOTE (low priority) — “legacy reseal drift”
 
 Recorded 2026-08-11 with the seal-key-source fix. The extension's sealed inbox

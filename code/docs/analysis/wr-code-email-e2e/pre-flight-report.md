@@ -6,7 +6,7 @@
 | HEAD | `21389e8ebe3936a573b292ad53c76a7ccd095f1b` (`21389e8`) |
 | Tag | `phase-5-complete` = `f12c62626fb31024a314bb1068368e02fbb4a70f` |
 | Branch | `integration/consolidated-current` |
-| Verdict | **NOT-RIG-READY** — one blocking item (§F) |
+| Verdict | **RIG-READY** — see §F. (First pass at `44871b34` read NOT-RIG-READY; the single blocking item was fixed under authorisation and both gates re-run.) |
 
 **Navigation note.** The order says to use the graph to navigate. Graphify was
 pip-installed into the previous VM and that VM was reprovisioned, so the tool
@@ -255,10 +255,40 @@ contract-faithful signing double.
 
 ## F. Verdict
 
-**NOT-RIG-READY** — one blocking item: the new `TS2322` in
-`BeapMessageDetailPanel.tsx:622`, caused by `BeapMessage.channelProvenance`
-being typed with `verdict: string` instead of the `ChannelAlertVerdict` union
-(§B5). Runtime is unaffected and `vite build` does not typecheck, so the rig
-build would very likely succeed regardless — the block is on tree coherence in
-the exact plumbing flagged as the top rig risk, and the correction is one line.
-Everything else in A–E passes.
+### First pass (`44871b34`) — NOT-RIG-READY
+
+One blocking item: the new `TS2322` in `BeapMessageDetailPanel.tsx:622`, caused
+by `BeapMessage.channelProvenance` being typed with `verdict: string` instead of
+the shared union (§B5). Everything else in A–E passed.
+
+### After the authorised fix (`183e147b`) — **RIG-READY**
+
+`BeapMessage.channelProvenance` is now the shared `ChannelProvenanceAlertRecord`,
+imported from `@repo/shared-beap-ui` rather than redeclared. The component's
+prop was **not** widened. Two assertions prevent silent re-widening:
+
+- a compile-time one assigning the producer's output to
+  `ChannelProvenanceAlertProps['record']`, which fails `tsc` if the types drift;
+- a source check that the field is the imported type and not a structural copy.
+
+Both gates re-run after the fix:
+
+| Gate | Result |
+|---|---|
+| Extension typecheck vs `cd282eaf` | **183 == 183**, sets identical — 0 new, 0 gone |
+| Sanctioned full-workspace capture | `testResults.length` 563, guard **PASS**, `numTotalTests` 6117, failed 166, passed 5894 |
+| Identity comparison vs `captures/phase-5.after.txt` | **166 = 166, 0 new, 0 gone** |
+| CPR plumbing + panel suites | 12 passed |
+
+`numTotalTests` moved 6115 → 6117 (the two new assertions); the failure identity
+set is unchanged.
+
+**Verdict line: RIG-READY.**
+
+### Recorded, not acted on
+
+`typecheck blind spot` — the 46 unresolved `@repo/ingestion-core` imports mean
+those files are not effectively typechecked headlessly, three of them Phase-4/5
+files. Named item with a bounded diagnosis scheduled after the rig pass; see
+`consolidation-inherited-failures.md`. It is the same shape as the defect this
+pass caught: a green signal that was not measuring what it appeared to measure.
