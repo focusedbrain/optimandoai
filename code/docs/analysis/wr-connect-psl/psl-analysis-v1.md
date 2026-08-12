@@ -1,7 +1,9 @@
 # WR Connect™ Publisher Semantic Layer — Implementation Analysis v1.0
 
-**Status: PARTIAL — two authoritative inputs are missing and §3 is BLOCKED on
-them.** Analysis only; no code changed, no branch created, no schema edited.
+**Status: PARTIAL — §3 remains BLOCKED. The 12 Aug unblock briefing's two
+attachments did not arrive; identity verification FAILED and the briefing's own
+STOP rule applies. See §8.** Author rulings from that briefing are recorded in
+§9 so they are not lost. Analysis only; no code, no branch, no schema.
 Date 2026-08-12. Tree: `integration/consolidated-current`, RIG-READY.
 
 ---
@@ -184,7 +186,14 @@ execution authority; G7's guard lands in P1.
 
 ---
 
-## 5. Question register for O
+## 5. Question register for O (original — see §9 and §10 for current status)
+
+> **Superseded in part.** Q1/Q2 were the blocking inputs: the 12 Aug unblock
+> attempt failed identity verification (§8), so they remain blocking. Q3, Q6 and
+> Q7 were ratified by the author on 12 Aug and are recorded in §9. Q4, Q5 and Q8
+> remain open and are restated in full in §10. The original wording is kept
+> below unchanged, as the record of what was asked.
+
 
 **Q1 (blocking).** Please attach `wr-connect.php` **v0.6.2** (1406 lines). The
 repo copy is 418 lines and pre-SQLite; §3 cannot be answered against it.
@@ -265,7 +274,124 @@ which has no live WRC to run against and is contract-first by constraint.
 
 ---
 
-## 7. Method note
+## 8. Unblock attempt of 12 Aug — identity verification FAILED, STOPped
+
+The briefing states: *"Two files are attached alongside this briefing; verify
+their identities before any use"* and, for Q1, *"On mismatch: STOP and report —
+do not proceed against a divergent file."* Verification was run first. Both
+checks fail, so I stopped.
+
+| File | Expected | Actual |
+|---|---|---|
+| `wr-connect.php` | `bd908db3dc1a95bf47c004a5dfae7555dc2a7bde456327c9f09e6f97c8fc2c20`, 1406 lines, header `Version 0.6.2` | `1d6ea2f972739de3866306e150d68e6639eedf2fc804bb2788edb56eacbe2da5`, **418 lines**, header **`Version 0.1.5`** (`wr-connect.php:4`) |
+| `Annex_XVIII___WR_Connect_.pdf` | `4cc93c45b9e99d9c130fc5cddd2220f5bf4ecad9b3f835ba489de1f3838a6725` | **Not present anywhere on the filesystem** |
+
+Corroboration that nothing arrived rather than arriving corrupted: `git status
+--porcelain` is empty (no new or modified files), a filesystem-wide
+`find / -iname '*XVIII*'` returns nothing, and the only `wr-connect*.php` on the
+machine is the tracked 418-line copy. The version header also settles the
+earlier inference — it is literally `0.1.5`, the v0.1-era snapshot §0.1
+predicted.
+
+**Consequence.** §3 stays blocked, and with it the parts of the continuation
+order that depend on it: the line-cited current-state map, the schema proposal,
+the AI-process locus mapping, site observation, export/signing/epoch, the
+delivery route family, and the §7 staleness mechanism (whose two open questions
+— which trigger model shared hosting permits, and which existing route carries
+the operator notice — are answerable only against v0.6.2's route inventory).
+
+**To unblock:** the attachment channel is not reaching this workspace. The
+repository is the reliable path. Annex XVIII already has a defined route in the
+briefing — drop it on `main` alongside I–XVII, then plain-merge into
+`integration/consolidated-current`, exactly as XIV/XVII were handled. The same
+works for `wr-connect.php` v0.6.2: commit it anywhere in the tree and I will
+move it into place under the §2 handling (in-place replacement, one copy,
+supersession note) and verify the hash before use.
+
+## 9. Author rulings of 12 Aug — recorded
+
+Recorded now so they survive the blocked interval. These are decisions, not
+analysis, and none required the missing files.
+
+**Q3 — v1 scope cut: RATIFIED, modular.** Capabilities and WR Link™ ship
+schema-present / content-empty, with schema, export slots and admission paths
+structured so filling them later activates the feature without touching the
+core. The core five — Navigation Graph, declared routes, Semantic
+Anchors/position markers, Q&A corpus, FAQ — are not cuttable.
+
+**Architectural clarification (new, on record).** WR Link™ is **separate from**
+the Navigation Graph: WR Link™ is the execution path for WCR recordings after
+consent; the graph carries navigation and Q&A. The only shared surface is that
+recordings may reference the same stable anchors so they survive UI changes.
+They must not be coupled beyond that surface. *This supersedes the framing in §4
+P4 of this document, which treated the anchor work and the WCR substrate as one
+concern — the anchor contract is shared, the paths are not.*
+
+**Q6 — Anchor v1: RATIFIED with an addition.** The proposed form is adopted:
+`{node_id, selector_kind, selector_value, stability_hint}`, closed
+`selector_kind` enum, exact-match-only, ambiguity fails closed. The author adds
+a two-channel distinction on resolution failure:
+
+1. **Overlay channel — fail-closed, unchanged.** Never render guidance at an
+   assumed position. No positional fallback in v1.
+2. **Answer channel — honest uncertainty.** The assistant MAY answer from the
+   declared route with a **mandatory** uncertainty label ("I cannot confirm the
+   exact location right now; per the publisher's declared route it should be
+   under X → Y"). Spoken or written only; never positioned guidance.
+
+The graded multi-strategy scheme with declared confidence remains Open Item 1;
+the closed enum is the extension point. §XVIII.5.4 positional guidance composes
+from **resolved** anchors only.
+
+**Q7 — PSL/consent separation: RATIFIED as a STANDING INVARIANT.** No
+PSL-derived type, field or string may reach `buildConnectOfferPreview` or any
+input to the O2 preview hash (which pins `evp_ref` and `value_statement`).
+Rationale on record, three layers each with a distinct role: Fraud Watchdog™
+*detects* (heuristic, can miss a well-crafted label); WRC™ versioning *proves and
+deters* (after the fact, once harm has occurred); label-independent consent
+*prevents at the moment of harm*, because the consent surface derives from the
+validated action, never from publisher-supplied labels. Publisher prose stays
+fully usable for navigation, explanation, FAQ and Q&A — it never supplies the
+description of what the user authorizes.
+
+Enforcement, unchanged in shape from the proposal: a source-walking guard
+pinning (a) no PSL-module import in the offer/consent modules, and (b) no
+PSL-typed value in the preview-hash input construction. **It lands with the
+first PSL client code, not later** — i.e. in phase P1, not as a follow-up.
+
+**§7 staleness — NEW REQUIREMENT, accepted into scope; analysis blocked.**
+Detection is publisher-side only: content hash per captured page bound to the
+exported epoch, re-checks marking the epoch STALE on divergence. Two
+notification surfaces: a fourth admin badge beside DNS / manifest / mail-posture,
+and a notice to the paired operator orchestrator over the existing channel.
+Explicitly out of scope: user-orchestrator telemetry — anchor resolution
+failures stay local and fail-closed (§XVIII.6.3). Honest v1 limit to state in
+the design: hash comparison covers the captured public surface only; dynamic
+logged-in state is not detected. The two design questions (trigger model without
+cron; which route frames the operator notice) need v0.6.2.
+
+## 10. Question register — still open for O
+
+Restated in full, unanswered, as instructed.
+
+**Q4.** Cloud-AI endpoint policy: the publisher configures an inference endpoint
+and key, stored server-side under the existing admin-key discipline, never in
+URLs. Is any egress allowlist or endpoint restriction required, or is the
+publisher's choice final? This is the one place the script makes outbound calls
+to a non-publisher origin, so the answer sets the SSRF posture for that path.
+
+**Q5.** Does v0.6.2's `?api=mgmt` route already carry dual signature + nonce +
+epoch check? If yes, the local-AI push path reuses that envelope family
+unchanged. If no, a new route class is required, and that changes the surface of
+phase P1. *(Blocked on the file; cannot be self-answered.)*
+
+**Q8.** Where should the PSL client's endpoint/registry configuration live?
+Phase 3 deliberately used environment variables for the WRC registry ("no
+half-built UI"), but the PSL client may need an operator-facing admin surface
+sooner, since a publisher pairing is a user-initiated act rather than a
+deployment setting.
+
+## 11. Method note
 
 Graphify was reinstalled and its hooks are active, but the graph was rebuilt
 only after the VM reprovision; every claim above is source-verified by path and
