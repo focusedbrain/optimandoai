@@ -102,6 +102,8 @@ function inboxFailureLooksEmbeddingOnly(message: string | undefined): boolean {
 import { InboxUrgencyMeter } from './InboxUrgencyMeter'
 import { InboxHandshakeNavIconButton } from './InboxHandshakeNavIcon'
 import '../components/handshakeViewTypes'
+import { AiInteractionDisclosure } from './ai/AiInteractionDisclosure'
+import { writeAiClipboard } from '../lib/aiClipboard'
 import { executeDeliveryAction, type BeapPackageConfig } from '@ext/beap-messages/services/BeapPackageBuilder'
 import { buildSessionImportArtefact, type BuildArtefactInput } from '@ext/beap-builder/buildSessionImportArtefact'
 import { getSigningKeyPair } from '@ext/beap-messages/services/beapCrypto'
@@ -111,6 +113,16 @@ import { UI_BADGE } from '../styles/uiContrastTokens'
 import SessionImportDialog, { type SessionImportDialogSessionRef } from './SessionImportDialog'
 import { canShowInboxRunAutomation, capabilitiesForSessionAttach, resolveInboxSessionArtefact } from '../lib/inboxSessionArtefact'
 import { runBeapSessionAutomationForMessage } from '../lib/runBeapSessionAutomation'
+import {
+  type AiProvenance,
+  isAiProvenance,
+  markHumanEdited,
+  markEditorialResponsible,
+  shouldApplyMachineMarking,
+  shouldApplyVisibleSendLabel,
+  withVisibleAiLabel,
+  AI_UNVERIFIED_PROVENANCE_LABEL,
+} from '@shared/aiProvenance'
 
 /** Local HTTP API for orchestrator DB (matches `HTTP_PORT` in electron/main.ts). */
 
@@ -333,7 +345,7 @@ function getMessageAiPreviewLine(msg: InboxMessage): string | null {
 interface InboxDetailAiPanelProps {
   messageId: string
   message: InboxMessage | null
-  onSendDraft?: (draft: string, message: InboxMessage, attachments?: DraftAttachment[]) => void | Promise<boolean>
+  onSendDraft?: (draft: string, message: InboxMessage, attachments?: DraftAttachment[], provenance?: AiProvenance | null) => void | Promise<boolean>
   onArchive?: (messageIds: string[]) => void
   onDelete?: (messageIds: string[]) => void
   onCollapsedChange?: (collapsed: boolean) => void
@@ -359,6 +371,14 @@ export function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive,
   const [draftErrorDebug, setDraftErrorDebug] = useState<InboxAiErrorDebugPayload | null>(null)
   const [editedDraft, setEditedDraft] = useState('')
   const [attachments, setAttachments] = useState<DraftAttachment[]>([])
+  /** Art. 50 provenance for the current AI draft. Null = no AI involvement. */
+  const [draftProvenance, setDraftProvenance] = useState<AiProvenance | null>(null)
+  /** Ref to the AI-generated text, used to detect subsequent human edits. */
+  const aiGeneratedDraftRef = useRef<string | null>(null)
+  /** Layer B: visible label ON by default for ai|mixed origin; user can toggle. */
+  const [aiLabelEnabled, setAiLabelEnabled] = useState(false)
+  /** Layer B editorial responsibility: claims exemption, turns label OFF (MIME stays). */
+  const [editorialResponsible, setEditorialResponsible] = useState(false)
   const [actionChecked, setActionChecked] = useState<Record<number, boolean>>({})
   const [draftSubFocused, setDraftSubFocused] = useState(false)
   const [visibleSections, setVisibleSections] = useState<Set<string>>(() => new Set(['summary', 'draft', 'analysis']))
@@ -638,7 +658,7 @@ export function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive,
       }
     })
 
-    const unsubDone = window.emailInbox.onAiAnalyzeDone(({ messageId: mid }) => {
+    const unsubDone = window.emailInbox.onAiAnalyzeDone(({ messageId: mid, provenance: doneProvenance }) => {
       if (!acceptStreamEvent(mid)) return
       console.log(
         `[INBOX_AUDIT] renderer_stream_chunks_summary ${JSON.stringify({
@@ -696,9 +716,18 @@ export function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive,
           if (adjusted.draftReply && typeof adjusted.draftReply === 'string') {
             setDraft(adjusted.draftReply)
             setEditedDraft(adjusted.draftReply)
+            // Art. 50: use provenance from main process (never mint in renderer).
+            setDraftProvenance(isAiProvenance(doneProvenance) ? doneProvenance : null)
+            aiGeneratedDraftRef.current = adjusted.draftReply
+            setAiLabelEnabled(true)
+            setEditorialResponsible(false)
           } else {
             setDraft(null)
             setEditedDraft('')
+            setDraftProvenance(null)
+            aiGeneratedDraftRef.current = null
+            setAiLabelEnabled(false)
+            setEditorialResponsible(false)
           }
         }
         useEmailInboxStore.getState().setAnalysisCache(messageId, adjusted)
@@ -1597,13 +1626,29 @@ export function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive,
 
   const handleSend = useCallback(async () => {
     if (!message || !onSendDraft) return
-    const draftToSend = isNativeBeap
+    let draftToSend = isNativeBeap
       ? [capsulePublicText, capsuleEncryptedText].map((s) => s.trim()).filter(Boolean).join('\n\n---\n\n')
       : (editedDraft || draft) ?? ''
     if (!draftToSend.trim()) return
+
+    // Art. 50 Layer B: apply visible label when enabled and applicable.
+    if (!isNativeBeap && aiLabelEnabled && shouldApplyVisibleSendLabel(draftProvenance)) {
+      draftToSend = withVisibleAiLabel(draftToSend)
+    }
+
+    // Resolve effective provenance (editorial responsibility may have been claimed).
+    const effectiveProvenance = editorialResponsible && draftProvenance
+      ? markEditorialResponsible(draftProvenance)
+      : draftProvenance
+
     setSending(true)
     try {
-      const result = await onSendDraft(draftToSend, message, attachments.length > 0 ? attachments : undefined)
+      const result = await onSendDraft(
+        draftToSend,
+        message,
+        attachments.length > 0 ? attachments : undefined,
+        effectiveProvenance,
+      )
       if (result) {
         setDraft(null)
         setEditedDraft('')
@@ -1627,6 +1672,9 @@ export function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive,
     attachments,
     capsulePublicText,
     capsuleEncryptedText,
+    aiLabelEnabled,
+    editorialResponsible,
+    draftProvenance,
   ])
 
   const handleArchive = useCallback(() => {
@@ -1697,6 +1745,7 @@ export function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive,
 
   return (
     <div className="inbox-detail-ai-inner inbox-detail-ai-premium" role="complementary" aria-label="AI email analysis">
+      <AiInteractionDisclosure variant="full" />
       <div className="inbox-detail-ai-action-bar">
         <button
           type="button"
@@ -1800,6 +1849,11 @@ export function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive,
         {visibleSections.has('analysis') && (
           <div className="inbox-detail-ai-section inbox-detail-ai-section--tab-panel">
             <div className="ai-analysis-body">
+            {analysis && !draftProvenance && !analysisLoading && (
+              <div style={{ fontSize: 11, color: 'var(--text-secondary, var(--text-secondary-prof, #64748b))', marginBottom: 8, padding: '3px 6px', background: 'var(--bg-elevated, #f1f5f9)', borderRadius: 4, display: 'inline-block' }}>
+                {AI_UNVERIFIED_PROVENANCE_LABEL}
+              </div>
+            )}
             {analysisStreamParseFailed && (
               <div style={{ ...analysisSoftNoticeBarStyle, marginBottom: 12 }} role="note">
                 <span>We couldn&apos;t read the analysis for this message. Try again if you need it.</span>
@@ -2454,7 +2508,14 @@ export function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive,
                       <textarea
                         ref={draftTextareaRef}
                         value={editedDraft || draft || ''}
-                        onChange={(e) => setEditedDraft(e.target.value)}
+                        onChange={(e) => {
+                          const newVal = e.target.value
+                          setEditedDraft(newVal)
+                          // Art. 50: mark human-edited when user changes AI draft.
+                          if (aiGeneratedDraftRef.current !== null && newVal !== aiGeneratedDraftRef.current) {
+                            setDraftProvenance((prev) => prev ? markHumanEdited(prev, newVal) : prev)
+                          }
+                        }}
                         onClick={handleDraftRefineConnect}
                         onFocus={() => {
                           setDraftSubFocused(true)
@@ -2510,6 +2571,72 @@ export function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive,
                             </button>
                           </div>
                         ))}
+                      </div>
+                    )}
+                    {/* Art. 50 Layer B label controls — shown when AI provenance is ai|mixed */}
+                    {!panelIsSandbox && !isNativeBeap && draftProvenance && shouldApplyMachineMarking(draftProvenance) && (
+                      <div
+                        style={{
+                          padding: '6px 10px',
+                          marginBottom: 4,
+                          borderRadius: 6,
+                          background: 'var(--bg-elevated, var(--bg-elevated-prof, #f1f5f9))',
+                          color: 'var(--text-primary, var(--text-primary-prof, #0f172a))',
+                          border: '1px solid var(--border, var(--border-prof, rgba(15,23,42,0.12)))',
+                          fontSize: 12,
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: 4,
+                        }}
+                      >
+                        <label
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 6,
+                            cursor: 'pointer',
+                            color: 'var(--text-primary, var(--text-primary-prof, #0f172a))',
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={aiLabelEnabled}
+                            onChange={(e) => {
+                              setAiLabelEnabled(e.target.checked)
+                              if (!e.target.checked) setEditorialResponsible(false)
+                            }}
+                          />
+                          Label as AI-generated
+                        </label>
+                        {aiLabelEnabled && (
+                          <label
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 6,
+                              cursor: 'pointer',
+                              paddingLeft: 18,
+                              color: 'var(--text-secondary, var(--text-secondary-prof, #475569))',
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={editorialResponsible}
+                              onChange={(e) => {
+                                setEditorialResponsible(e.target.checked)
+                                if (e.target.checked) {
+                                  setAiLabelEnabled(false)
+                                  if (draftProvenance) {
+                                    void window.art50?.logEditorialResponsibility(
+                                      markEditorialResponsible(draftProvenance),
+                                    )
+                                  }
+                                }
+                              }}
+                            />
+                            I take editorial responsibility (removes label, keeps MIME marking)
+                          </label>
+                        )}
                       </div>
                     )}
                     <div className="bulk-draft-actions-toolbar-wrap inbox-detail-ai-draft-actions">
@@ -4128,7 +4255,7 @@ export default function EmailInboxView({
   }, [])
 
   const handleSendDraft = useCallback(
-    async (draft: string, msg: InboxMessage, attachments?: DraftAttachment[]): Promise<boolean> => {
+    async (draft: string, msg: InboxMessage, attachments?: DraftAttachment[], provenance?: AiProvenance | null): Promise<boolean> => {
       const replyMode = resolveInboxReplyMode(msg)
       const shouldSendEmail = replyMode === 'email'
 
@@ -4138,7 +4265,7 @@ export default function EmailInboxView({
           phase: 'send_draft',
           selectedPath: 'native_beap_compose',
         })
-        navigator.clipboard?.writeText(draft).catch(() => {})
+        void writeAiClipboard(draft, draftProvenance)
         setComposeMode('beap')
         return false
       }
@@ -4199,6 +4326,8 @@ export default function EmailInboxView({
           subject: subject.trim() || '(No subject)',
           bodyText: fullBody,
           attachments: emailAttachments.length > 0 ? emailAttachments : undefined,
+          // Art. 50 Layer A: pass provenance for MIME header injection (main process applies it).
+          ...(shouldApplyMachineMarking(provenance) ? { provenance: provenance! as Record<string, unknown> } : {}),
         })
         if (res.ok && res.data?.success) {
           setSendEmailToast({ type: 'success', message: `Email sent to ${to}` })

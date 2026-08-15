@@ -36,6 +36,11 @@ export interface TransportMetadata {
   readonly mime_type?: string;
   readonly content_length?: number;
   readonly source_ip?: string;
+  /**
+   * Phase 5 [VII.10.3]: reference to the grant object the delivery was
+   * admitted under (receiver-side ingress filter). Rendered as provenance.
+   */
+  readonly grant_ref?: string | null;
 }
 
 // ── Raw Input ──

@@ -34,7 +34,7 @@ function mvpKindDisplay(
 
 function recordToInternalRoleSource(r: HandshakeRecord): InternalHandshakeRoleSource {
   return {
-    handshake_type: r.handshake_type,
+    same_principal: r.same_principal === true,
     state: r.state,
     local_role: r.local_role,
     initiator_device_role: r.initiator_device_role,
@@ -55,7 +55,7 @@ function recordToInternalRoleSource(r: HandshakeRecord): InternalHandshakeRoleSo
 export type InternalHostHandshakeP2pSafeDump = {
   handshake_id: string
   local_role: 'initiator' | 'acceptor'
-  handshake_type: 'internal' | 'standard' | null | undefined
+  same_principal: boolean
   state: string
   local_derived_role: 'host' | 'sandbox' | 'unknown' | null
   peer_derived_role: 'host' | 'sandbox' | 'unknown' | null
@@ -81,7 +81,7 @@ export function buildInternalHostHandshakeP2pSafeDump(
   return {
     handshake_id: r.handshake_id,
     local_role: r.local_role,
-    handshake_type: r.handshake_type,
+    same_principal: r.same_principal === true,
     state: r.state,
     local_derived_role: d.localDeviceRole ?? 'unknown',
     peer_derived_role: d.peerDeviceRole ?? 'unknown',
@@ -120,7 +120,7 @@ export async function getInternalHostHandshakeP2pInspect(
   if (typeof handshakeId === 'string' && handshakeId.trim().length > 0) {
     const hid = handshakeId.trim()
     const r0 = getHandshakeRecord(db, hid)
-    if (!r0 || r0.state !== HandshakeState.ACTIVE || r0.handshake_type !== 'internal') {
+    if (!r0 || r0.state !== HandshakeState.ACTIVE || r0.same_principal !== true) {
       return { ok: false, error: 'handshake_not_found_or_not_active_internal' }
     }
     const ar = assertRecordForServiceRpc(r0)
@@ -134,7 +134,7 @@ export async function getInternalHostHandshakeP2pInspect(
     return { ok: true, dump: buildInternalHostHandshakeP2pSafeDump(db, ar.record) }
   }
 
-  const rows = listHandshakeRecords(db, { state: HandshakeState.ACTIVE, handshake_type: 'internal' })
+  const rows = listHandshakeRecords(db, { state: HandshakeState.ACTIVE, same_principal: true })
   for (const r0 of rows) {
     const ar = assertRecordForServiceRpc(r0)
     if (!ar.ok) {

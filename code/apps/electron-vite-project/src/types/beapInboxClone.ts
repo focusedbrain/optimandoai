@@ -45,7 +45,12 @@ export interface BeapInboxClonePrepareOk {
 
 /** Main-process prepare path (not including host envelope errors). */
 export type BeapInboxClonePrepareErrorCode =
+  /** Row genuinely absent. Narrowed by the error-taxonomy split. */
   | 'MESSAGE_NOT_FOUND'
+  /** Row present, seal verification filtered it. */
+  | 'SOURCE_UNVERIFIABLE'
+  /** Row present, no canonical plaintext to clone. */
+  | 'SOURCE_NO_CANONICAL_CONTENT'
   | 'MESSAGE_CONTENT_NOT_EXTRACTABLE'
   | 'NO_ACTIVE_SANDBOX_HANDSHAKE'
   | 'INCOMPLETE_SANDBOX_KEYING'

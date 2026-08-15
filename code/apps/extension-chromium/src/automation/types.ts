@@ -127,26 +127,18 @@ export type TriggerType =
  * Condition type for Event Tag triggers
  * 
  * These are predefined, reusable condition types that map to UI sections:
- * - wrcode_valid: Requires WRCode/WRGuard verification passed
  * - sender_whitelist: Sender must be in allowed list (email)
  * - body_keywords: Body must contain any of these keywords
  * - website_filter: URL must match pattern (web/overlay channel)
+ *
+ * `wrcode_valid` was retired; see `conditions/retiredConditions.ts`. Channel
+ * provenance and publisher resolution are mandatory pipeline stages, not an
+ * opt-in trigger filter.
  */
 export type EventTagConditionType = 
-  | 'wrcode_valid'      // Requires valid WRCode stamp
   | 'sender_whitelist'  // Sender in allowed list
   | 'body_keywords'     // Body contains keywords
   | 'website_filter'    // URL matches pattern
-
-/**
- * WRCode validation condition
- * Requires the event to have passed WRCode/WRGuard verification
- */
-export interface WRCodeCondition {
-  type: 'wrcode_valid'
-  /** Whether WRCode validation is required */
-  required: boolean
-}
 
 /**
  * Sender whitelist condition
@@ -184,7 +176,6 @@ export interface WebsiteFilterCondition {
  * Union of all Event Tag condition types
  */
 export type EventTagCondition = 
-  | WRCodeCondition
   | SenderWhitelistCondition
   | BodyKeywordsCondition
   | WebsiteFilterCondition
@@ -195,14 +186,13 @@ export type EventTagCondition =
  * A structured, typed configuration for Event Triggers (Tag).
  * This replaces the legacy free-form text fields with a clear, validated structure.
  * 
- * @example Email trigger with WRCode and sender whitelist
+ * @example Email trigger with sender whitelist
  * ```typescript
  * const trigger: EventTagTriggerConfig = {
  *   type: 'direct_tag',
  *   channel: 'email',
  *   tag: '#invoice',
  *   conditions: [
- *     { type: 'wrcode_valid', required: true },
  *     { type: 'sender_whitelist', allowedSenders: ['accounting@company.com'] },
  *     { type: 'body_keywords', keywords: ['urgent', 'payment'] }
  *   ]
@@ -656,12 +646,6 @@ export interface NormalizedEvent {
   
   /** Sender address (email, chat username, etc.) */
   senderAddress?: string
-  
-  /** Whether WRCode/WRGuard validation passed */
-  wrcodeValid?: boolean
-  
-  /** Raw WRCode data if present */
-  wrcodeData?: Record<string, any>
   
   // Tag extraction
   

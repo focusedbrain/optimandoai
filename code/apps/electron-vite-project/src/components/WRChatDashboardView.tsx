@@ -53,6 +53,7 @@ import {
   getHostActiveModelIdFromTargets,
 } from '../lib/hostActiveModelSelection'
 import './WRChatDashboardView.css'
+import { AiInteractionDisclosure } from './ai/AiInteractionDisclosure'
 
 type WrChatModelOption = {
   name: string
@@ -794,6 +795,7 @@ export default function WRChatDashboardView({ theme }: WRChatDashboardViewProps)
 
   return (
     <div className="wr-chat-dashboard-view">
+      <AiInteractionDisclosure variant="full" />
       <div className="wr-chat-dashboard-view__chat">
         <PopupChatView
           theme={theme}

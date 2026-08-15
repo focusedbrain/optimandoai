@@ -8,7 +8,7 @@
 import type { HandshakeState, SSOSession, HandshakeRecord, BeapKeyAgreementMaterial } from './types'
 import { x25519 } from '@noble/curves/ed25519'
 import type { ContextBlockProof } from './canonicalRebuild'
-import { ReasonCode, HandshakeState as HS } from './types'
+import { ReasonCode, HandshakeState as HS, buildDefaultReceiverPolicy } from './types'
 // Context resolution imports removed — content enters only via the BEAP-Capsule pipeline
 import {
   getHandshakeRecord,
@@ -27,8 +27,8 @@ import { sealedQuery, prepareSealedOperationalUpdate } from '../sealed-storage'
 import { resealWithAiAnalysis } from '../email/sealedContentUpdate'
 import { isInternalCoordinationIdentityComplete } from './internalPersistence'
 import { queryContextBlocks, queryContextBlocksWithGovernance } from './contextBlocks'
-import { authorizeAction, diagnoseHandshakeInactive, isHandshakeActive } from './enforcement'
-import { revokeHandshake } from './revocation'
+import { authorizeAction, diagnoseHandshakeInactive, isHandshakeActive, resolveEffectivePolicy } from './enforcement'
+import { revokeHandshake, deleteRevokedRelationshipContent } from './revocation'
 import {
   buildInitiateCapsule,
   buildInitiateCapsuleWithContent,
@@ -36,10 +36,47 @@ import {
   buildRefreshCapsule,
   buildContextSyncCapsuleWithContent,
 } from './capsuleBuilder'
-import { submitCapsuleViaRpc } from './capsuleTransport'
-import { persistInitiatorHandshakeRecord } from './initiatorPersist'
+import { submitCapsuleViaRpc, deserializeCapsuleToRawInput } from './capsuleTransport'
+import {
+  formInitiatorRelationship,
+  stageInboundInitiate,
+  listConnectOffers,
+  declineConnectOffer,
+  pendingOfferForHandshake,
+  prepareFormationConsent,
+  type FormationConsentRef,
+} from './formationPipeline'
+// The staged-offer table has exactly one owning module (pinned by the Phase-4
+// acceptance test: no second module may read or build an alternate listing),
+// so the O6 status gate lives there and is imported here.
+import { revalidateOfferStatusForConsent } from './connectOfferStaging'
+// Seal-key-source policy: which providers a row MAY be verified with, derived
+// from the row's content class. The row's own `seal_key_source` tag records
+// only how it WAS written, and is stale on legacy rows.
+import { verificationKeySourcesForInboxRow } from '../email/inboxRowSealPolicy'
+
+/**
+ * Per-row key-source policy for the extension's sealed inbox reads.
+ *
+ * Before this, these reads routed from `seal_key_source` alone, so a legacy
+ * inner-sealed NON-confidential row was filtered whenever the inner vault was
+ * locked — invisible in the extension while the Electron inbox showed it, and
+ * recorded as a tamper event even though nothing about the row was tampered.
+ *
+ * The policy is applied per row, not per query: a batch mixes confidential rows
+ * (inner only) with non-confidential ones (outer, then inner), and one union
+ * list for the whole batch would let a confidential row verify against the
+ * outer key.
+ */
+function inboxRowKeySources(row: { source_type?: unknown; handshake_id?: unknown }) {
+  return verificationKeySourcesForInboxRow({
+    source_type: typeof row.source_type === 'string' ? row.source_type : null,
+    handshake_id: typeof row.handshake_id === 'string' ? row.handshake_id : null,
+  })
+}
+import { handleIngestionRPC } from '../ingestion/ipc'
+import { resolveProfile } from '@repo/ingestion-core'
 import { attachHandshakeProfilesAndSyncScope } from './handshakeConfidentiality'
-import { persistRecipientHandshakeRecord } from './recipientPersist'
 import { sendCapsuleViaEmail } from './emailTransport'
 import { computeBlockHash, type ContextBlockForCommitment } from './contextCommitment'
 import {
@@ -99,7 +136,10 @@ import {
   getPairingCode as getOrchestratorPairingCode,
 } from '../orchestrator/orchestratorModeStore'
 import { safeFingerprint } from '../security/cryptoFingerprint'
-import { filterHandshakeRecordsForCurrentSession } from './handshakeAccountIsolation'
+import {
+  filterHandshakeRecordsForCurrentSession,
+  handshakeRowVisibilityForSession,
+} from './handshakeAccountIsolation'
 
 /** Set `WR_P2P_SEND_KEY_DIAG=1` to log legacy key-substring diagnostics (default: fingerprint-only on errors). */
 const P2P_SEND_KEY_DIAG = process.env.WR_P2P_SEND_KEY_DIAG === '1'
@@ -218,7 +258,7 @@ type EnsureKeyAgreementKeysOptions = {
    */
   strictDeviceBoundX25519?: boolean
   /**
-   * Normal cross-principal `handshake.accept` only (`record.handshake_type !== 'internal'`).
+   * Normal cross-principal `handshake.accept` only (`record.same_principal !== true`).
    * When true, the ephemeral X25519 mint branch is unreachable: missing key throws
    * `ERR_HANDSHAKE_ACCEPT_X25519_GUARD` after a loud log (regression / preflight bypass).
    */
@@ -227,7 +267,7 @@ type EnsureKeyAgreementKeysOptions = {
   normalAcceptX25519BindingDiag?: {
     handshake_id: string
     local_role: string | null | undefined
-    handshake_type: string | null | undefined
+    same_principal: boolean
     rawParams: unknown
     ingress: string
   }
@@ -257,7 +297,7 @@ function acceptorX25519FromHandshakeAcceptParams(params: unknown): string {
 export function logNormalAcceptX25519BindingFailure(diag: {
   handshake_id: string
   local_role?: string | null
-  handshake_type?: string | null
+  same_principal?: boolean
   params: unknown
   ingress: string
 }): void {
@@ -274,7 +314,7 @@ export function logNormalAcceptX25519BindingFailure(diag: {
     JSON.stringify({
       handshake_id: diag.handshake_id,
       local_role: diag.local_role ?? null,
-      handshake_type: diag.handshake_type ?? null,
+      same_principal: diag.same_principal === true,
       has_senderX25519PublicKeyB64,
       has_nested_key_agreement_x25519,
       ingress: diag.ingress,
@@ -348,7 +388,7 @@ async function ensureKeyAgreementKeys(
     logNormalAcceptX25519BindingFailure({
       handshake_id: d?.handshake_id ?? '(unknown)',
       local_role: d?.local_role,
-      handshake_type: d?.handshake_type,
+      same_principal: d?.same_principal,
       params: d?.rawParams ?? {},
       ingress: d?.ingress ?? 'ensureKeyAgreementKeys.forbid_ephemeral_x25519',
     })
@@ -697,6 +737,153 @@ function getCounterpartyEmail(record: HandshakeRecord, session: SSOSession): str
   return record.initiator.email
 }
 
+/**
+ * Display-only projection of a staged Connect offer for the pending list.
+ * NOT a relationship row — nothing is persisted; `connect_offer_id` marks it
+ * so accept/decline route through the consent gate.
+ */
+function connectOfferToDisplayRecord(offer: {
+  offer_id: string
+  handshake_id: string
+  capsule_json: string
+  sender_email: string | null
+  sender_iss: string | null
+  sender_sub: string | null
+  sender_wrdesk_user_id: string | null
+  receiver_email: string | null
+  profile_id: string
+  staged_at: string
+  expires_at: string
+}): HandshakeRecord {
+  let capsule: Record<string, any> = {}
+  try { capsule = JSON.parse(offer.capsule_json) } catch { /* display only */ }
+  const receiverPolicy = buildDefaultReceiverPolicy()
+  const effectivePolicyResult = resolveEffectivePolicy(null, receiverPolicy)
+  return {
+    handshake_id: offer.handshake_id,
+    relationship_id: (capsule.relationship_id as string) ?? '',
+    state: HS.PENDING_REVIEW,
+    initiator: {
+      email: offer.sender_email ?? '',
+      wrdesk_user_id: offer.sender_wrdesk_user_id ?? '',
+      iss: offer.sender_iss ?? '',
+      sub: offer.sender_sub ?? '',
+    },
+    acceptor: null,
+    local_role: 'acceptor',
+    sharing_mode: null,
+    reciprocal_allowed: capsule.reciprocal_allowed === true,
+    tier_snapshot: null as any,
+    current_tier_signals: (capsule.tierSignals as any) ?? { plan: 'free', hardwareAttestation: null, dnsVerification: null, wrStampStatus: null },
+    last_seq_sent: 0,
+    last_seq_received: 0,
+    last_capsule_hash_sent: '',
+    last_capsule_hash_received: (capsule.capsule_hash as string) ?? '',
+    effective_policy: 'unsatisfiable' in effectivePolicyResult ? (null as any) : effectivePolicyResult,
+    external_processing: (capsule.external_processing as any) ?? 'none',
+    created_at: offer.staged_at,
+    activated_at: null,
+    expires_at: offer.expires_at,
+    revoked_at: null,
+    revocation_source: null,
+    initiator_wrdesk_policy_hash: (capsule.wrdesk_policy_hash as string) ?? '',
+    initiator_wrdesk_policy_version: (capsule.wrdesk_policy_version as string) ?? '',
+    acceptor_wrdesk_policy_hash: null,
+    acceptor_wrdesk_policy_version: null,
+    initiator_context_commitment: (capsule.context_commitment as string) ?? null,
+    acceptor_context_commitment: null,
+    p2p_endpoint: null,
+    local_p2p_auth_token: '',
+    counterparty_p2p_token: null,
+    receiver_email: offer.receiver_email ?? null,
+    ...(offer.profile_id === 'internal_device'
+      ? {
+          same_principal: true,
+          initiator_device_name: (capsule.sender_computer_name as string) ?? null,
+          initiator_device_role: (capsule.sender_device_role as any) ?? null,
+          internal_peer_pairing_code:
+            typeof capsule.receiver_pairing_code === 'string' && /^\d{6}$/.test(capsule.receiver_pairing_code.trim())
+              ? capsule.receiver_pairing_code.trim()
+              : null,
+        }
+      : {}),
+    ...( { connect_offer_id: offer.offer_id } as unknown as Partial<HandshakeRecord> ),
+  } as HandshakeRecord
+}
+
+/**
+ * Phase 4 (Q1) [IX.3.1 rules 3–4]: consent to a staged Connect offer. Writes
+ * the Hash-Pinned consent record, then re-runs the staged capsule through the
+ * ONE pipeline behind the consent gate — the only way a relationship row is
+ * created from an inbound invitation.
+ */
+async function consentToStagedOffer(
+  db: any,
+  offer: { offer_id: string; handshake_id: string; capsule_json: string },
+  session: SSOSession,
+  expectedPreviewHash?: string,
+): Promise<{ ok: true; record: HandshakeRecord } | { ok: false; reason: string; error?: string }> {
+  // O6 — consent-time re-validation (Phase 4 / 4B). The offer's status was
+  // checked when it was staged, but consent happens later and a publisher can
+  // withdraw, be revoked, or be suspended inside that window. Re-check the
+  // three A6 layers against what is on the row NOW; a mid-window transition
+  // fails consent rather than binding the operator to a promise that has since
+  // been retracted. The 7-day offer timeout is UI staleness only and is not
+  // this gate.
+  const statusGate = revalidateOfferStatusForConsent(db, offer.offer_id)
+  if (!statusGate.ok) {
+    console.warn('[CONNECT_OFFER] consent refused by status re-validation:', {
+      offer_id: offer.offer_id,
+      reason: statusGate.reason,
+    })
+    return { ok: false, reason: statusGate.reason, error: statusGate.error }
+  }
+
+  const prep = prepareFormationConsent({
+    offerId: offer.offer_id,
+    actorWrdeskUserId: session.wrdesk_user_id,
+    expectedPreviewHash,
+  })
+  if (!prep.ok) return { ok: false, reason: prep.reason }
+
+  const result = await handleIngestionRPC(
+    'ingestion.ingest',
+    {
+      rawInput: deserializeCapsuleToRawInput(offer.capsule_json),
+      sourceType: 'internal',
+      transportMeta: { channel_id: 'connect-offer-consent', mime_type: 'application/vnd.beap+json' },
+      formationConsent: prep.consentRef satisfies FormationConsentRef,
+    },
+    db,
+    session,
+  )
+  if (!result?.success) {
+    return {
+      ok: false,
+      reason: result?.handshake_result?.reason ?? result?.reason ?? 'INGEST_FAILED',
+      error: result?.error,
+    }
+  }
+  const record = getHandshakeRecord(db, offer.handshake_id)
+  if (!record) return { ok: false, reason: 'RECORD_NOT_CREATED' }
+  return { ok: true, record }
+}
+
+/**
+ * Row-level session authorization for single-handshake IPC reads/deletes.
+ * Fail closed (treat as not found) when there is no SSO session or the session
+ * is not a visible party on the row — same rules as handshake.list filtering.
+ */
+function assertRecordVisibleToCurrentSession(
+  record: HandshakeRecord | null | undefined,
+): { ok: true; record: HandshakeRecord } | { ok: false } {
+  if (!record) return { ok: false }
+  const session = getCurrentSession()
+  if (!session) return { ok: false }
+  if (!handshakeRowVisibilityForSession(record, session).ok) return { ok: false }
+  return { ok: true, record }
+}
+
 export async function handleHandshakeRPC(
   method: string,
   params: any,
@@ -704,20 +891,22 @@ export async function handleHandshakeRPC(
 ): Promise<any> {
   switch (method) {
     case 'handshake.queryStatus': {
-      const record = getHandshakeRecord(db, params.handshakeId)
+      const raw = getHandshakeRecord(db, params.handshakeId)
+      const gated = assertRecordVisibleToCurrentSession(raw)
       return {
         type: 'handshake-status',
-        record: record ?? null,
-        reason: record ? ReasonCode.OK : ReasonCode.HANDSHAKE_NOT_FOUND,
+        record: gated.ok ? gated.record : null,
+        reason: gated.ok ? ReasonCode.OK : ReasonCode.HANDSHAKE_NOT_FOUND,
       }
     }
 
     case 'handshake.get': {
       const { handshake_id } = params as { handshake_id: string }
       if (!handshake_id) return { error: 'handshake_id is required' }
-      const record = getHandshakeRecord(db, handshake_id)
-      if (!record) return { error: 'Handshake not found', reason: ReasonCode.HANDSHAKE_NOT_FOUND }
-      return { record }
+      const raw = getHandshakeRecord(db, handshake_id)
+      const gated = assertRecordVisibleToCurrentSession(raw)
+      if (!gated.ok) return { error: 'Handshake not found', reason: ReasonCode.HANDSHAKE_NOT_FOUND }
+      return { record: gated.record }
     }
 
     case 'handshake.getPendingP2PBeapMessages': {
@@ -782,10 +971,47 @@ export async function handleHandshakeRPC(
         try { session = requireSession() } catch (err: any) {
           return { type: 'revocation-result', success: false, reason: ReasonCode.UNAUTHENTICATED }
         }
-        await revokeHandshake(db, handshakeId, 'local-user', session.wrdesk_user_id, session, _getOidcToken)
+        // Phase 4 (Q1): declining a staged Connect offer (no record yet)
+        // consumes the offer — nothing to revoke, nothing was formed.
+        if (!getHandshakeRecord(db, handshakeId)) {
+          const offer = pendingOfferForHandshake(handshakeId)
+          if (offer) {
+            declineConnectOffer(offer.offer_id)
+            return { type: 'revocation-result', success: true, reason: ReasonCode.OK }
+          }
+        }
+        // Phase 4 (V5): silent revocation — no peer-notify capsule; the
+        // receiver-side ingress filter is the sole enforcement [VII.10.7.2].
+        await revokeHandshake(db, handshakeId, 'local-user', session.wrdesk_user_id)
         return { type: 'revocation-result', success: true, reason: ReasonCode.OK }
       } catch {
         return { type: 'revocation-result', success: false, reason: ReasonCode.INTERNAL_ERROR }
+      }
+    }
+
+    case 'handshake.deleteRevokedContent': {
+      // Phase 4 (Q8): content deletion is a SEPARATE explicit operator action —
+      // never part of revocation itself. Only valid on an already-REVOKED
+      // relationship; audit rows are never deleted (evidence persists).
+      const { handshakeId } = params
+      let session: SSOSession
+      try { session = requireSession() } catch {
+        return { type: 'revoked-content-delete-result', success: false, reason: 'UNAUTHENTICATED' }
+      }
+      try {
+        const r = deleteRevokedRelationshipContent(db, handshakeId, session.wrdesk_user_id)
+        if (!r.ok) {
+          return { type: 'revoked-content-delete-result', success: false, reason: r.reason }
+        }
+        return {
+          type: 'revoked-content-delete-result',
+          success: true,
+          reason: ReasonCode.OK,
+          blocks_deleted: r.blocks_deleted,
+          embeddings_deleted: r.embeddings_deleted,
+        }
+      } catch {
+        return { type: 'revoked-content-delete-result', success: false, reason: ReasonCode.INTERNAL_ERROR }
       }
     }
 
@@ -842,37 +1068,82 @@ export async function handleHandshakeRPC(
       if (!rebuildResult.ok) {
         return { success: false, error: rebuildResult.reason ?? 'Canonical rebuild failed', reason: 'CANONICAL_REBUILD_FAILED' }
       }
-      const canonicalValidated = { ...distribution.validated_capsule, capsule: rebuildResult.capsule }
-      const persistResult = persistRecipientHandshakeRecord(db, canonicalValidated, session)
-      if (!persistResult.success) {
-        return { success: false, error: persistResult.error, reason: persistResult.reason ?? 'PERSIST_FAILED' }
-      }
 
-      const senderIdentity = cap?.senderIdentity as { email?: string } | undefined
-      const capsuleSenderEmail = (senderIdentity?.email ?? cap?.sender_email) as string | undefined
-      if (
-        persistResult.handshake_id &&
-        capsuleSenderEmail &&
-        isSameAccountHandshakeEmails(capsuleSenderEmail, capsuleReceiverEmail)
-      ) {
-        try {
-          db.prepare(`UPDATE handshakes SET handshake_type = ? WHERE handshake_id = ?`).run('internal', persistResult.handshake_id)
-          refreshInternalHandshakePersistenceFlags(db, persistResult.handshake_id)
-        } catch (e) {
-          console.warn('[IMPORT] Could not mark handshake as internal:', e)
-        }
+      // Phase 4 (Q1) [IX.3.1]: a .beap import is an inbound INVITATION. It
+      // lands in the Connect-offer staging store — never the relationship
+      // store. The record is created only when the user consents (accept).
+      const rebuilt = rebuildResult.capsule as Record<string, any>
+      const senderIdentity = (rebuilt?.senderIdentity ?? cap?.senderIdentity) as
+        | { email?: string; iss?: string; sub?: string; wrdesk_user_id?: string }
+        | undefined
+      const capsuleSenderEmail = (senderIdentity?.email ?? rebuilt?.sender_email ?? cap?.sender_email) as string | undefined
+      const sameAccount =
+        !!capsuleSenderEmail && isSameAccountHandshakeEmails(capsuleSenderEmail, capsuleReceiverEmail)
+      const staging = stageInboundInitiate({
+        handshake_id: handshakeId,
+        capsule: rebuilt,
+        capsule_hash: (rebuilt?.capsule_hash as string) ?? '',
+        sender_email: capsuleSenderEmail ?? null,
+        sender_iss: senderIdentity?.iss ?? null,
+        sender_sub: senderIdentity?.sub ?? null,
+        sender_wrdesk_user_id: (senderIdentity?.wrdesk_user_id ?? rebuilt?.sender_wrdesk_user_id ?? null) as string | null,
+        receiver_email: capsuleReceiverEmail ?? null,
+        source_type: 'file_upload',
+        ...(sameAccount ? { profile_id_override: 'internal_device' } : {}),
+      })
+      if (!staging.staged && staging.reason !== 'duplicate') {
+        return { success: false, error: `Connect offer staging failed: ${staging.reason}`, reason: 'STAGING_FAILED' }
       }
 
       return {
         success: true,
-        handshake_id: persistResult.handshake_id,
+        staged: true,
+        offer_id: staging.offerId,
+        handshake_id: handshakeId,
+        // Display-compat: staged offers surface in the pending list; consent
+        // (accept) creates the actual record.
         state: HS.PENDING_REVIEW,
-        sender: (cap?.senderIdentity ?? cap?.sender_email) as { email?: string } | string,
+        sender: (senderIdentity ?? capsuleSenderEmail) as { email?: string } | string,
       }
     }
 
+    case 'handshake.listConnectOffers': {
+      // Suppressed offers are structurally unreachable from this surface
+      // [IX.3.1 rule 2] — listConnectOffers only reads unsuppressed verified rows.
+      try {
+        return { type: 'connect-offer-list', offers: listConnectOffers() }
+      } catch (e: any) {
+        return { type: 'connect-offer-list', offers: [], error: e?.message }
+      }
+    }
+
+    case 'handshake.consentToOffer': {
+      const { offer_id, expected_preview_hash } = params as { offer_id: string; expected_preview_hash?: string }
+      if (!offer_id) return { success: false, error: 'offer_id is required' }
+      let session: SSOSession
+      try { session = requireSession() } catch (err: any) {
+        return { success: false, error: err.message, reason: 'NO_SESSION' }
+      }
+      if (!db) return { success: false, error: 'Database unavailable', reason: 'DB_UNAVAILABLE' }
+      const offers = listConnectOffers()
+      const offer = offers.find((o) => o.offer_id === offer_id)
+      if (!offer) return { success: false, error: 'Offer not consentable', reason: 'OFFER_NOT_CONSENTABLE' }
+      const consent = await consentToStagedOffer(db, offer, session, expected_preview_hash)
+      if (!consent.ok) {
+        return { success: false, error: consent.error ?? consent.reason, reason: consent.reason }
+      }
+      return { success: true, handshake_id: consent.record.handshake_id, state: consent.record.state }
+    }
+
+    case 'handshake.declineOffer': {
+      const { offer_id } = params as { offer_id: string }
+      if (!offer_id) return { success: false, error: 'offer_id is required' }
+      const declined = declineConnectOffer(offer_id)
+      return { success: declined.ok }
+    }
+
     case 'handshake.list': {
-      const filter = params?.filter as { state?: HandshakeState; relationship_id?: string; handshake_type?: string } | undefined
+      const filter = params?.filter as { state?: HandshakeState; relationship_id?: string; same_principal?: boolean } | undefined
       let records = listHandshakeRecords(db, filter)
 
       // LAYER 2 — Pending acceptor: receiver must match current email (in addition to account isolation)
@@ -895,12 +1166,38 @@ export async function handleHandshakeRPC(
       // LAYER 3 — Account isolation: only initiator/acceptor for this SSO session; internal same-principal
       records = filterHandshakeRecordsForCurrentSession(records, session)
 
-      return { type: 'handshake-list', records }
+      // Phase 4 (Q1): staged Connect offers surface in the pending list as
+      // display-only entries (state PENDING_REVIEW, marked connect_offer_id).
+      // Consent (accept) creates the actual record; suppressed offers are
+      // structurally absent from listConnectOffers.
+      let offerRecords: HandshakeRecord[] = []
+      if (!params?.filter?.state || params.filter.state === HS.PENDING_REVIEW) {
+        try {
+          const knownIds = new Set(records.map((r) => r.handshake_id))
+          offerRecords = listConnectOffers()
+            .filter((o) => !knownIds.has(o.handshake_id))
+            .filter((o) => {
+              if (!session?.email) return true
+              const check = validateReceiverEmail(o.receiver_email, session.email)
+              return check.valid
+            })
+            .map((o) => connectOfferToDisplayRecord(o))
+        } catch (e: any) {
+          console.warn('[HANDSHAKE] Connect offer list merge failed:', e?.message)
+        }
+      }
+
+      return { type: 'handshake-list', records: [...records, ...offerRecords] }
     }
 
     case 'handshake.delete': {
       const { handshakeId } = params as { handshakeId: string }
       if (!handshakeId) return { success: false, error: 'handshakeId is required' }
+      const raw = getHandshakeRecord(db, handshakeId)
+      const gated = assertRecordVisibleToCurrentSession(raw)
+      if (!gated.ok) {
+        return { success: false, error: 'Handshake not found', reason: ReasonCode.HANDSHAKE_NOT_FOUND }
+      }
       const result = deleteHandshakeRecord(db, handshakeId)
       return result.success ? { success: true } : { success: false, error: result.error }
     }
@@ -1285,7 +1582,7 @@ export async function handleHandshakeRPC(
         profile_items: initProfileItems,
         p2p_endpoint: p2pEndpointParam,
         policy_selections: initPolicySelections,
-        handshake_type: initHandshakeType,
+        profile_id: initProfileIdParam,
         device_name: initDeviceName,
         device_role: initDeviceRole,
         counterparty_device_id: initCounterpartyDeviceIdRaw,
@@ -1303,7 +1600,12 @@ export async function handleHandshakeRPC(
         profile_items?: Array<{ profile_id: string; policy_mode?: 'inherit' | 'override'; policy?: { ai_processing_mode?: 'none' | 'local_only' | 'internal_and_cloud' } | { cloud_ai?: boolean; internal_ai?: boolean } }>
         p2p_endpoint?: string | null
         policy_selections?: { ai_processing_mode?: 'none' | 'local_only' | 'internal_and_cloud' } | { cloud_ai?: boolean; internal_ai?: boolean }
-        handshake_type?: 'internal' | 'standard'
+        /**
+         * Phase 4 (Q9): formation profile — 'internal_device' for same-principal
+         * Cross-Device pairing, omitted/'private_personal' otherwise. Replaces the
+         * eliminated `handshake_type` request discriminator.
+         */
+        profile_id?: string
         device_name?: string
         device_role?: 'host' | 'sandbox'
         counterparty_device_id?: string
@@ -1311,13 +1613,20 @@ export async function handleHandshakeRPC(
         counterparty_computer_name?: string
         /**
          * 6-digit internal pairing code for the target device. When provided (and
-         * `handshake_type === 'internal'`), the IPC handler resolves it to
+         * the profile is same-principal), the IPC handler resolves it to
          * `counterparty_device_id` + `counterparty_computer_name` via the coordination
          * service so the renderer never needs to know the peer's full instance_id.
          * Ignored when `counterparty_device_id` is already provided (legacy callers).
          */
         counterparty_pairing_code?: string
       }
+
+      // Q9: the admission situation is a profile-registry parameter.
+      const initProfileRes = resolveProfile(initProfileIdParam ?? 'private_personal', 1)
+      if (!initProfileRes.ok) {
+        return { success: false, error: `Unknown formation profile: ${initProfileIdParam}` }
+      }
+      const initSamePrincipal = initProfileRes.record.same_principal
 
       // Pairing-code routing: receiver_pairing_code is the sole peer identifier for new
       // internal initiate capsules. counterparty_device_id / counterparty_computer_name are
@@ -1331,7 +1640,7 @@ export async function handleHandshakeRPC(
         return { success: false, error: 'receiverUserId and receiverEmail are required' }
       }
 
-      if (initHandshakeType === 'internal') {
+      if (initSamePrincipal) {
         const localRelayId = getLocalDeviceIdForRelay()
         const localPairingCode = getLocalPairingCode()
         const vContract = validateInternalInitiateContract({
@@ -1352,7 +1661,7 @@ export async function handleHandshakeRPC(
       }
 
       const handshakeId = `hs-${randomUUID()}`
-      const strictInternalX25519 = initHandshakeType === 'internal'
+      const strictInternalX25519 = initSamePrincipal
       const { blocks: contextBlocks, blockPolicyMap: initBlockPolicyMap } = buildContextBlocksFromParamsWithPolicy(rawBlocks, rawMessage)
       const profileIds = initProfileIds ?? (initProfileItems?.map((i) => i.profile_id) ?? [])
       const profileBlocks = profileIds.length > 0
@@ -1379,7 +1688,7 @@ export async function handleHandshakeRPC(
       // here. Legacy callers that still pass counterparty_device_id keep that value.
       // Fail-open: null → out-of-band (email/file) delivery exactly as before.
       let resolvedReceiverDeviceId: string | undefined
-      if (initHandshakeType === 'internal' && initReceiverPairingCode && p2pConfig.use_coordination) {
+      if (initSamePrincipal && initReceiverPairingCode && p2pConfig.use_coordination) {
         if (initCounterpartyDeviceId?.trim()) {
           resolvedReceiverDeviceId = initCounterpartyDeviceId.trim()
         } else {
@@ -1430,7 +1739,7 @@ export async function handleHandshakeRPC(
         ...(p2pAuthToken ? { p2p_auth_token: p2pAuthToken } : {}),
         sender_x25519_public_key_b64: keyAgreement.sender_x25519_public_key_b64,
         sender_mlkem768_public_key_b64: keyAgreement.sender_mlkem768_public_key_b64,
-        ...(initHandshakeType === 'internal' &&
+        ...(initSamePrincipal &&
         initDeviceRole &&
         initDeviceName?.trim() &&
         initReceiverPairingCode
@@ -1472,14 +1781,18 @@ export async function handleHandshakeRPC(
         | null = null
       let relayError: string | null = null
       if (db) {
-        // Initiator persists own record via direct insert — NOT the receive pipeline.
-        // The pipeline rejects when senderId === localUserId (ownership check).
-        localResult = persistInitiatorHandshakeRecord(
+        // Phase 4 (V1): initiator-side formation through the ONE pipeline.
+        // The explicit creation act is the consent event; the record carries
+        // FormationMeta (profile / ingress_path / capture provenance).
+        localResult = formInitiatorRelationship(
           db,
           capsule,
           session,
           localBlocks,
           keypair,
+          initSamePrincipal
+            ? { capture_method: 'manual_entry', ingress_path: 'optirando_code_entry', source_reference: 'pairing_code' }
+            : { capture_method: 'assisted_email', ingress_path: 'beap_invitation', source_reference: receiverEmail ?? null },
           initPolicySelections,
           canonicalBlockPolicyMap,
           keyAgreement,
@@ -1501,13 +1814,13 @@ export async function handleHandshakeRPC(
             ? await registerHandshakeWithRelay(db, capsule.handshake_id, p2pAuthToken ?? '', receiverEmail, _getOidcToken, {
                 initiator_user_id: session.sub,
                 acceptor_user_id: coordinationAcceptorUserIdForRegistration(session, receiverEmail, receiverUserId, {
-                  explicitInternal: initHandshakeType === 'internal',
+                  explicitInternal: initSamePrincipal,
                 }),
                 initiator_email: session.email,
                 acceptor_email: receiverEmail,
-                handshake_type: initHandshakeType,
+                same_principal: initSamePrincipal,
                 ...(localRelayDeviceId ? { initiator_device_id: localRelayDeviceId } : {}),
-                ...(initHandshakeType === 'internal' && resolvedReceiverDeviceId
+                ...(initSamePrincipal && resolvedReceiverDeviceId
                   ? { acceptor_device_id: resolvedReceiverDeviceId }
                   : {}),
               })
@@ -1522,7 +1835,7 @@ export async function handleHandshakeRPC(
 
           // Internal initiates traverse the coordination relay with same-principal
           // routing; external initiates are delivered out-of-band via email/file/USB
-          // and never reach this branch (`initHandshakeType === 'internal'` gate
+          // and never reach this branch (`initSamePrincipal` gate
           // below). The relay's per-capsule_type whitelist
           // (packages/coordination-service/src/server.ts:RELAY_ALLOWED_TYPES) includes
           // `'initiate'` and an initiate-specific guard immediately after enforces
@@ -1538,7 +1851,7 @@ export async function handleHandshakeRPC(
           // `resolvePairingCodeViaCoordination` so the server guards never fire on
           // a healthy client.
           const shouldRelayInitiate =
-            initHandshakeType === 'internal' &&
+            initSamePrincipal &&
             p2pConfig.use_coordination === true &&
             !!p2pConfig.coordination_url?.trim() &&
             regResult.success
@@ -1577,7 +1890,7 @@ export async function handleHandshakeRPC(
                 console.warn('[HANDSHAKE] Internal initiate relay push threw:', relayError)
               }
             }
-          } else if (initHandshakeType === 'internal') {
+          } else if (initSamePrincipal) {
             // Internal handshake but coordination isn't configured — skip relay push silently.
             relayDelivery = 'skipped'
           }
@@ -1614,7 +1927,7 @@ export async function handleHandshakeRPC(
         profile_items: dlProfileItems,
         p2p_endpoint: dlP2PEndpointParam,
         policy_selections: dlPolicySelections,
-        handshake_type: dlHandshakeType,
+        profile_id: dlProfileIdParam,
         device_name: dlDeviceName,
         device_role: dlDeviceRole,
         counterparty_device_id: dlCounterpartyDeviceIdRaw,
@@ -1631,7 +1944,8 @@ export async function handleHandshakeRPC(
         profile_items?: Array<{ profile_id: string; policy_mode?: 'inherit' | 'override'; policy?: { ai_processing_mode?: 'none' | 'local_only' | 'internal_and_cloud' } | { cloud_ai?: boolean; internal_ai?: boolean } }>
         policy_selections?: { ai_processing_mode?: 'none' | 'local_only' | 'internal_and_cloud' } | { cloud_ai?: boolean; internal_ai?: boolean }
         p2p_endpoint?: string | null
-        handshake_type?: 'internal' | 'standard'
+        /** Phase 4 (Q9): formation profile — see `handshake.initiate`. */
+        profile_id?: string
         device_name?: string
         device_role?: 'host' | 'sandbox'
         counterparty_device_id?: string
@@ -1641,6 +1955,12 @@ export async function handleHandshakeRPC(
         counterparty_pairing_code?: string
       }
 
+      const dlProfileRes = resolveProfile(dlProfileIdParam ?? 'private_personal', 1)
+      if (!dlProfileRes.ok) {
+        return { success: false, error: `Unknown formation profile: ${dlProfileIdParam}` }
+      }
+      const dlSamePrincipal = dlProfileRes.record.same_principal
+
       const dlCounterpartyDeviceId = dlCounterpartyDeviceIdRaw
       const dlCounterpartyComputerName = dlCounterpartyComputerNameRaw
       const dlReceiverPairingCode = normalizePairingCode(dlCounterpartyPairingCode ?? null)
@@ -1649,7 +1969,7 @@ export async function handleHandshakeRPC(
         return { success: false, error: 'receiverUserId and receiverEmail are required' }
       }
 
-      if (dlHandshakeType === 'internal') {
+      if (dlSamePrincipal) {
         const localRelayIdDl = getLocalDeviceIdForRelay()
         const localPairingCodeDl = getLocalPairingCode()
         const vContractDl = validateInternalInitiateContract({
@@ -1670,7 +1990,7 @@ export async function handleHandshakeRPC(
       }
 
       const dlHandshakeId = `hs-${randomUUID()}`
-      const dlStrictInternalX25519 = dlHandshakeType === 'internal'
+      const dlStrictInternalX25519 = dlSamePrincipal
       const { blocks: dlContextBlocks, blockPolicyMap: dlBlockPolicyMap } = buildContextBlocksFromParamsWithPolicy(dlRawBlocks, dlRawMessage)
       const dlProfileIdsList = dlProfileIds ?? (dlProfileItems?.map((i) => i.profile_id) ?? [])
       const dlProfileBlocks = dlProfileIdsList.length > 0
@@ -1728,7 +2048,7 @@ export async function handleHandshakeRPC(
         ...(dlP2PAuthToken ? { p2p_auth_token: dlP2PAuthToken } : {}),
         sender_x25519_public_key_b64: dlKeyAgreement.sender_x25519_public_key_b64,
         sender_mlkem768_public_key_b64: dlKeyAgreement.sender_mlkem768_public_key_b64,
-        ...(dlHandshakeType === 'internal' &&
+        ...(dlSamePrincipal &&
         dlDeviceRole &&
         dlDeviceName?.trim() &&
         dlReceiverPairingCode
@@ -1764,12 +2084,15 @@ export async function handleHandshakeRPC(
         }
       }
 
-      const buildLocalResult = persistInitiatorHandshakeRecord(
+      const buildLocalResult = formInitiatorRelationship(
         db,
         capsule,
         session,
         localBlocks,
         keypair,
+        dlSamePrincipal
+          ? { capture_method: 'manual_entry', ingress_path: 'optirando_code_entry', source_reference: 'pairing_code' }
+          : { capture_method: 'manual_entry', ingress_path: 'optirando.ingress.file_import', source_reference: 'beap_download' },
         dlPolicySelections,
         dlCanonicalBlockPolicyMap,
         dlKeyAgreement,
@@ -1798,13 +2121,13 @@ export async function handleHandshakeRPC(
           ? registerHandshakeWithRelay(db, capsule.handshake_id, dlP2PAuthToken ?? '', dlReceiverEmail, _getOidcToken, {
               initiator_user_id: session.sub,
               acceptor_user_id: coordinationAcceptorUserIdForRegistration(session, dlReceiverEmail, dlReceiverUserId, {
-                explicitInternal: dlHandshakeType === 'internal',
+                explicitInternal: dlSamePrincipal,
               }),
               initiator_email: session.email,
               acceptor_email: dlReceiverEmail,
-              handshake_type: dlHandshakeType,
+              same_principal: dlSamePrincipal,
               ...(localRelayDeviceId ? { initiator_device_id: localRelayDeviceId } : {}),
-              ...(dlHandshakeType === 'internal' && dlCounterpartyDeviceId?.trim()
+              ...(dlSamePrincipal && dlCounterpartyDeviceId?.trim()
                 ? { acceptor_device_id: dlCounterpartyDeviceId.trim() }
                 : {}),
             })
@@ -1872,6 +2195,22 @@ export async function handleHandshakeRPC(
 
       let record = getHandshakeRecord(db, handshake_id)
       if (!record) {
+        // Phase 4 (Q1): the id may refer to a staged Connect offer — the
+        // user's accept IS the consent event; only it creates the record.
+        const offer = pendingOfferForHandshake(handshake_id)
+        if (offer) {
+          const consent = await consentToStagedOffer(db, offer, session)
+          if (!consent.ok) {
+            return {
+              success: false,
+              error: consent.error ?? `Connect offer consent failed: ${consent.reason}`,
+              reason: consent.reason,
+            }
+          }
+          record = consent.record
+        }
+      }
+      if (!record) {
         return { success: false, error: 'Handshake not found', reason: ReasonCode.HANDSHAKE_NOT_FOUND }
       }
       if (record.state !== HS.PENDING_ACCEPT && record.state !== HS.PENDING_REVIEW) {
@@ -1894,14 +2233,14 @@ export async function handleHandshakeRPC(
           ? 'receive-only'
           : requested_sharing_mode
 
-      // X25519 preflight (normal only): authoritative internal classification is
-      // `record.handshake_type === 'internal'`. Internal accepts skip this wire check;
+      // X25519 preflight (normal only): authoritative same-principal
+      // classification is the profile-derived `record.same_principal` (Q9).
+      // Same-principal accepts skip this wire check;
       // `ensureKeyAgreementKeys(..., { strictDeviceBoundX25519: true })` may call
       // `getDeviceX25519PublicKey` when the acceptor did not pass a wire key.
-      const isInternalRecord = record.handshake_type === 'internal'
+      const isInternalRecord = record.same_principal === true
       const x25519WireFromAcceptor = acceptorX25519FromHandshakeAcceptParams(params)
       const has_sender_x25519 = x25519WireFromAcceptor.length > 0
-      const record_handshake_type = record.handshake_type ?? null
       const decision = isInternalRecord
         ? 'internal_skip_x25519_preflight'
         : has_sender_x25519
@@ -1911,7 +2250,7 @@ export async function handleHandshakeRPC(
         '[HANDSHAKE][ACCEPT_MODE]',
         JSON.stringify({
           handshake_id,
-          record_handshake_type,
+          record_same_principal: isInternalRecord,
           has_sender_x25519,
           decision,
         }),
@@ -1922,7 +2261,7 @@ export async function handleHandshakeRPC(
           logNormalAcceptX25519BindingFailure({
             handshake_id,
             local_role: record.local_role,
-            handshake_type: record.handshake_type ?? null,
+            same_principal: record.same_principal === true,
             params,
             ingress: 'handleHandshakeRPC.handshake.accept.preflight',
           })
@@ -1932,12 +2271,12 @@ export async function handleHandshakeRPC(
 
       const initiatorUserId = record.initiator.wrdesk_user_id
       let initiatorEmail = record.initiator.email
-      // For internal handshakes, initiator email is always the same as session email
-      if (!initiatorEmail && record.handshake_type === 'internal') {
+      // For same-principal handshakes, initiator email is always the same as session email
+      if (!initiatorEmail && record.same_principal === true) {
         initiatorEmail = session.email
       }
 
-      if (record.handshake_type === 'internal') {
+      if (record.same_principal === true) {
         const acceptLocalDev = getLocalDeviceIdForRelay()
         if (!acceptLocalDev?.trim()) {
           return {
@@ -2210,14 +2549,14 @@ export async function handleHandshakeRPC(
             sender_mlkem768_public_key_b64: (params as any).senderMlkem768PublicKeyB64 ?? (params as any).key_agreement?.mlkem768_public_key_b64,
           },
           {
-            strictDeviceBoundX25519: record.handshake_type === 'internal',
-            forbidEphemeralX25519ForNormalAccept: record.handshake_type !== 'internal',
+            strictDeviceBoundX25519: record.same_principal === true,
+            forbidEphemeralX25519ForNormalAccept: record.same_principal !== true,
             normalAcceptX25519BindingDiag:
-              record.handshake_type !== 'internal'
+              record.same_principal !== true
                 ? {
                     handshake_id,
                     local_role: record.local_role,
-                    handshake_type: record.handshake_type ?? null,
+                    same_principal: record.same_principal === true,
                     rawParams: params,
                     ingress: 'handleHandshakeRPC.handshake.accept.ensureKeyAgreementKeys',
                   }
@@ -2275,9 +2614,11 @@ export async function handleHandshakeRPC(
         ...(p2pAuthToken ? { p2p_auth_token: p2pAuthToken } : {}),
         sender_x25519_public_key_b64: acceptKeyAgreement.sender_x25519_public_key_b64,
         sender_mlkem768_public_key_b64: acceptKeyAgreement.sender_mlkem768_public_key_b64,
+        // Phase 2: initiator full-claim identity for the signed core's initiator_id.
+        initiatorIdentity: record.initiator ?? null,
         initiatorCoordinationDeviceId: record.initiator_coordination_device_id?.trim() ?? undefined,
-        isInternalHandshake: record.handshake_type === 'internal',
-        ...(record.handshake_type === 'internal'
+        isInternalHandshake: record.same_principal === true,
+        ...(record.same_principal === true
           ? {
               senderDeviceRole: acceptDeviceRole,
               senderComputerName: acceptDeviceName,
@@ -2426,7 +2767,7 @@ export async function handleHandshakeRPC(
         }
         try {
           const accCoordDev = getLocalDeviceIdForRelay()
-          if (record.handshake_type === 'internal' && accCoordDev?.trim()) {
+          if (record.same_principal === true && accCoordDev?.trim()) {
             db.prepare(`
             UPDATE handshakes
             SET acceptor_device_name = ?,
@@ -2459,8 +2800,8 @@ export async function handleHandshakeRPC(
         }
       }
 
-      // For internal handshakes, initiator email is always the same as session email
-      if (!initiatorEmail && record.handshake_type === 'internal') {
+      // For same-principal handshakes, initiator email is always the same as session email
+      if (!initiatorEmail && record.same_principal === true) {
         initiatorEmail = session.email
       }
 
@@ -2484,7 +2825,7 @@ export async function handleHandshakeRPC(
         use_coordination: use_coordination_flag,
         initiatorEmail: initiatorEmail || 'NULL',
         p2p_endpoint: record?.p2p_endpoint || 'NULL',
-        handshake_type: record?.handshake_type,
+        same_principal: record?.same_principal === true,
         handshake_id,
       })
 
@@ -2494,7 +2835,7 @@ export async function handleHandshakeRPC(
           console.log('[HANDSHAKE-DEBUG] setImmediate(post-accept relay) started for', handshake_id)
           const p2pConfig = getP2PConfig(db)
           const regUserIds = coordinationRegistryUserIdsForSession(session, {
-            handshake_type: record.handshake_type,
+            same_principal: record.same_principal === true,
             initiator: record.initiator,
             acceptor: record.acceptor,
           })
@@ -2502,7 +2843,7 @@ export async function handleHandshakeRPC(
             initiator_user_id: regUserIds.initiator_user_id,
             acceptor_user_id: regUserIds.acceptor_user_id,
             same_principal: regUserIds.initiator_user_id === regUserIds.acceptor_user_id,
-            internal_handshake: record.handshake_type === 'internal',
+            internal_handshake: record.same_principal === true,
             p2p_endpoint: record.p2p_endpoint,
             initiatorEmail: initiatorEmail,
           })
@@ -2514,7 +2855,7 @@ export async function handleHandshakeRPC(
                 acceptor_user_id: regUserIds.acceptor_user_id,
                 initiator_email: initiatorEmail,
                 acceptor_email: session.email,
-                handshake_type: record.handshake_type ?? undefined,
+                same_principal: record.same_principal === true,
                 ...(acceptLocalDeviceId ? { acceptor_device_id: acceptLocalDeviceId } : {}),
                 ...(record.initiator_coordination_device_id?.trim()
                   ? { initiator_device_id: record.initiator_coordination_device_id.trim() }
@@ -2524,7 +2865,7 @@ export async function handleHandshakeRPC(
           console.log('[ACCEPT-6] Relay registration result:', JSON.stringify(regResult))
           if (!regResult.success) {
             console.error('[HANDSHAKE] Relay registration failed on accept:', regResult.error, '— handshake_id:', handshake_id)
-            if (record.handshake_type === 'internal') {
+            if (record.same_principal === true) {
               const reason = regResult.error ?? 'RELAY_REGISTRATION_FAILED'
               try {
                 updateHandshakeContextSyncPending(db, handshake_id, true)
@@ -2771,7 +3112,7 @@ export async function handleHandshakeRPC(
         refreshLocalDev = undefined
       }
       const refreshInternalWire = internalRelayCapsuleWireOptsFromRecord(record, refreshLocalDev)
-      if (record.handshake_type === 'internal' && getP2PConfig(db).use_coordination && !refreshInternalWire) {
+      if (record.same_principal === true && getP2PConfig(db).use_coordination && !refreshInternalWire) {
         return {
           success: false,
           error:
@@ -2788,6 +3129,8 @@ export async function handleHandshakeRPC(
         context_block_proofs: context_block_proofs ?? [],
         local_public_key: localPub,
         local_private_key: localPriv,
+        localHandshakeRole: record.local_role,
+        counterpartyIdentity: record.local_role === 'initiator' ? record.acceptor : record.initiator,
         ...(record.local_p2p_auth_token?.trim() ? { p2p_auth_token: record.local_p2p_auth_token.trim() } : {}),
         ...(refreshInternalWire ?? {}),
       })
@@ -3226,6 +3569,16 @@ export async function handleHandshakeRPC(
       }
     }
 
+    // ── Phase 3 (3B): WRC publisher resolution ──────────────────────────────
+    // Lives in main because MV3 has no DNS, and the dual-channel validation is
+    // not something a renderer may be trusted to have performed. The extension
+    // gets the client's typed result verbatim — including the distinct failure
+    // reason — so no caller has to re-derive why a code did not resolve.
+    case 'wrc.resolvePublisher': {
+      const { handleWrcResolvePublisher } = await import('../wrc/wrcRuntime')
+      return handleWrcResolvePublisher((params ?? {}) as Record<string, unknown>)
+    }
+
     // ── Phase B, PR B-8: Extension BEAP Inbox — sealed read + operational mutations ──
     // ── Phase B, PR B-8.1: cursor-based pagination helpers ──
 
@@ -3256,7 +3609,7 @@ export async function handleHandshakeRPC(
 
       type InboxRow = {
         id: string; handshake_id: string | null; subject: string | null; body_text: string | null
-        depackaged_json: string | null; received_at: number; read_status: number; archived: number
+        depackaged_json: string | null; depackaged_metadata: string | null; received_at: number; read_status: number; archived: number
         has_attachments: number; attachment_count: number; ai_analysis_json: string | null
         urgency_score: number | null; from_address: string | null; from_name: string | null
         source_type: string | null; seal: string | null; seal_input_json: string | null
@@ -3270,7 +3623,7 @@ export async function handleHandshakeRPC(
       const rows = pos
         ? sealedQuery<InboxRow>(
             db,
-            `SELECT id, handshake_id, subject, body_text, depackaged_json, received_at, read_status, archived,
+            `SELECT id, handshake_id, subject, body_text, depackaged_json, depackaged_metadata, received_at, read_status, archived,
                     has_attachments, attachment_count, ai_analysis_json, urgency_score, from_address, from_name,
                     source_type, seal, seal_input_json, seal_key_source,
                     validated_at, validation_reason
@@ -3281,10 +3634,11 @@ export async function handleHandshakeRPC(
              LIMIT ?`,
             [pos.received_at, pos.received_at, pos.id, effectiveLimit],
             'depackaged_json',
+            { keySources: inboxRowKeySources },
           )
         : sealedQuery<InboxRow>(
             db,
-            `SELECT id, handshake_id, subject, body_text, depackaged_json, received_at, read_status, archived,
+            `SELECT id, handshake_id, subject, body_text, depackaged_json, depackaged_metadata, received_at, read_status, archived,
                     has_attachments, attachment_count, ai_analysis_json, urgency_score, from_address, from_name,
                     source_type, seal, seal_input_json, seal_key_source,
                     validated_at, validation_reason
@@ -3294,6 +3648,7 @@ export async function handleHandshakeRPC(
              LIMIT ?`,
             [effectiveLimit],
             'depackaged_json',
+            { keySources: inboxRowKeySources },
           )
 
       let attStmt: { all: (id: string) => Array<{ attachment_id: string; filename: string | null; mime_type: string | null; size_bytes: number | null; content_sha256: string | null }> } | null = null
@@ -3309,6 +3664,7 @@ export async function handleHandshakeRPC(
         subject: row.subject,
         body_text: row.body_text,
         depackaged_json: row.depackaged_json,
+        depackaged_metadata: row.depackaged_metadata,
         received_at: row.received_at,
         read_status: row.read_status,
         archived: row.archived,
@@ -3348,7 +3704,7 @@ export async function handleHandshakeRPC(
 
       type InboxRow = {
         id: string; handshake_id: string | null; subject: string | null; body_text: string | null
-        depackaged_json: string | null; received_at: number; read_status: number; archived: number
+        depackaged_json: string | null; depackaged_metadata: string | null; received_at: number; read_status: number; archived: number
         has_attachments: number; attachment_count: number; ai_analysis_json: string | null
         urgency_score: number | null; from_address: string | null; from_name: string | null
         source_type: string | null; seal: string | null; seal_input_json: string | null
@@ -3358,7 +3714,7 @@ export async function handleHandshakeRPC(
       const placeholders = ids.map(() => '?').join(', ')
       const rows = sealedQuery<InboxRow>(
         db,
-        `SELECT id, handshake_id, subject, body_text, depackaged_json, received_at, read_status, archived,
+        `SELECT id, handshake_id, subject, body_text, depackaged_json, depackaged_metadata, received_at, read_status, archived,
                 has_attachments, attachment_count, ai_analysis_json, urgency_score, from_address, from_name,
                 source_type, seal, seal_input_json, seal_key_source,
                 validated_at, validation_reason
@@ -3366,6 +3722,7 @@ export async function handleHandshakeRPC(
          WHERE deleted = 0 AND id IN (${placeholders})`,
         ids,
         'depackaged_json',
+        { keySources: inboxRowKeySources },
       )
 
       let attStmt: { all: (id: string) => Array<{ attachment_id: string; filename: string | null; mime_type: string | null; size_bytes: number | null; content_sha256: string | null }> } | null = null
@@ -3381,6 +3738,7 @@ export async function handleHandshakeRPC(
         subject: row.subject,
         body_text: row.body_text,
         depackaged_json: row.depackaged_json,
+        depackaged_metadata: row.depackaged_metadata,
         received_at: row.received_at,
         read_status: row.read_status,
         archived: row.archived,
@@ -3513,7 +3871,7 @@ export function registerHandshakeRoutes(app: any, getDb: () => any): void {
       const db = getDb()
       if (!db) return res.status(503).json({ error: 'vault_locked' })
       const session = _getSession()
-      await revokeHandshake(db, req.params.id, 'local-user', session?.wrdesk_user_id, session ?? undefined, _getOidcToken)
+      await revokeHandshake(db, req.params.id, 'local-user', session?.wrdesk_user_id)
       res.json({ success: true })
     } catch (err: any) {
       res.status(500).json({ error: err?.message })

@@ -32,6 +32,7 @@ import { useChatFocusStore, WRCHAT_APPEND_ASSISTANT_EVENT } from '@ext/stores/ch
 import { useUIStore } from '@ext/stores/useUIStore'
 import { getCustomModeTriggerBarIcon, isModeDeletable, isUserOwnedCustomMode } from '@ext/shared/ui/customModeTypes'
 import { PROJECT_ICON_CHOICES } from './projectIconChoices'
+import { AiInteractionDisclosure } from '../../ai/AiInteractionDisclosure'
 import './DashboardAutomationHome.css'
 
 const SMART_SUMMARY_HTTP_BASE = 'http://127.0.0.1:51248'
@@ -574,6 +575,10 @@ Mode activated from the dashboard. Continue in WR Chat.`
 
   return (
     <div className="dash-auto-home" aria-label="Automation workspace">
+      {/* Art. 50 Layer B: disclosure/badge before Smart Summary and other AI starters. */}
+      <div style={{ marginBottom: 8 }}>
+        <AiInteractionDisclosure variant="full" />
+      </div>
       {iconPickerTarget ? (
         <ComposerIconPickerDialog
           composerId={iconPickerTarget}

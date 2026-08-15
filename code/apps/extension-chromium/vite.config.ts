@@ -8,7 +8,7 @@ import manifest from './manifest.config.ts'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 /** Build stamp (also set as import.meta.env). */
-const VITE_EXT_BUILD_STAMP = 'build044'
+const VITE_EXT_BUILD_STAMP = 'build007'
 
 export default defineConfig({
   plugins: [react(), crx({ manifest })],
@@ -16,6 +16,10 @@ export default defineConfig({
     alias: {
       '@shared': path.resolve(__dirname, '../../packages/shared/src'),
       '@shared-extension': path.resolve(__dirname, '../../packages/shared-extension/src'),
+      // [Order 02 / 2B] The rule-8 provenance alert must be the SAME component
+      // here as in the Electron surfaces — a re-implementation would be the
+      // per-surface divergence the alert contract forbids.
+      '@repo/shared-beap-ui': path.resolve(__dirname, '../../packages/shared-beap-ui/src/index.ts'),
     },
   },
   define: {
@@ -23,7 +27,7 @@ export default defineConfig({
   },
   build: {
     // Literal string required by apps/electron-vite-project/scripts/clear-build-caches.cjs (regex on vite.config.ts)
-    outDir: 'build044',
+    outDir: 'build007',
     emptyOutDir: true,
     rollupOptions: {
       // HTML entry so Vite resolves ./popup-chat.tsx inside the template and emits hashed JS (fixes blank popup).

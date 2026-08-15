@@ -45,6 +45,15 @@ import type { BeapPackageConfig, DeliveryResult } from '../services'
 import { buildSessionImportArtefact, type BuildArtefactInput } from '../../beap-builder/buildSessionImportArtefact'
 import { getHandshake } from '../../handshake/handshakeRpc'
 import { hasHandshakeKeyMaterial, handshakeRecordToRecipient } from '../../handshake/rpcTypes'
+import {
+  type AiProvenance,
+  isAiProvenance,
+  markEditorialResponsible,
+  markHumanEdited,
+  shouldApplyMachineMarking,
+  shouldApplyVisibleSendLabel,
+  withVisibleAiLabel,
+} from '@shared/aiProvenance'
 
 // =============================================================================
 // Constants
@@ -132,6 +141,13 @@ export interface ReplyComposerState {
 
   /** Available sessions for the reply session selector. */
   availableSessions: ReplySessionOption[]
+
+  /**
+   * Art. 50 provenance for the current draft.
+   * Null when the draft was written entirely by the user (no AI involved).
+   * origin 'ai' → fully AI-generated; 'mixed' → AI draft edited by user.
+   */
+  draftProvenance: AiProvenance | null
 }
 
 /** Result of a successful send. */
@@ -290,6 +306,9 @@ export function useReplyComposer(
   const [storedDraftContent, setStoredDraftContent] = useState<string>('')
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
   const [availableSessions, setAvailableSessions] = useState<ReplySessionOption[]>([])
+  const [draftProvenance, setDraftProvenance] = useState<AiProvenance | null>(null)
+  /** Tracks the exact text that was AI-generated to detect subsequent human edits. */
+  const aiGeneratedTextRef = useRef<string | null>(null)
 
   const prevMessageIdRef = useRef<string | null>(null)
 
@@ -341,6 +360,9 @@ export function useReplyComposer(
     setError(null)
     setIsGeneratingDraft(false)
     setIsSending(false)
+    // Reset provenance on message switch — no AI provenance for stored human drafts.
+    setDraftProvenance(null)
+    aiGeneratedTextRef.current = null
   }, [message?.messageId])
 
   const isDirty = draftText !== storedDraftContent
@@ -350,6 +372,14 @@ export function useReplyComposer(
   const setDraftText = useCallback((text: string) => {
     setDraftTextState(text)
     setError(null)
+    // Art. 50: if a provenance exists and the user changed the text, mark as human-edited → origin mixed.
+    setDraftProvenance((prev) => {
+      if (!prev) return prev
+      if (aiGeneratedTextRef.current !== null && text !== aiGeneratedTextRef.current) {
+        return markHumanEdited(prev, text)
+      }
+      return prev
+    })
   }, [])
 
   const addAttachment = useCallback((file: File) => {
@@ -391,6 +421,8 @@ export function useReplyComposer(
     setAttachments([])
     setSendResult(null)
     setError(null)
+    setDraftProvenance(null)
+    aiGeneratedTextRef.current = null
   }, [])
 
   // ── Send reply ────────────────────────────────────────────────────
@@ -473,6 +505,20 @@ export function useReplyComposer(
           senderFingerprint: config.senderFingerprint ?? '',
           senderFingerprintShort: config.senderFingerprintShort ?? '',
           ...(replySessionArtefact ? { sessionImportArtefact: replySessionArtefact } : {}),
+          // Art. 50: BEAP composers take editorial responsibility (coded flag, not comment-only).
+          ...(shouldApplyMachineMarking(draftProvenance)
+            ? {
+                contentProvenance: (() => {
+                  const ed = markEditorialResponsible(draftProvenance!)
+                  try {
+                    chrome.runtime?.sendMessage?.({ type: 'ART50_LOG_EDITORIAL', provenance: ed })
+                  } catch {
+                    /* best-effort log */
+                  }
+                  return ed
+                })(),
+              }
+            : {}),
         }
 
         // buildPackage validates config internally
@@ -512,8 +558,15 @@ export function useReplyComposer(
         config.onSendSuccess?.(result)
       } else {
         // ── Email reply path ─────────────────────────────────────
+        // Art. 50 Layer B: BEAP composers are editorially responsible — visible label DEFAULT ON
+        // for origin ai|mixed, but BEAP editors reviewing and sending take editorial responsibility
+        // which turns the visible label OFF while keeping MIME (shouldApplyMachineMarking stays true).
+        // Here: label is suppressed for BEAP (editorial_responsible path); MIME stays via contentProvenance.
+        const labelledContent = shouldApplyVisibleSendLabel(draftProvenance)
+          ? withVisibleAiLabel(content)
+          : content
         // Append mandatory signature BEFORE sending (not stored in draft).
-        const fullBody = content + EMAIL_SIGNATURE
+        const fullBody = labelledContent + EMAIL_SIGNATURE
         const subject  = deriveReplySubject(message)
 
         // Build a minimal package config for email delivery
@@ -528,6 +581,8 @@ export function useReplyComposer(
           attachments: [],
           senderFingerprint: config.senderFingerprint ?? '',
           senderFingerprintShort: config.senderFingerprintShort ?? '',
+          // Art. 50 Layer A: embed provenance when AI-assisted.
+          ...(shouldApplyMachineMarking(draftProvenance) ? { contentProvenance: draftProvenance! } : {}),
         }
 
         const buildResult = await buildPackage(packageConfig)
@@ -569,7 +624,7 @@ export function useReplyComposer(
     }
   }, [
     message, isSending, draftText, mode, attachments,
-    config, setDraftReply, selectedSessionId,
+    config, setDraftReply, selectedSessionId, draftProvenance,
   ])
 
   // ── AI draft generation ───────────────────────────────────────────
@@ -650,8 +705,17 @@ export function useReplyComposer(
 
       // 4. Populate composer (user can edit before sending)
       // For email mode: AI should NOT include the signature — we append at send time.
-      setDraftTextState(generated.trim())
+      const generatedTrimmed = generated.trim()
+      setDraftTextState(generatedTrimmed)
       setError(null)
+
+      // Art. 50: consume host-logged provenance from classify response — never mint here.
+      if (isAiProvenance(response.provenance)) {
+        setDraftProvenance(response.provenance)
+      } else {
+        setDraftProvenance(null)
+      }
+      aiGeneratedTextRef.current = generatedTrimmed
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       setError(`AI draft failed: ${msg}`)
@@ -673,6 +737,7 @@ export function useReplyComposer(
     isDirty,
     selectedSessionId,
     availableSessions,
+    draftProvenance,
   }
 
   const actions: ReplyComposerActions = {

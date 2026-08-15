@@ -12809,12 +12809,6 @@ function initializeExtension() {
                   // Build structured eventTagConditions array
                   const eventTagConditions: any[] = []
                   
-                  // WRCode condition
-                  const wrcodeChecked = row.querySelector('.trigger-wrcode')?.checked
-                  if (wrcodeChecked) {
-                    eventTagConditions.push({ type: 'wrcode_valid', required: true })
-                  }
-                  
                   // Sender whitelist condition
                   const senderWhitelist = row.querySelector('.trigger-sender-whitelist')?.value?.trim() || ''
                   if (senderWhitelist) {
@@ -14266,12 +14260,6 @@ function initializeExtension() {
                 
                 // Build structured eventTagConditions array
                 const eventTagConditions: any[] = []
-                
-                // WRCode condition
-                const wrcodeChecked = row.querySelector('.trigger-wrcode')?.checked
-                if (wrcodeChecked) {
-                  eventTagConditions.push({ type: 'wrcode_valid', required: true })
-                }
                 
                 // Sender whitelist condition
                 const senderWhitelist = row.querySelector('.trigger-sender-whitelist')?.value?.trim() || ''
@@ -16739,7 +16727,6 @@ function initializeExtension() {
               
               // Get existing conditions
               const existingConditions = init?.eventTagConditions || []
-              const wrcodeCondition = existingConditions.find((c: any) => c.type === 'wrcode_valid')
               const senderCondition = existingConditions.find((c: any) => c.type === 'sender_whitelist')
               
               securitySection.innerHTML = `
@@ -16747,12 +16734,9 @@ function initializeExtension() {
                   <span style="font-size:14px">🔒</span> Source & Security
                 </div>
                 <div style="display:flex;flex-direction:column;gap:8px">
-                  <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
-                    <input type="checkbox" class="trigger-wrcode" ${wrcodeCondition?.required ? 'checked' : ''} style="width:16px;height:16px;cursor:pointer">
-                    <span style="font-size:12px;color:#0f172a">Only accept WRCode-stamped emails</span>
-                  </label>
-                  <div style="font-size:12px;color:#475569;padding-left:24px;margin-bottom:4px">
-                    Requires cryptographic verification of sender authenticity.
+                  <div style="font-size:12px;color:#0f172a;background:#fff;border:1px solid #bbf7d0;border-radius:6px;padding:8px 10px">
+                    Sender authentication (SPF, DKIM, DMARC) runs automatically on every incoming
+                    message before it is depackaged. It is mandatory, so there is nothing to turn on here.
                   </div>
                   
                   <div style="margin-top:4px">
@@ -17436,8 +17420,8 @@ function initializeExtension() {
                       </label>
                       <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
                         <input type="checkbox" class="trigger-sanitize-remove-boilerplate" ${init?.sanitizeRemoveBoilerplate ? 'checked' : ''} style="margin:0">
-                        <span style="font-size:10px;color:#0f172a">Remove boilerplate</span>
-                        <span title="Try to remove common AI boilerplate phrases like 'As an AI language model...' or 'I hope this helps!'" style="font-size:8px;opacity:0.5;cursor:help;background:rgba(255,255,255,.1);padding:0 3px;border-radius:50%">?</span>
+                        <span style="font-size:10px;color:#0f172a">Remove layout boilerplate</span>
+                        <span title="Remove repeated UI layout boilerplate (headers/footers). Does NOT remove AI self-disclosure phrases like 'As an AI...' — those are required under EU AI Act Art. 50." style="font-size:8px;opacity:0.5;cursor:help;background:rgba(255,255,255,.1);padding:0 3px;border-radius:50%">?</span>
                       </label>
                     </div>
                   </div>
@@ -20314,10 +20298,6 @@ function initializeExtension() {
                       // Restore eventTagConditions
                       if (trigger.eventTagConditions) {
                         trigger.eventTagConditions.forEach((cond: any) => {
-                          if (cond.type === 'wrcode_valid') {
-                            const wrcodeCheck = row.querySelector('.trigger-wrcode') as HTMLInputElement
-                            if (wrcodeCheck) wrcodeCheck.checked = true
-                          }
                           if (cond.type === 'sender_whitelist' && cond.allowedSenders) {
                             const senderInput = row.querySelector('.trigger-sender-whitelist') as HTMLInputElement
                             if (senderInput) senderInput.value = cond.allowedSenders.join(', ')
@@ -23992,7 +23972,6 @@ function initializeExtension() {
             trigger.emails = row.querySelector('.trigger-emails')?.value || ''
             trigger.keywords = row.querySelector('.trigger-keywords')?.value || ''
             trigger.websiteFilter = row.querySelector('.trigger-website')?.value || ''
-            trigger.wrcodeMatch = row.querySelector('.trigger-wrcode')?.value || ''
             trigger.workflowId = row.querySelector('.trigger-workflow')?.value || ''
             trigger.command = row.querySelector('.trigger-command')?.value || ''
             
@@ -27863,11 +27842,23 @@ ${pageText}
 
       const download = (name: string, content: string, mime='application/octet-stream') => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([content], {type:mime})); a.download=name; a.click(); URL.revokeObjectURL(a.href) }
 
-      ;(drawer.querySelector('#export-json') as HTMLButtonElement)?.addEventListener('click', ()=> download(`session-${item.id}.json`, JSON.stringify(item, null, 2), 'application/json'))
+      ;(drawer.querySelector('#export-json') as HTMLButtonElement)?.addEventListener('click', ()=> {
+        const exportItem: Record<string, unknown> = { ...item }
+        if (item.aiRootCause || item.aiSteps) {
+          // Carrier-only: never invent model_id / generated_at / content_sha256 at export time.
+          exportItem._aiProvenance = {
+            marking_scheme: 'optirando-prov/1-carrier-only',
+            synthetic: true,
+            modality: 'text',
+            fields: ['aiRootCause', 'aiSteps'],
+          }
+        }
+        download(`session-${item.id}.json`, JSON.stringify(exportItem, null, 2), 'application/json')
+      })
 
       ;(drawer.querySelector('#export-md') as HTMLButtonElement)?.addEventListener('click', ()=> {
 
-        const md = `# ${item.title}\n\n- Type: ${item.type}\n- Status: ${item.status}\n- Duration: ${fmtDur(item.durationSec)}\n- Confidence: ${item.confidencePct ?? '-'}%\n\n## Root Cause\n${item.aiRootCause||''}\n\n## Steps\n${item.aiSteps||''}`
+        const md = `<!-- AI-generated content (EU AI Act Art. 50) -->\n# ${item.title}\n\n- Type: ${item.type}\n- Status: ${item.status}\n- Duration: ${fmtDur(item.durationSec)}\n- Confidence: ${item.confidencePct ?? '-'}%\n\n> [AI-generated] The Root Cause and Steps below were generated by an AI system.\n\n## Root Cause\n${item.aiRootCause||''}\n\n## Steps\n${item.aiSteps||''}`
 
         download(`session-${item.id}.md`, md, 'text/markdown')
 
@@ -27879,7 +27870,8 @@ ${pageText}
 
         if (!w) return
 
-        w.document.write(`<pre style="font-family:ui-monospace, SFMono-Regular, Menlo, monospace; white-space:pre-wrap;">${(item.title||'')+"\n\n"+(item.aiRootCause||'')+"\n\n"+(item.aiSteps||'')}</pre>`)
+        const aiLabel = '[AI-generated]\n'
+        w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="ai-generated" content="true"><title>${item.title||'Session'}</title></head><body><pre style="font-family:ui-monospace, SFMono-Regular, Menlo, monospace; white-space:pre-wrap;">${aiLabel}${(item.title||'')+"\n\n"+(item.aiRootCause||'')+"\n\n"+(item.aiSteps||'')}</pre></body></html>`)
 
         w.document.close(); w.focus(); w.print()
 
@@ -32159,7 +32151,7 @@ ${pageText}
                   type: 'VAULT_RPC',
                   id,
                   method: 'handshake.list',
-                  params: { filter: { state: 'ACTIVE', handshake_type: 'internal' } },
+                  params: { filter: { state: 'ACTIVE', same_principal: true } },
                 },
                 (response) => {
                   resolve((response as Record<string, unknown>) ?? null)

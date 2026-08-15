@@ -42,7 +42,7 @@ import { resetP2pInferenceFlagsForTests } from '../p2pInferenceFlags'
 function baseHS() {
   return {
     handshake_id: 'hs-so-1',
-    handshake_type: 'internal' as const,
+    same_principal: true as const,
     state: 'ACTIVE' as const,
     local_role: 'initiator' as const,
     initiator_device_role: 'sandbox' as const,

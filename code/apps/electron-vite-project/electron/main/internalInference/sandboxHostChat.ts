@@ -4,6 +4,7 @@
  * INV-HOSTAI-FROZEN: trust/role/policy unchanged — only transport swapped.
  */
 
+import type { AiProvenance } from '../../../../../packages/shared/src/aiProvenance'
 import { getHandshakeRecord } from '../handshake/db'
 import { getHandshakeDbForInternalInference } from './dbAccess'
 import { InternalInferenceErrorCode } from './errors'
@@ -19,7 +20,7 @@ export interface SandboxHostChatMessage {
 }
 
 export type SandboxHostChatResult =
-  | { ok: true; request_id: string; output: string; model: string; duration_ms?: number }
+  | { ok: true; request_id: string; output: string; model: string; duration_ms?: number; provenance?: AiProvenance }
   | { ok: false; code: string; message: string }
 
 const DEFAULT_INTERNAL_INFERENCE_TIMEOUT_MS = 120_000
@@ -71,7 +72,7 @@ export async function runSandboxHostInferenceChat(params: {
       if (record && record.state !== 'ACTIVE') {
         return { ok: false, code: ar.code, message: 'not active' }
       }
-      if (record?.handshake_type !== 'internal') {
+      if (record?.same_principal !== true) {
         return { ok: false, code: ar.code, message: 'not internal' }
       }
     }
@@ -171,6 +172,7 @@ export async function runSandboxHostInferenceChat(params: {
       output: pr.output,
       model: pr.model ?? params.model ?? 'host',
       duration_ms: pr.duration_ms,
+      ...(pr.provenance !== undefined ? { provenance: pr.provenance } : {}),
     }
   } catch (e: any) {
     const code = (e && e.code) || InternalInferenceErrorCode.INTERNAL_INFERENCE_FAILED

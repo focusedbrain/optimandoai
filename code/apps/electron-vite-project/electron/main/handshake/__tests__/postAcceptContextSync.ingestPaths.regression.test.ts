@@ -28,7 +28,8 @@ import { createHandshakeTestDb } from './handshakeTestDb'
 import { migrateIngestionTables } from '../../ingestion/persistenceDb'
 import { handleIngestionRPC } from '../../ingestion/ipc'
 import { getHandshakeRecord } from '../db'
-import { persistInitiatorHandshakeRecord } from '../initiatorPersist'
+import { formInitiatorRelationship, setConnectOfferDbProvider } from '../formationPipeline'
+import Database from 'better-sqlite3'
 import { processCoordinationInboundCapsuleForTest } from '../../p2p/coordinationWs'
 import { getNextStateAfterInboundContextSync } from '../contextSyncActiveGate'
 import type { SSOSession } from '../types'
@@ -73,26 +74,35 @@ describe('post-accept initial context_sync — ingest path regressions', () => {
   let senderDb: ReturnType<typeof createHandshakeTestDb>
   let receiverDb: ReturnType<typeof createHandshakeTestDb>
   let vaultStatusSpy: ReturnType<typeof vi.spyOn>
+  let stagingDb: any
 
   beforeEach(() => {
     senderDb = createHandshakeTestDb()
     receiverDb = createHandshakeTestDb()
     migrateIngestionTables(senderDb)
     migrateIngestionTables(receiverDb)
+    stagingDb = new Database(':memory:')
+    setConnectOfferDbProvider(() => stagingDb)
     vaultStatusSpy = vi.spyOn(vaultService, 'getStatus').mockReturnValue({ isUnlocked: true } as any)
   })
 
   afterEach(() => {
     vaultStatusSpy.mockRestore()
+    setConnectOfferDbProvider(null)
+    try { stagingDb?.close() } catch { /* noop */ }
   })
 
-  /** Two machines: initiator row on senderDb via persistInitiatorHandshakeRecord; receiver ingests initiate on receiverDb. */
+  /** Two machines: initiator row on senderDb via the ONE formation pipeline; receiver ingests initiate on receiverDb (staged as a Connect offer). */
   async function seedCrossPrincipalInitiate(sender: SSOSession, receiver: SSOSession) {
     const { capsule: initiate, keypair } = buildInitiateCapsuleWithKeypair(sender, {
       receiverUserId: receiver.wrdesk_user_id,
       receiverEmail: receiver.email,
     })
-    const persisted = persistInitiatorHandshakeRecord(senderDb, initiate, sender, [], keypair)
+    const persisted = formInitiatorRelationship(senderDb, initiate, sender, [], keypair, {
+      capture_method: 'assisted_email',
+      ingress_path: 'beap_invitation',
+      source_reference: receiver.email,
+    })
     expect(persisted.success).toBe(true)
 
     const recvRes = await submitCapsuleJson(JSON.stringify(initiate), receiverDb, receiver)

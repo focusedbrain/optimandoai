@@ -41,12 +41,24 @@ import {
   type ParseOut,
 } from './depackageModel'
 import { walkProviderStructured } from './providerStructuredWalker'
-import { buildEnvelopeFromHeaders, threadingFromHeaders, type DisplayEnvelope, type ThreadingHints } from './displayEnvelope'
+import {
+  buildEnvelopeFromHeaders,
+  channelAuthenticationFromHeaderBlock,
+  threadingFromHeaders,
+  type ChannelAuthenticationMaterial,
+  type DisplayEnvelope,
+  type ThreadingHints,
+} from './displayEnvelope'
 
 // Re-exported for back-compat with existing importers.
 export { DepackageFailure } from './depackageModel'
 export type { DepackageFailureCode, DepackageLimits, Leaf, ParseOut } from './depackageModel'
-export type { DisplayEnvelope, EnvelopeAddress, ThreadingHints } from './displayEnvelope'
+export type {
+  ChannelAuthenticationMaterial,
+  DisplayEnvelope,
+  EnvelopeAddress,
+  ThreadingHints,
+} from './displayEnvelope'
 
 // ── Custody + opaque channels ────────────────────────────────────────────────
 
@@ -76,9 +88,9 @@ export interface OpaquePackage {
 // ── Typed result union ───────────────────────────────────────────────────────
 
 export type DepackageEmailResult =
-  | { readonly ok: true; readonly type: 'plain'; readonly safeText: SafeTextV1; readonly artifacts: readonly SealedArtifact[]; readonly displayEnvelope: DisplayEnvelope; readonly threadingHints: ThreadingHints }
-  | { readonly ok: true; readonly type: 'beap-carrier'; readonly packages: readonly OpaquePackage[]; readonly carrierSafeText?: SafeTextV1; readonly artifacts: readonly SealedArtifact[]; readonly displayEnvelope: DisplayEnvelope; readonly threadingHints: ThreadingHints }
-  | { readonly ok: true; readonly type: 'mixed'; readonly packages: readonly OpaquePackage[]; readonly safeText: SafeTextV1; readonly artifacts: readonly SealedArtifact[]; readonly displayEnvelope: DisplayEnvelope; readonly threadingHints: ThreadingHints }
+  | { readonly ok: true; readonly type: 'plain'; readonly safeText: SafeTextV1; readonly artifacts: readonly SealedArtifact[]; readonly displayEnvelope: DisplayEnvelope; readonly threadingHints: ThreadingHints; readonly channelAuthentication?: ChannelAuthenticationMaterial }
+  | { readonly ok: true; readonly type: 'beap-carrier'; readonly packages: readonly OpaquePackage[]; readonly carrierSafeText?: SafeTextV1; readonly artifacts: readonly SealedArtifact[]; readonly displayEnvelope: DisplayEnvelope; readonly threadingHints: ThreadingHints; readonly channelAuthentication?: ChannelAuthenticationMaterial }
+  | { readonly ok: true; readonly type: 'mixed'; readonly packages: readonly OpaquePackage[]; readonly safeText: SafeTextV1; readonly artifacts: readonly SealedArtifact[]; readonly displayEnvelope: DisplayEnvelope; readonly threadingHints: ThreadingHints; readonly channelAuthentication?: ChannelAuthenticationMaterial }
   | { readonly ok: false; readonly code: DepackageFailureCode; readonly message: string }
 
 // ── Bounded MIME parse (recursive, fail-closed) ──────────────────────────────
@@ -206,6 +218,9 @@ function hardenedParse(input: Buffer, limits?: DepackageLimits): ParseOut {
     leaves: [],
     displayEnvelope,
     threadingHints: threadingFromHeaders(headers),
+    // CPR material [IX.3.1]: read from the header BLOCK, not the collapsed map —
+    // a forwarded message carries one `Authentication-Results` per hop.
+    channelAuthentication: channelAuthenticationFromHeaderBlock(headerBlock, displayEnvelope),
   }
   parseEntity(body, headers, out, 0, maxInput)
   return out
@@ -404,6 +419,7 @@ function buildResultFromParse(parsed: ParseOut, sandboxPubB64: string): Depackag
 
   const displayEnvelope = parsed.displayEnvelope
   const threadingHints = parsed.threadingHints
+  const channelAuthentication = parsed.channelAuthentication
 
   // Carrier packages travel in the opaque channel and must NOT be sealed;
   // everything else (HTML, attachments) is custody-sealed. Leaves consumed as
@@ -420,7 +436,7 @@ function buildResultFromParse(parsed: ParseOut, sandboxPubB64: string): Depackag
       plainTextBodyRaw: bodyText,
       attachmentBlobIds: artifacts.map((a) => a.blob_id),
     })
-    return { ok: true, type: 'plain', safeText: rawSafeText, artifacts, displayEnvelope, threadingHints }
+    return { ok: true, type: 'plain', safeText: rawSafeText, artifacts, displayEnvelope, threadingHints, channelAuthentication }
   }
 
   const artifacts = sealArtifacts(sealLeaves, sandboxPubB64)
@@ -430,14 +446,14 @@ function buildResultFromParse(parsed: ParseOut, sandboxPubB64: string): Depackag
       plainTextBodyRaw: bodyText,
       attachmentBlobIds: artifacts.map((a) => a.blob_id),
     })
-    return { ok: true, type: 'mixed', packages, safeText: rawSafeText, artifacts, displayEnvelope, threadingHints }
+    return { ok: true, type: 'mixed', packages, safeText: rawSafeText, artifacts, displayEnvelope, threadingHints, channelAuthentication }
   }
   const rawCarrierSafeText = constructSafeText({
     subjectRaw: parsed.subject,
     plainTextBodyRaw: '',
     attachmentBlobIds: artifacts.map((a) => a.blob_id),
   })
-  return { ok: true, type: 'beap-carrier', packages, carrierSafeText: rawCarrierSafeText, artifacts, displayEnvelope, threadingHints }
+  return { ok: true, type: 'beap-carrier', packages, carrierSafeText: rawCarrierSafeText, artifacts, displayEnvelope, threadingHints, channelAuthentication }
 }
 
 function toFailureResult(err: unknown): DepackageEmailResult {

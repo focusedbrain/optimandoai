@@ -40,3 +40,18 @@ code/packages/ingestion-core/src/*.js
 
 # Chromium extension Vite outDir (versioned per release, e.g. build55647)
 code/apps/extension-chromium/build*/
+
+# graphify generated outputs + caches (regenerate with `graphify` / graphifyy)
+# Keep hand-authored: .graphifyignore, code/.graphifyignore, .cursor/rules/graphify.mdc
+graphify-out/
+code/graphify-out/
+
+# Cursor tooling artefacts (agent state, dumps). The Graphify↔Cursor
+# integration is hand-authored and must stay visible: the always-on rule in
+# .cursor/rules/ and, when used, .cursor/mcp.json.
+.cursor/*
+!.cursor/rules/
+!.cursor/mcp.json
+
+# Accidental vitest JSON dumps (not source)
+code/phase2-before-native.json

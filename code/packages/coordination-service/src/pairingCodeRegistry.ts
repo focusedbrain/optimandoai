@@ -14,6 +14,24 @@
  *     the code "482917"; lookups are always scoped to `user_id`.
  *
  * Persistence: same SQLite store as `handshakeRegistry`.
+ *
+ * IDENTIFIER-CLASS CARVE-OUT (3B.6) — deliberately outside P11, and NOT a
+ * template for the WRC resolution client's caches.
+ *
+ * A pairing code is a short-lived, per-user, REASSIGNABLE routing token: it is
+ * deleted on regeneration, may collide across users, and means nothing outside
+ * one account. That is why this registry deletes rows and reuses values, which
+ * would be a defect anywhere near a WR publisher part.
+ *
+ * A WR publisher part is the opposite on every axis: globally unique, randomly
+ * assigned, collision-checked, and recorded insert-only in an append-only
+ * ledger with no DELETE path in schema or code, never reassigned (WRC Registry
+ * API Contract §1.2). The client-side stores under
+ * `electron/main/wrc/resolvedRecordStore.ts` are caches of that ledger and may
+ * be evicted, but the epoch floor they carry only ever moves upward.
+ *
+ * Do not consolidate the two: they share a shape and nothing else. See the
+ * matching boundary note in `@repo/ingestion-core`'s `wrCode.ts`.
  */
 
 import type { StoreAdapter } from './store.js'

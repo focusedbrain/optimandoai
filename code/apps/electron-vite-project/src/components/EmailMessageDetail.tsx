@@ -4,6 +4,10 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import {
+  ChannelProvenanceAlert,
+  channelProvenanceAlertRecordFromUnknown,
+} from '@repo/shared-beap-ui'
 import type { InboxMessage } from '../stores/useEmailInboxStore'
 import { useEmailInboxStore } from '../stores/useEmailInboxStore'
 import InboxAttachmentRow from './InboxAttachmentRow'
@@ -420,6 +424,11 @@ export default function EmailMessageDetail({
       return null
     }
   }, [message?.depackaged_metadata])
+
+  const channelProvenanceAlertRecord = useMemo(
+    () => channelProvenanceAlertRecordFromUnknown(parsedDepackagedMeta),
+    [parsedDepackagedMeta],
+  )
 
   const parsedPackage = useMemo(() => {
     if (!message?.beap_package_json) return null
@@ -1223,6 +1232,7 @@ export default function EmailMessageDetail({
           orchestratorMode === 'sandbox' ||
           (internalSandboxListReady && authoritativeDeviceInternalRole === 'sandbox')
         }
+        channelProvenanceRecord={channelProvenanceAlertRecord}
       />
       <SandboxLinkInfoDialog
         isOpen={linkSandboxInfoOpen}
@@ -1428,6 +1438,11 @@ export default function EmailMessageDetail({
             <div>{formatDate(message.received_at)}</div>
           </div>
         </div>
+
+        <ChannelProvenanceAlert
+          record={channelProvenanceAlertRecord}
+          surface="electron-email-message-detail"
+        />
 
         {/* Body — pBEAP/qBEAP split only for real native BEAP; sandbox clones use depackaged-style body like Host depackaged rows */}
         <div style={{ marginBottom: 20 }}>

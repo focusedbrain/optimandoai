@@ -14,6 +14,7 @@ import path from 'node:path'
 import { captureScreenshot } from '../lmgtfy/capture'
 import type { Selection } from '../lmgtfy/overlay'
 import type { ChatMessage } from '../main/llm/types'
+import type { AiProvenance } from '../../../../packages/shared/src/aiProvenance'
 import {
   WATCHDOG_SYSTEM_PROMPT,
   extractScamWatchdogScanPromptFromLegacySearchFocus,
@@ -640,10 +641,10 @@ export class WatchdogService {
   }
 
   /**
-   * One-shot workspace summary: same multi-display + DOM capture as {@link runScan}, different system prompt; returns plain text.
-   * Excludes from running concurrently with {@link runScan} (shared extension DOM handshake).
+   * One-shot workspace summary: same multi-display + DOM capture as {@link runScan}, different system prompt.
+   * Returns `{ text, provenance }` — provenance is logged inside `localLlmManager.chat()`.
    */
-  async runSmartSummary(): Promise<string> {
+  async runSmartSummary(): Promise<{ text: string; provenance: AiProvenance | null }> {
     if (this.scanInFlight || this.smartSummaryInFlight) {
       throw new Error('Capture pipeline busy')
     }
@@ -686,9 +687,9 @@ export class WatchdogService {
       this.deletePaths(capturePaths)
 
       if (!responseText) {
-        return 'No summary available.'
+        return { text: 'No summary available.', provenance: chatRes?.provenance ?? null }
       }
-      return responseText
+      return { text: responseText, provenance: chatRes?.provenance ?? null }
     } catch (e) {
       console.warn('[SmartSummary] failed:', e instanceof Error ? e.message : e)
       const paths = [...this.capturePathsBuffer]

@@ -346,7 +346,7 @@ const HandshakeListItem: React.FC<{
           <div>
             <div style={{ fontSize: '12px', fontWeight: 600, color: isProfessional ? '#1f2937' : 'white', display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '4px' }}>
               {handshake.counterparty_email}
-              {handshake.handshake_type === 'internal' && (
+              {handshake.same_principal === true && (
                 <span style={{ fontSize: '10px', padding: '1px 6px', borderRadius: '4px', background: 'rgba(83,74,183,0.1)', color: '#534AB7', marginLeft: '6px' }}>
                   Internal
                 </span>

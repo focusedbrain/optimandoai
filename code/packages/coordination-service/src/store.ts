@@ -35,6 +35,8 @@ CREATE TABLE IF NOT EXISTS coordination_handshake_registry (
   acceptor_device_role TEXT,
   initiator_device_name TEXT,
   acceptor_device_name TEXT,
+  initiator_iss TEXT,
+  acceptor_iss TEXT,
   created_at TEXT NOT NULL
 );
 
@@ -99,6 +101,11 @@ function applyHandshakeRegistryMigrations(db: Database.Database): void {
     'acceptor_device_role',
     'initiator_device_name',
     'acceptor_device_name',
+    // Full-claim identity binding [VII.3.8–3.10]: issuer persisted alongside sub.
+    // Additive with lazy backfill — rows without iss re-bind on the next
+    // register-handshake from each principal; first recorded iss wins.
+    'initiator_iss',
+    'acceptor_iss',
   ] as const) {
     if (!names.has(col)) {
       db.exec(
