@@ -743,7 +743,25 @@ export function handleP2pDcInferenceCapabilitiesAsSandbox(
     )
     return false
   }
-  const sdr = deriveInternalHostAiPeerRoles(srec, getInstanceId().trim())
+  // Same service-RPC eligibility gate as the Host handler (ACTIVE internal same-principal
+  // identity-complete Host↔Sandbox). Role derive alone is not sufficient.
+  const sar = assertRecordForServiceRpc(srec)
+  if (!sar.ok) {
+    console.log(
+      `[HOST_AI_CAPS_RESPONSE_REJECT] ${JSON.stringify({
+        response_type: wireType,
+        handshake_id: handshakeId.trim(),
+        session_id: p2pSessionId.trim(),
+        correlation_id: ridEarly || null,
+        models_count: null,
+        reject_reason: 'service_rpc_ineligible',
+        policy_code: sar.code,
+        dc_phase: getSessionState(handshakeId.trim())?.phase ?? null,
+      })}`,
+    )
+    return false
+  }
+  const sdr = deriveInternalHostAiPeerRoles(sar.record, getInstanceId().trim())
   if (!sdr.ok || sdr.localRole !== 'sandbox') {
     console.log(
       `[HOST_AI_CAPS_RESPONSE_REJECT] ${JSON.stringify({

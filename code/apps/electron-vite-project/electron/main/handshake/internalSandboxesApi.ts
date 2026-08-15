@@ -7,6 +7,11 @@ import { listHandshakeRecords } from './db'
 import { getQueueStatus } from './outboundQueue'
 import { getP2PHealth } from '../p2p/p2pHealth'
 import { handshakeRowVisibilityForSession } from './handshakeAccountIsolation'
+import { getInstanceId } from '../orchestrator/orchestratorModeStore'
+import {
+  assertRecordForServiceRpc,
+  deriveInternalHostAiPeerRoles,
+} from '../internalInference/policy'
 import { HandshakeState, type HandshakeRecord, type SSOSession } from './types'
 
 /** P2P-ingested inbox rows (no IMAP `account_id`); see `beapEmailIngestion`. */
@@ -121,11 +126,18 @@ function sessionIsPartyOnVisibleHandshakeRow(record: HandshakeRecord, session: S
   return handshakeRowVisibilityForSession(record, session).ok
 }
 
+/**
+ * Canonical Host-AI role mapping (coordination device ids), not `local_role`.
+ * `local_role` is a per-device view that can disagree with the ledger.
+ */
+function derivedHostAiRoles(record: HandshakeRecord) {
+  return deriveInternalHostAiPeerRoles(record, getInstanceId().trim())
+}
+
+/** This device is Host and peer is Sandbox per {@link deriveInternalHostAiPeerRoles}. */
 function isLocalHostPeerSandbox(record: HandshakeRecord): boolean {
-  if (record.local_role === 'initiator') {
-    return record.initiator_device_role === 'host' && record.acceptor_device_role === 'sandbox'
-  }
-  return record.acceptor_device_role === 'host' && record.initiator_device_role === 'sandbox'
+  const dr = derivedHostAiRoles(record)
+  return dr.ok && dr.localRole === 'host' && dr.peerRole === 'sandbox'
 }
 
 /**
@@ -133,23 +145,27 @@ function isLocalHostPeerSandbox(record: HandshakeRecord): boolean {
  * Used to suppress Host-only Sandbox UI even when `orchestratorMode` is mis-set to "host".
  */
 function isLocalSandboxPeerHost(record: HandshakeRecord): boolean {
-  if (record.local_role === 'initiator') {
-    return record.initiator_device_role === 'sandbox' && record.acceptor_device_role === 'host'
-  }
-  return record.acceptor_device_role === 'sandbox' && record.initiator_device_role === 'host'
+  const dr = derivedHostAiRoles(record)
+  return dr.ok && dr.localRole === 'sandbox' && dr.peerRole === 'host'
 }
 
 function peerCoordinationOrLegacyId(record: HandshakeRecord): string {
-  if (record.local_role === 'initiator') {
-    return normId(record.acceptor_coordination_device_id) || record.internal_peer_device_id?.trim() || 'unknown / pending repair'
+  const dr = derivedHostAiRoles(record)
+  if (dr.ok && dr.peerCoordinationDeviceId) {
+    return dr.peerCoordinationDeviceId
   }
-  return normId(record.initiator_coordination_device_id) || record.internal_peer_device_id?.trim() || 'unknown / pending repair'
+  return record.internal_peer_device_id?.trim() || 'unknown / pending repair'
 }
 
 function peerDeviceName(record: HandshakeRecord): string | null {
-  const n =
-    record.local_role === 'initiator' ? record.acceptor_device_name : record.initiator_device_name
-  return n?.trim() || null
+  const dr = derivedHostAiRoles(record)
+  if (dr.ok) {
+    const peerIsAcceptor =
+      normId(record.acceptor_coordination_device_id) === dr.peerCoordinationDeviceId
+    const n = peerIsAcceptor ? record.acceptor_device_name : record.initiator_device_name
+    return n?.trim() || null
+  }
+  return null
 }
 
 function deriveDeliveryStatus(db: any, handshakeId: string): InternalSandboxListEntry['last_known_delivery_status'] {
@@ -199,17 +215,17 @@ export function isBeapCloneEligibleForRecord(
 
 /**
  * Exported for `beapInbox` sandbox clone: ACTIVE internal host↔sandbox, same account, identity complete.
+ * Uses {@link assertRecordForServiceRpc} + canonical role derive (not `local_role`).
  */
 export function isEligibleActiveInternalHostSandboxRecord(
   record: HandshakeRecord,
   session: SSOSession,
 ): boolean {
-  if (record.state !== HandshakeState.ACTIVE) return false
-  if (record.handshake_type !== 'internal') return false
   if (!sessionIsPartyOnVisibleHandshakeRow(record, session)) return false
-  if (!isLocalHostPeerSandbox(record)) return false
-  if (!record.internal_coordination_identity_complete) return false
-  return true
+  const ar = assertRecordForServiceRpc(record)
+  if (!ar.ok) return false
+  const dr = deriveInternalHostAiPeerRoles(ar.record, getInstanceId().trim())
+  return dr.ok && dr.localRole === 'host' && dr.peerRole === 'sandbox'
 }
 
 /**
