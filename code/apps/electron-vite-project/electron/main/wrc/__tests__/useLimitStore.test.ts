@@ -24,6 +24,7 @@ import {
 import { runWrCodeGatePipeline } from '../gatePipeline'
 import { deriveEntryDesignator, useLimitEntryKey } from '../entryDesignator'
 import { createWrcGateDeps } from '../gatePipelineAdapter'
+import { WrcDirectoryClient } from '../namespaceDirectory'
 import { WrcResolutionClient } from '../resolutionClient'
 import { WrcResolvedRecordStore, createMemoryPersistence } from '../resolvedRecordStore'
 import { buildPublisherFixture, createFixtureTransport } from './wrcFixtures'
@@ -212,13 +213,19 @@ const P_REF = 'PWR7X4K9B2M3C'
 const NOW = 1_754_650_100
 
 function pipelineDeps(store: WrcUseLimitStore, nowS: () => number) {
+  const transport = createFixtureTransport(FX)
   const client = new WrcResolutionClient({
-    transport: createFixtureTransport(FX),
+    transport,
     store: new WrcResolvedRecordStore(createMemoryPersistence()),
     ingestPublicKey: FX.ingest.pub,
     now: nowS,
   })
-  return createWrcGateDeps(client, { useLimits: store, now: nowS })
+  const directory = new WrcDirectoryClient({
+    transport,
+    operator: { kid: FX.operator.kid, pub: FX.operator.pub },
+    now: nowS,
+  })
+  return createWrcGateDeps(client, { useLimits: store, now: nowS, directory })
 }
 
 describe('one-time-use through the six gates [XVI.7.6 + XVI.8.4]', () => {

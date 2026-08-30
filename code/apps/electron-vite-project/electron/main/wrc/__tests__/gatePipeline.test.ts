@@ -27,9 +27,14 @@ import {
   type WrCodeReceiverIdentity,
 } from '../gatePipeline'
 import { createWrcGateDeps } from '../gatePipelineAdapter'
+import { WrcDirectoryClient } from '../namespaceDirectory'
 import { WrcResolutionClient } from '../resolutionClient'
 import { WrcResolvedRecordStore, createMemoryPersistence } from '../resolvedRecordStore'
-import { buildPublisherFixture, createFixtureTransport } from './wrcFixtures'
+import {
+  buildPublisherFixture,
+  createFixtureTransport,
+  type FixtureTransportOverrides,
+} from './wrcFixtures'
 import type { WrcTransport } from '../wrcTransport'
 
 // ── Vectors (Annex XVI v1.95 A.2 publisher / entry, fixture-aligned) ──────────
@@ -458,18 +463,32 @@ describe('Gate 6 — capsule admission [XVI.7.6, P15]', () => {
 
 // ── End-to-end over the interim adapter + contract-faithful double ────────────
 
-function clientFor(transport: WrcTransport) {
-  return new WrcResolutionClient({
+/**
+ * Adapter deps over one fixture: the real resolution client for the Gate-3
+ * entry chain plus the real §XVI.6.4 directory client for Gate 2 (Run 4).
+ */
+function adapterDeps(
+  fx: ReturnType<typeof buildPublisherFixture>,
+  overrides: FixtureTransportOverrides = {},
+) {
+  const transport: WrcTransport = createFixtureTransport(fx, overrides)
+  const client = new WrcResolutionClient({
     transport,
     store: new WrcResolvedRecordStore(createMemoryPersistence()),
-    ingestPublicKey: FX.ingest.pub,
+    ingestPublicKey: fx.ingest.pub,
     now: () => NOW,
   })
+  const directory = new WrcDirectoryClient({
+    transport,
+    operator: { kid: fx.operator.kid, pub: fx.operator.pub },
+    now: () => NOW,
+  })
+  return createWrcGateDeps(client, { directory })
 }
 
-describe('interim adapter — full pipeline over the Phase-3 anchor', () => {
+describe('directory-anchored adapter — full pipeline over the real chains', () => {
   it('the A.2 P reference admits end to end with real signatures', async () => {
-    const deps = createWrcGateDeps(clientFor(createFixtureTransport(FX)))
+    const deps = adapterDeps(FX)
     const r = await runWrCodeGatePipeline({ raw: P_REF, receiver: RECEIVER }, deps)
     expect(r.ok, r.ok ? '' : `${r.reason} ${r.detail ?? ''}`).toBe(true)
     if (!r.ok) return
@@ -479,13 +498,8 @@ describe('interim adapter — full pipeline over the Phase-3 anchor', () => {
   })
 
   it('an unknown publisher refuses at Gate 2 on the capture-error path', async () => {
-    const deps = createWrcGateDeps(
-      clientFor(
-        createFixtureTransport(FX, {
-          resolve: { ok: false, code: 'http_status', message: 'HTTP 404', status: 404 },
-        }),
-      ),
-    )
+    const notFound = { ok: false as const, code: 'http_status' as const, message: 'HTTP 404', status: 404 }
+    const deps = adapterDeps(FX, { resolve: notFound, directoryRecord: notFound })
     const r = await runWrCodeGatePipeline({ raw: P_REF, receiver: RECEIVER }, deps)
     expect(r.ok).toBe(false)
     if (r.ok) return
@@ -495,13 +509,9 @@ describe('interim adapter — full pipeline over the Phase-3 anchor', () => {
   })
 
   it('a revoked publisher part refuses at Gate 2 with the status reason', async () => {
-    const deps = createWrcGateDeps(
-      clientFor(
-        createFixtureTransport(FX, {
-          resolve: { ok: true, value: { ...FX.resolveClaim, status: 'revoked' } },
-        }),
-      ),
-    )
+    // Run 4: namespace status is the DIRECTORY record's statement (§XVI.6.4).
+    const fx = buildPublisherFixture({ directoryOverrides: { status: 'revoked' } })
+    const deps = adapterDeps(fx)
     const r = await runWrCodeGatePipeline({ raw: P_REF, receiver: RECEIVER }, deps)
     expect(r.ok).toBe(false)
     if (r.ok) return
@@ -511,7 +521,7 @@ describe('interim adapter — full pipeline over the Phase-3 anchor', () => {
 
   it('a publisher-suspended entry refuses at Gate 3, precisely', async () => {
     const fx = buildPublisherFixture({ entryStatus: 'suspended' })
-    const deps = createWrcGateDeps(clientForFx(fx))
+    const deps = adapterDeps(fx)
     const r = await runWrCodeGatePipeline({ raw: P_REF, receiver: RECEIVER }, deps)
     expect(r.ok).toBe(false)
     if (r.ok) return
@@ -521,7 +531,7 @@ describe('interim adapter — full pipeline over the Phase-3 anchor', () => {
 
   it('a platform-suspended entry refuses at Gate 3 as the platform\'s own statement', async () => {
     const fx = buildPublisherFixture({ suspendEntry: true })
-    const deps = createWrcGateDeps(clientForFx(fx))
+    const deps = adapterDeps(fx)
     const r = await runWrCodeGatePipeline({ raw: P_REF, receiver: RECEIVER }, deps)
     expect(r.ok).toBe(false)
     if (r.ok) return
@@ -533,7 +543,7 @@ describe('interim adapter — full pipeline over the Phase-3 anchor', () => {
     // The fixture's primary entry carries no §XVI.5.10 designation, so the
     // combination code cannot be expanded — a designation mismatch, never a
     // guessed identity.
-    const deps = createWrcGateDeps(clientFor(createFixtureTransport(FX)))
+    const deps = adapterDeps(FX)
     const r = await runWrCodeGatePipeline({ raw: I_REF, receiver: RECEIVER }, deps)
     expect(r.ok).toBe(false)
     if (r.ok) return
@@ -541,15 +551,6 @@ describe('interim adapter — full pipeline over the Phase-3 anchor', () => {
     expect(r.reason).toBe('designation_mismatch')
   })
 })
-
-function clientForFx(fx: ReturnType<typeof buildPublisherFixture>) {
-  return new WrcResolutionClient({
-    transport: createFixtureTransport(fx),
-    store: new WrcResolvedRecordStore(createMemoryPersistence()),
-    ingestPublicKey: fx.ingest.pub,
-    now: () => NOW,
-  })
-}
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 

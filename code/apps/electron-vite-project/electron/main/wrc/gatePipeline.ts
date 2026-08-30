@@ -88,6 +88,10 @@ export type WrCodeGateReason =
   | 'namespace_revoked'
   | 'namespace_superseded'
   | 'namespace_compromised'
+  // Gate 2 — §XVI.6.5 email-domain agreement (Run 4): the receiver's own
+  // acting principal's SSO email must lie in its own publisher's DNS-verified
+  // domain, "otherwise it cannot claim on the publisher's behalf".
+  | 'sso_principal_mismatch'
   // Gate 3 — entry verification. The lifecycle vocabulary is the §XVI.8.1/8.3
   // model in `entryLifecycle.ts`; the catalog-precise pair (suspended/retired)
   // stays distinct because the status surface renders the publisher's own
@@ -227,7 +231,7 @@ export type WrCodeEntryVerdict =
       detail?: string
     }
 
-/** The receiver's own identity material, for Gate 4. */
+/** The receiver's own identity material, for Gates 2 (SSO binding) and 4. */
 export interface WrCodeReceiverIdentity {
   /** Own current Publisher Identifier, when acting for a publisher (C self-match). */
   publisher_part?: string | null
@@ -235,6 +239,14 @@ export interface WrCodeReceiverIdentity {
   party_id?: string | null
   /** Device-Scoped Principal Identifier. */
   device_party_id?: string | null
+  /**
+   * §XVI.6.5 SSO Identity: the ONE verified email address of the acting
+   * principal. When present together with `publisher_part`, Gate 2 verifies
+   * the email-domain agreement (Run 4); when absent, the receiver asserts no
+   * acting-for-publisher binding, and any Gate-5 claim that would need one
+   * fails its own delegation leg instead.
+   */
+  sso_email?: string | null
 }
 
 export type WrCodeReleaseVerdict =
@@ -303,6 +315,17 @@ export interface WrCodeGateDeps {
    * state; a stubbed `material.use_limit` remains the fixture-side carrier.
    */
   useLimitPosture?(designator: WrCodeEntryDesignator): WrCodeUseLimitPosture | null
+  /**
+   * Gate 2, Run 4 (§XVI.6.5 email-domain agreement): verify that the
+   * receiver's SSO-verified email lies in its own publisher's DNS-verified
+   * domain. Consulted only when the receiver presents an SSO email together
+   * with a publisher part; a receiver that presents one and cannot be
+   * verified refuses at Gate 2 — including when the deps cannot verify at
+   * all (fail closed, never a downgraded pass).
+   */
+  verifyActingPrincipal?(
+    receiver: WrCodeReceiverIdentity,
+  ): Promise<{ ok: true } | { ok: false; detail?: string }>
   /**
    * Called when a gate AFTER a successful Gate-5 claim fails, so the §XVI.8.4
    * reservation reverts to ACTIVE — a failed verification never consumes a
@@ -548,6 +571,26 @@ export async function runWrCodeGatePipeline(
       })
     }
     namespaces.push(rec)
+  }
+
+  // §XVI.7.6 Gate 2, Run 4 — the receiver's own acting-principal SSO binding.
+  // Fires when the receiver claims to act for a publisher AND presents its
+  // SSO email; fail-closed when the claim is presented but unverifiable.
+  if (receiver.publisher_part && receiver.sso_email) {
+    if (!deps.verifyActingPrincipal) {
+      return refuse(2, 'sso_principal_mismatch', {
+        detail: 'no verifier for the acting principal SSO binding',
+      })
+    }
+    let sso: { ok: true } | { ok: false; detail?: string }
+    try {
+      sso = await deps.verifyActingPrincipal(receiver)
+    } catch (e) {
+      sso = { ok: false, detail: e instanceof Error ? e.message : String(e) }
+    }
+    if (!sso.ok) {
+      return refuse(2, 'sso_principal_mismatch', { detail: sso.detail })
+    }
   }
   gatesPassed.push('namespace')
 

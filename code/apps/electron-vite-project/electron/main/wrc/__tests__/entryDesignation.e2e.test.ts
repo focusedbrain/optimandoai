@@ -19,6 +19,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { buildWrCodeReference, captureWrCodeReference } from '@repo/ingestion-core'
 import { runWrCodeGatePipeline, type WrCodeReceiverIdentity } from '../gatePipeline'
 import { createWrcGateDeps } from '../gatePipelineAdapter'
+import { WrcDirectoryClient } from '../namespaceDirectory'
 import { deriveEntryDesignator, designatorKey, useLimitEntryKey } from '../entryDesignator'
 import { WrcResolutionClient } from '../resolutionClient'
 import { WrcResolvedRecordStore, createMemoryPersistence } from '../resolvedRecordStore'
@@ -47,11 +48,13 @@ const SE_UNDER_P = 'SEDP01' // SE beneath P — child-local id DUP001
 const SE_UNDER_C = 'SEDP02' // SE beneath C — SAME child-local id DUP001
 
 const INGEST = makeKeyPair('wrc-ingest-shared')
+const OPERATOR = makeKeyPair('dir-op-shared')
 
 const initiatorFx = buildPublisherFixture({
   publisherPart: INITIATOR,
   domain: 'publisher.test',
   ingestKey: INGEST,
+  operatorKey: OPERATOR,
   extraEntries: [
     {
       // The C umbrella entry, named by the ordered pair: looked up by the
@@ -158,6 +161,7 @@ const responderFx = buildPublisherFixture({
   domain: 'responder.test',
   entryId: 'RSPENT',
   ingestKey: INGEST,
+  operatorKey: OPERATOR,
   extraEntries: [
     {
       // The responder's mirror record of the SAME relationship, registered
@@ -204,14 +208,23 @@ let useLimits: ReturnType<typeof createMemoryUseLimitStore>
 let deps: ReturnType<typeof createWrcGateDeps>
 
 beforeEach(() => {
+  const transport = createMultiFixtureTransport([initiatorFx, responderFx])
   client = new WrcResolutionClient({
-    transport: createMultiFixtureTransport([initiatorFx, responderFx]),
+    transport,
     store: new WrcResolvedRecordStore(createMemoryPersistence()),
     ingestPublicKey: INGEST.pub,
     now: () => NOW,
   })
   useLimits = createMemoryUseLimitStore()
-  deps = createWrcGateDeps(client, { useLimits, now: () => NOW })
+  deps = createWrcGateDeps(client, {
+    useLimits,
+    now: () => NOW,
+    directory: new WrcDirectoryClient({
+      transport,
+      operator: { kid: OPERATOR.kid, pub: OPERATOR.pub },
+      now: () => NOW,
+    }),
+  })
 })
 
 // ── C — ordered pair ──────────────────────────────────────────────────────────

@@ -1,14 +1,20 @@
 /**
- * Interim gate deps — §XVI.7.6 gates 2/3/5/6 anchored on the Phase-3 registry
- * client.
+ * Gate deps — §XVI.7.6 gates 2/3/5/6 over the Namespace Directory (Run 4)
+ * and the Phase-3 resolution client.
  *
- * THE SEAM (pre-authorized, Run 2): the full Namespace Directory / Directory
- * Record of §XVI.6.4/6.5 is out of scope. Gate 2 verifies against the
- * existing Phase-3 chain — DNS-pinned root, dual-channel domain validation,
- * head-embedded delegation record, ingest countersignature — as the interim
- * trust anchor, fail-closed on ANY verification failure. The pipeline's deps
- * interface is written against the directory model, so replacing this adapter
- * with a real directory client later is internal to this file.
+ * Run 4 (§XVI.6.4/6.5): Gate 2 verifies against the NAMESPACE DIRECTORY —
+ * the operator-signed, publisher-countersigned Directory Record under the
+ * pinned operator trust anchor, with the DNS proof naming the Publisher
+ * Identifier, the vetted-account-holder attestation, generation and expiry
+ * checks — via {@link WrcDirectoryClient}. The Run-2 interim anchor (deriving
+ * Gate-2 legs from the Phase-3 chain's success) is GONE; without a directory
+ * the gate refuses. There is no silent fallback to the registry trust path.
+ *
+ * The Phase-3 chain remains what it always was normatively: the PUBLISHER
+ * RESOLVER leg behind Gate 3 (§XVI.6.5 "entry context, assignment, and
+ * version"). Its signing root must itself be a directory-registered key
+ * (§XVI.6.5 publisher key binding) — cross-checked here, so an entry chain
+ * anchored on a key the directory does not register refuses.
  *
  * Run 3 — entry designation (§XVI.5.10): the class determines the resolver
  * lookup key (local block for P, responder identifier for the C ordered pair,
@@ -20,13 +26,6 @@
  * existence and state, the responder namespace of an SC pair); the CANONICAL
  * designator is derived inside the pipeline from the same claim, so no deps
  * implementation and no caller can substitute identity.
- *
- * TODO(§XVI.6.4/6.5): swap the interim anchor for the Namespace Directory —
- *  - `verifyNamespace` should read the signed Directory Record (operator +
- *    publisher dual signature, account-holder attestation, successor part)
- *    instead of deriving all legs from the resolution chain's success;
- *  - the successor of a superseded namespace is not carried by the Phase-3
- *    claim, so it is surfaced as null until the directory provides it.
  */
 
 import type { WrCodeReference } from '@repo/ingestion-core'
@@ -36,12 +35,14 @@ import {
   type WrCodeEntryVerdict,
   type WrCodeGateDeps,
   type WrCodeNamespaceVerdict,
+  type WrCodeReceiverIdentity,
 } from './gatePipeline'
 import {
   deriveEntryDesignator,
   useLimitEntryKey,
   type WrCodeDesignationClaim,
 } from './entryDesignator'
+import { WrcDirectoryClient, type WrcDirectoryRecord } from './namespaceDirectory'
 import type { WrcResolutionClient } from './resolutionClient'
 import type { WrcEntryDesignation } from './wrcContract'
 import type { WrcUseLimitStore } from './useLimitStore'
@@ -56,6 +57,12 @@ export interface WrcGateAdapterOptions {
   useLimits?: WrcUseLimitStore
   /** Unix seconds; injected for deterministic claim-timeout tests. */
   now?: () => number
+  /**
+   * §XVI.6.4/6.5 Namespace Directory (Run 4) — REQUIRED for Gate 2 to pass.
+   * Absent means this deployment has no directory trust anchor, and namespace
+   * verification fails closed with `directory_not_configured`. No fallback.
+   */
+  directory?: WrcDirectoryClient
 }
 
 /**
@@ -88,38 +95,85 @@ export function createWrcGateDeps(
   options: WrcGateAdapterOptions = {},
 ): WrCodeGateDeps {
   const now = options.now ?? (() => Math.floor(Date.now() / 1000))
+  const directory = options.directory ?? null
+
+  /** Verified Directory Record lookup, shared by gates 2/3/6 legs. */
+  const verifiedDirectoryRecord = async (
+    part: string,
+  ): Promise<
+    | { ok: true; record: WrcDirectoryRecord }
+    | { ok: false; reason: 'namespace_unknown_identifier' | 'namespace_unverified'; detail?: string }
+  > => {
+    if (!directory) {
+      return {
+        ok: false,
+        reason: 'namespace_unverified',
+        detail: 'directory_not_configured: no namespace directory trust anchor',
+      }
+    }
+    const res = await directory.getVerifiedRecord(part)
+    if (!res.ok) {
+      if (res.reason === 'unknown_identifier') {
+        return { ok: false, reason: 'namespace_unknown_identifier' }
+      }
+      return {
+        ok: false,
+        reason: 'namespace_unverified',
+        detail: res.detail ? `${res.leg}: ${res.detail}` : res.leg,
+      }
+    }
+    return { ok: true, record: res.record }
+  }
+
   return {
     async verifyNamespace(publisherPart): Promise<WrCodeNamespaceVerdict> {
-      const res = await client.resolvePublisher(publisherPart)
-      if (!res.ok) {
-        // §XVI.4.2 uniform 404 stays a capture error; every other failure is
-        // an unverified namespace with the client's precise leg in `detail`.
-        if (res.reason === 'unknown_identifier') {
-          return { ok: false, reason: 'namespace_unknown_identifier' }
-        }
-        return {
-          ok: false,
-          reason: 'namespace_unverified',
-          detail: res.detail ? `${res.reason}: ${res.detail}` : res.reason,
-        }
-      }
+      // Run 4 (§XVI.6.4/6.5): the Namespace Directory is the ONLY Gate-2
+      // trust path — dual signature, vetting, generation, expiry, DNS part
+      // proof all verified by the directory client, fail-closed.
+      const res = await verifiedDirectoryRecord(publisherPart)
+      if (!res.ok) return res
+      const record = res.record
       return {
         ok: true,
         record: {
-          publisher_part: res.publisherPart,
-          domain: res.domain,
-          status: res.status,
-          // Interim mapping: the chain that just succeeded IS the dual
-          // provenance (DNS-pinned publisher root + ingest countersign) and
-          // the DNS proof. Account-holder attestation has no separate interim
-          // source — chain success stands in for it, fail-closed overall.
-          // TODO(§XVI.6.4/6.5): read these legs from the Directory Record.
+          publisher_part: record.publisher_part,
+          domain: record.domains[0]!,
+          status: record.status,
+          // These legs were POSITIVELY verified by the directory client; a
+          // record that failed any of them never reaches this mapping.
           dual_signature_verified: true,
           dns_verified: true,
-          account_holder_verified: true,
-          successor_publisher_part: null,
+          account_holder_verified: record.account_holder_vetted,
+          successor_publisher_part: record.successor_publisher_part,
         },
       }
+    },
+
+    async verifyActingPrincipal(
+      receiver: WrCodeReceiverIdentity,
+    ): Promise<{ ok: true } | { ok: false; detail?: string }> {
+      // §XVI.7.6 Gate 2 / §XVI.6.5 email-domain agreement: the receiver's own
+      // acting principal's SSO-verified email must lie in its own publisher's
+      // DNS-verified domain — otherwise it cannot claim on the publisher's
+      // behalf. Domains beyond the primary are operator-signed registrations
+      // in the record, each carrying its own DNS proof upstream.
+      if (!receiver.publisher_part || !receiver.sso_email) {
+        return { ok: false, detail: 'acting principal without publisher part or SSO email' }
+      }
+      const at = receiver.sso_email.lastIndexOf('@')
+      const emailDomain = at > 0 ? receiver.sso_email.slice(at + 1).toLowerCase() : ''
+      if (!emailDomain) return { ok: false, detail: 'SSO email carries no domain' }
+      const res = await verifiedDirectoryRecord(receiver.publisher_part)
+      if (!res.ok) {
+        return { ok: false, detail: `own publisher namespace unverified: ${res.detail ?? res.reason}` }
+      }
+      const registered = res.record.domains.map((d) => d.toLowerCase())
+      return registered.includes(emailDomain)
+        ? { ok: true }
+        : {
+            ok: false,
+            detail: `SSO email domain ${emailDomain} is not among the publisher's DNS-verified domains`,
+          }
     },
 
     async verifyEntry(reference, _namespaces): Promise<WrCodeEntryVerdict> {
@@ -152,6 +206,27 @@ export function createWrcGateDeps(
       }
       if (!res.entry) {
         return { ok: false, reason: 'entry_unverified', detail: 'resolution returned no entry object' }
+      }
+
+      // §XVI.6.5 publisher key binding (Run 4): the resolver chain's signing
+      // root must itself be a directory-registered key. An entry chain that
+      // verifies against a key the directory does not register is an invalid
+      // signature by definition, not an alternative trust path.
+      const dir = await verifiedDirectoryRecord(reference.publisher)
+      if (!dir.ok) {
+        return {
+          ok: false,
+          reason: 'entry_unverified',
+          detail: `directory re-check failed: ${dir.detail ?? dir.reason}`,
+        }
+      }
+      const registered = WrcDirectoryClient.keyFingerprints(dir.record)
+      if (!registered.has(res.record.root_fingerprint.toLowerCase())) {
+        return {
+          ok: false,
+          reason: 'entry_unverified',
+          detail: 'resolver signing root is not a directory-registered publisher key',
+        }
       }
 
       const designation = claimOf(res.entry.designation)

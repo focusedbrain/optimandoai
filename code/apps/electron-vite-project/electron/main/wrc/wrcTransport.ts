@@ -47,6 +47,12 @@ export interface WrcTransport {
   publisherManifest(domain: string): Promise<WrcTransportResult>
   /** DNS TXT for `_wr.<domain>`. */
   wrTxtRecords(domain: string): Promise<WrcTxtResult>
+  /**
+   * `GET /v1/directory/{part}` → signed Namespace Directory Record
+   * (§XVI.6.4). The directory answers "which resolver and which key belong
+   * to this namespace"; it holds no entry content.
+   */
+  directoryRecord(publisherPart: string): Promise<WrcTransportResult>
 }
 
 /** Per-object byte caps. The EVP budget is enforced again after decode (§3.3). */
@@ -90,6 +96,8 @@ export function createWrcHttpTransport(config: WrcHttpTransportConfig): WrcTrans
     object: (hash) => get(`${base}/v1/objects/${encodeURIComponent(hash)}`, OBJECT_MAX_BYTES),
     publisherManifest: (domain) =>
       get(`https://${domain}/.well-known/wr/manifest`, MANIFEST_MAX_BYTES),
+    directoryRecord: (part) =>
+      get(`${base}/v1/directory/${encodeURIComponent(part)}`, HEAD_MAX_BYTES),
     async wrTxtRecords(domain) {
       try {
         const records = await resolveTxt(`_wr.${domain}`)
@@ -119,6 +127,7 @@ export function createUnconfiguredWrcTransport(): WrcTransport {
     entry: refuse,
     object: refuse,
     publisherManifest: refuse,
+    directoryRecord: refuse,
     async wrTxtRecords() {
       return {
         ok: false,

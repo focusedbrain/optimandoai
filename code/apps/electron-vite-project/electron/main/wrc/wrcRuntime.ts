@@ -42,6 +42,7 @@ import {
   createWrcHttpTransport,
   type WrcTransport,
 } from './wrcTransport'
+import { WrcDirectoryClient } from './namespaceDirectory'
 import {
   createDbUseLimitStore,
   createMemoryUseLimitStore,
@@ -55,9 +56,16 @@ export interface WrcRuntimeConfig {
   registryBaseUrl?: string | null
   /** Raw base64url Ed25519 public key of the WRC ingest countersigner. */
   ingestPublicKey?: string | null
+  /**
+   * §XVI.6.4 pinned directory-operator trust anchor (Run 4). Absent ⇒ no
+   * namespace directory ⇒ Gate 2 refuses (`directory_not_configured`).
+   */
+  directoryOperatorKid?: string | null
+  directoryOperatorPub?: string | null
 }
 
 let _client: WrcResolutionClient | null = null
+let _directory: WrcDirectoryClient | null = null
 let _configured = false
 
 function readConfigFromEnvironment(): WrcRuntimeConfig {
@@ -66,6 +74,8 @@ function readConfigFromEnvironment(): WrcRuntimeConfig {
   return {
     registryBaseUrl: process.env.WRDESK_WRC_REGISTRY_URL ?? null,
     ingestPublicKey: process.env.WRDESK_WRC_INGEST_PUBKEY ?? null,
+    directoryOperatorKid: process.env.WRDESK_WRC_DIRECTORY_OPERATOR_KID ?? null,
+    directoryOperatorPub: process.env.WRDESK_WRC_DIRECTORY_OPERATOR_PUBKEY ?? null,
   }
 }
 
@@ -155,6 +165,15 @@ export async function initWrcClient(config?: WrcRuntimeConfig): Promise<WrcResol
     ),
     ingestPublicKey: cfg.ingestPublicKey ?? '',
   })
+  // Run 4 (§XVI.6.4): the Gate-2 trust path exists only when the operator
+  // anchor is pinned. No anchor ⇒ no directory client ⇒ Gate 2 fails closed.
+  _directory =
+    cfg.directoryOperatorKid && cfg.directoryOperatorPub
+      ? new WrcDirectoryClient({
+          transport,
+          operator: { kid: cfg.directoryOperatorKid, pub: cfg.directoryOperatorPub },
+        })
+      : null
   return _client
 }
 
@@ -172,6 +191,11 @@ export async function isWrcConfigured(): Promise<boolean> {
 export function setWrcClientForTests(client: WrcResolutionClient | null, configured = true): void {
   _client = client
   _configured = client ? configured : false
+}
+
+/** Test seam: inject a directory client (null restores the env-configured one). */
+export function setWrcDirectoryForTests(directory: WrcDirectoryClient | null): void {
+  _directory = directory
 }
 
 /**
@@ -213,6 +237,7 @@ export async function handleWrcSubmitReference(params: {
     if (typeof r.publisher_part === 'string') receiver.publisher_part = r.publisher_part
     if (typeof r.party_id === 'string') receiver.party_id = r.party_id
     if (typeof r.device_party_id === 'string') receiver.device_party_id = r.device_party_id
+    if (typeof r.sso_email === 'string') receiver.sso_email = r.sso_email
   }
   try {
     const client = await getWrcClient()
@@ -223,7 +248,10 @@ export async function handleWrcSubmitReference(params: {
         requestInstanceId:
           typeof params?.requestInstanceId === 'string' ? params.requestInstanceId : null,
       },
-      createWrcGateDeps(client, { useLimits: await resolveUseLimitStore() }),
+      createWrcGateDeps(client, {
+        useLimits: await resolveUseLimitStore(),
+        directory: _directory ?? undefined,
+      }),
     )
     return { success: true, result: outcome }
   } catch (e) {

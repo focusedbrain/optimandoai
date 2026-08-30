@@ -22,6 +22,7 @@ import type {
   WrcInclusionStep,
   WrcPublisherManifest,
 } from '../wrcContract'
+import type { WrcDirectoryRecord, WrcOperatorRollover } from '../namespaceDirectory'
 import type { WrcTransport, WrcTransportResult, WrcTxtResult } from '../wrcTransport'
 
 // ── keys ──────────────────────────────────────────────────────────────────────
@@ -48,6 +49,60 @@ export function signObject<T extends Record<string, unknown>>(obj: T, key: WrcTe
   const { sig: _drop, ...unsigned } = obj as Record<string, unknown>
   const bytes = Buffer.from(canonicalJsonString(unsigned as never), 'utf8')
   return { ...(obj as Record<string, unknown>), sig: b64url(cryptoSign(null, bytes, key.privateKey)) } as T
+}
+
+/** X25519 pair for recipient-bound sealing fixtures (§XVI.7.5.2). */
+export interface WrcTestBoxPair {
+  privateKey: KeyObject
+  /** Raw 32-byte X25519 public key, base64url unpadded. */
+  pub: string
+}
+
+export function makeBoxPair(): WrcTestBoxPair {
+  const { publicKey, privateKey } = generateKeyPairSync('x25519')
+  const spki = publicKey.export({ format: 'der', type: 'spki' }) as Buffer
+  return { privateKey, pub: b64url(spki.subarray(spki.length - 32)) }
+}
+
+/**
+ * §XVI.6.4 dual signature, layered exactly as the verifier checks it:
+ * operator over (record − both sigs), publisher over (record − countersig).
+ */
+export function signDirectoryRecord(
+  unsigned: Record<string, unknown>,
+  operatorKey: WrcTestKeyPair,
+  publisherKey: WrcTestKeyPair,
+): WrcDirectoryRecord {
+  const {
+    operator_sig: _o,
+    publisher_countersig: _p,
+    ...base
+  } = unsigned
+  const operatorBytes = Buffer.from(canonicalJsonString(base as never), 'utf8')
+  const operator_sig = b64url(cryptoSign(null, operatorBytes, operatorKey.privateKey))
+  const withOperator = { ...base, operator_sig }
+  const publisherBytes = Buffer.from(canonicalJsonString(withOperator as never), 'utf8')
+  const publisher_countersig = b64url(cryptoSign(null, publisherBytes, publisherKey.privateKey))
+  return { ...withOperator, publisher_countersig } as unknown as WrcDirectoryRecord
+}
+
+/** §XVI.6.4 operator rollover, dual-signed by outgoing and incoming keys. */
+export function buildOperatorRollover(
+  outgoing: WrcTestKeyPair,
+  incoming: WrcTestKeyPair,
+): WrcOperatorRollover {
+  const base = {
+    type: 'wrc/operator-rollover',
+    outgoing_kid: outgoing.kid,
+    incoming_kid: incoming.kid,
+    incoming_pub: incoming.pub,
+  }
+  const bytes = Buffer.from(canonicalJsonString(base as never), 'utf8')
+  return {
+    ...base,
+    sig_outgoing: b64url(cryptoSign(null, bytes, outgoing.privateKey)),
+    sig_incoming: b64url(cryptoSign(null, bytes, incoming.privateKey)),
+  } as WrcOperatorRollover
 }
 
 export function hashObject(obj: unknown): string {
@@ -154,6 +209,10 @@ export interface WrcPublisherFixtureOptions {
   }>
   /** Share one WRC ingest key across fixtures (multi-publisher scenarios). */
   ingestKey?: WrcTestKeyPair
+  /** Share one directory OPERATOR key across fixtures (Run 4, §XVI.6.4). */
+  operatorKey?: WrcTestKeyPair
+  /** Merged into the unsigned directory record BEFORE dual signing (Run 4). */
+  directoryOverrides?: Record<string, unknown>
 }
 
 export interface WrcPublisherFixture {
@@ -178,6 +237,12 @@ export interface WrcPublisherFixture {
   delegationHistory: WrcDelegationRecord[]
   txtRecords: string[]
   resolveClaim: Record<string, unknown>
+  /** Run 4 (§XVI.6.4): the directory operator key that signed the record. */
+  operator: WrcTestKeyPair
+  /** Run 4 (§XVI.7.5.2): directory-registered X25519 encryption pair. */
+  encryption: WrcTestBoxPair
+  /** Run 4: the dual-signed Namespace Directory Record. */
+  directoryRecord: WrcDirectoryRecord
 }
 
 export function buildPublisherFixture(
@@ -388,6 +453,35 @@ export function buildPublisherFixture(
     envelopesByHash.set(b.evpHash, evpEnv)
   }
 
+  // Run 4 — the §XVI.6.4 directory record: publisher verification key(s) =
+  // the DNS-pinned root (this is what binds the Phase-3 entry chain to the
+  // directory), plus the X25519 encryption key for recipient-bound sealing.
+  const operator = options.operatorKey ?? makeKeyPair('dir-op-1')
+  const encryption = makeBoxPair()
+  const directoryRecord = signDirectoryRecord(
+    {
+      type: 'wrc/directory-record',
+      publisher_part: publisherPart,
+      keys: [{ kid: root.kid, pub: root.pub, generation: 1 }],
+      encryption_pub: encryption.pub,
+      resolver_endpoints: [`https://registry.test/v1/publishers/${publisherPart}`],
+      relay_endpoints: [`https://relay.test/v1/${publisherPart}`],
+      grammar_version: '1.95',
+      domains: [domain],
+      display_origin: null,
+      account_holder_vetted: true,
+      status: 'active',
+      successor_publisher_part: null,
+      generation: 3,
+      expires_at: 4_000_000_000,
+      operator_kid: operator.kid,
+      publisher_kid: root.kid,
+      ...(options.directoryOverrides ?? {}),
+    },
+    operator,
+    root,
+  )
+
   return {
     publisherPart,
     domain,
@@ -406,7 +500,10 @@ export function buildPublisherFixture(
     envelopesByHash,
     delegation,
     delegationHistory: delegation ? [delegation] : [],
-    txtRecords: [`v=wr1; root=${fingerprintOf(root.pub)}`],
+    txtRecords: [`v=wr1; part=${publisherPart}; root=${fingerprintOf(root.pub)}`],
+    operator,
+    encryption,
+    directoryRecord,
     resolveClaim: {
       domain,
       status: 'active',
@@ -427,6 +524,7 @@ export interface FixtureTransportOverrides {
   object?: WrcTransportResult
   publisherManifest?: WrcTransportResult
   txt?: WrcTxtResult
+  directoryRecord?: WrcTransportResult
   /** Called on every transport method — lets a test prove what was NOT called. */
   onCall?: (method: string) => void
 }
@@ -475,6 +573,10 @@ export function createFixtureTransport(
       note('wrTxtRecords')
       return overrides.txt ?? { ok: true, records: fx.txtRecords }
     },
+    async directoryRecord() {
+      note('directoryRecord')
+      return overrides.directoryRecord ?? { ok: true, value: fx.directoryRecord }
+    },
   }
 }
 
@@ -522,6 +624,10 @@ export function createMultiFixtureTransport(fixtures: readonly WrcPublisherFixtu
     async wrTxtRecords(domain) {
       const fx = byDomain.get(domain)
       return fx ? { ok: true, records: fx.txtRecords } : { ok: true, records: [] }
+    },
+    async directoryRecord(part) {
+      const fx = byPart.get(part)
+      return fx ? { ok: true, value: fx.directoryRecord } : notFound
     },
   }
 }
