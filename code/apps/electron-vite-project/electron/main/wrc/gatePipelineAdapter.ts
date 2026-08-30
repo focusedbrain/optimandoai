@@ -19,22 +19,31 @@
  */
 
 import type { WrCodeReference } from '@repo/ingestion-core'
-import type {
-  WrCodeEntryMaterial,
-  WrCodeEntryVerdict,
-  WrCodeGateDeps,
-  WrCodeNamespaceVerdict,
-  WrCodeUseLimitPosture,
+import {
+  claimantIdOf,
+  type WrCodeEntryMaterial,
+  type WrCodeEntryVerdict,
+  type WrCodeGateDeps,
+  type WrCodeNamespaceVerdict,
 } from './gatePipeline'
 import type { WrcResolutionClient } from './resolutionClient'
+import type { WrcUseLimitStore } from './useLimitStore'
 
 export interface WrcGateAdapterOptions {
   /**
-   * §XVI.8.4 posture source for use-limited entries. Absent (Phase-3 default)
-   * means no entry is known to be use-limited — the unbounded default.
-   * The one-time-use store plugs in here.
+   * §XVI.8.4 one-time-use state. Absent (Phase-3 default) means no entry is
+   * known to be use-limited — the unbounded default. When present, Gate 3
+   * reads the posture from it and Gate 5 runs the atomic compare-and-set
+   * claim against it.
    */
-  useLimitPosture?: (reference: WrCodeReference) => WrCodeUseLimitPosture | null
+  useLimits?: WrcUseLimitStore
+  /** Unix seconds; injected for deterministic claim-timeout tests. */
+  now?: () => number
+}
+
+/** The third address block designates the entry (P: local; others per class). */
+function entryIdOf(reference: WrCodeReference): string | null {
+  return reference.local ?? reference.combination ?? reference.counterparty ?? null
 }
 
 /**
@@ -49,6 +58,7 @@ export function createWrcGateDeps(
   client: WrcResolutionClient,
   options: WrcGateAdapterOptions = {},
 ): WrCodeGateDeps {
+  const now = options.now ?? (() => Math.floor(Date.now() / 1000))
   return {
     async verifyNamespace(publisherPart): Promise<WrCodeNamespaceVerdict> {
       const res = await client.resolvePublisher(publisherPart)
@@ -132,7 +142,7 @@ export function createWrcGateDeps(
         // Phase-3 entries carry no recipient binding: public offerings.
         // TODO(§XVI.7.6 Gate 4): read the issuer-bound recipient granularity.
         recipient_binding: null,
-        use_limit: options.useLimitPosture?.(reference) ?? null,
+        use_limit: options.useLimits?.posture(reference.publisher, reference.local, now()) ?? null,
         successor_entry_id: null,
         entry: res.entry,
         evp: res.evp ?? null,
@@ -140,7 +150,7 @@ export function createWrcGateDeps(
       return { ok: true, material }
     },
 
-    async releaseMaterial({ material }) {
+    async releaseMaterial({ reference, material, receiver, requestInstanceId }) {
       // Interim release: there is no Relay in Phase 3. For a public offering
       // the pre-consent material was verified at Gate 3; "release" hands it
       // over. Recipient-bound capsule release (signed claim, delegation with
@@ -151,6 +161,39 @@ export function createWrcGateDeps(
           ok: false,
           reason: 'release_refused',
           detail: 'no verified pre-consent material to release',
+        }
+      }
+
+      // §XVI.8.4 — successful passage through Gate 5 by an identified party
+      // moves a use-limited entry atomically, by compare-and-set, to CLAIMED
+      // for that party; a concurrent claimant receives CLAIMED_BY_OTHER and
+      // no material.
+      const entryId = entryIdOf(reference)
+      if (options.useLimits && entryId && options.useLimits.read(reference.publisher, entryId)) {
+        const party = claimantIdOf(receiver)
+        if (!party) {
+          return {
+            ok: false,
+            reason: 'claim_failed',
+            detail: 'a use-limited entry requires an identified party to claim',
+          }
+        }
+        const claim = options.useLimits.claim(
+          reference.publisher,
+          entryId,
+          party,
+          requestInstanceId,
+          now(),
+        )
+        if (!claim.ok) {
+          if (claim.reason === 'not_declared') {
+            return { ok: false, reason: 'claim_failed', detail: 'claim store lost the declaration' }
+          }
+          return {
+            ok: false,
+            reason: claim.reason,
+            detail: claim.reason === 'CLAIMED_BY_OTHER' ? (claim.claimedBy ?? undefined) : undefined,
+          }
         }
       }
       return { ok: true, released: { evp: material.evp } }
@@ -164,6 +207,17 @@ export function createWrcGateDeps(
       // TODO(§XVI.7.6 Gate 6): attach capsule verification when the capsule
       // path lands; wire request_instance_id to the Handshake State Index.
       return { ok: true }
+    },
+
+    releaseClaim({ reference, receiver }) {
+      // Post-claim gate failure: the reservation reverts to ACTIVE — a failed
+      // verification never consumes a use (§XVI.8.4). The claim timeout is
+      // the backstop if this process dies before reverting.
+      const entryId = entryIdOf(reference)
+      const party = claimantIdOf(receiver)
+      if (options.useLimits && entryId && party) {
+        options.useLimits.release(reference.publisher, entryId, party)
+      }
     },
   }
 }

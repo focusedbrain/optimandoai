@@ -215,7 +215,17 @@ export interface WrCodeReceiverIdentity {
 
 export type WrCodeReleaseVerdict =
   | { ok: true; released: { evp: WrcEvp | null } }
-  | { ok: false; reason: 'release_refused' | 'relay_unavailable' | 'CLAIMED_BY_OTHER' | 'CONSUMED' | 'claim_failed'; detail?: string }
+  | {
+      ok: false
+      reason:
+        | 'release_refused'
+        | 'relay_unavailable'
+        | 'CLAIMED_BY_OTHER'
+        | 'CONSUMED'
+        | 'CONTEXT_EXHAUSTED'
+        | 'claim_failed'
+      detail?: string
+    }
 
 export type WrCodeAdmissionVerdict =
   | { ok: true }

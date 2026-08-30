@@ -42,6 +42,13 @@ import {
   createWrcHttpTransport,
   type WrcTransport,
 } from './wrcTransport'
+import {
+  createDbUseLimitStore,
+  createMemoryUseLimitStore,
+  useLimitTablePresent,
+  type UseLimitDb,
+  type WrcUseLimitStore,
+} from './useLimitStore'
 
 export interface WrcRuntimeConfig {
   /** Registry origin, e.g. `https://wrc.example.com`. Absent ⇒ unconfigured. */
@@ -94,6 +101,42 @@ async function resolveEpochFloorStore(): Promise<WrcEpochFloorStore> {
     console.warn('[WRC] epoch floor store unavailable:', e instanceof Error ? e.message : e)
   }
   return createMemoryEpochFloorStore()
+}
+
+/**
+ * §XVI.8.4 one-time-use state — native-DB protection class, like the epoch
+ * floor: claim/consume state must survive a deleted cache file. The in-process
+ * fallback is fail-closed in the same sense as the memory floor: it starts
+ * with no declarations (unbounded default), and a claim taken in this process
+ * still races atomically within it.
+ */
+let _useLimits: WrcUseLimitStore | null = null
+
+async function resolveUseLimitStore(): Promise<WrcUseLimitStore> {
+  if (_useLimits) return _useLimits
+  try {
+    const { getHandshakeDbForInternalInference } = await import('../internalInference/dbAccess')
+    const db = (await getHandshakeDbForInternalInference()) as UseLimitDb | null
+    if (db && useLimitTablePresent(db)) {
+      _useLimits = createDbUseLimitStore(db)
+      return _useLimits
+    }
+    if (db) {
+      console.warn(
+        '[WRC] wrc_entry_use_state missing — using an in-process use-limit store. ' +
+          'One-time-use state is not durable until migrations run.',
+      )
+    }
+  } catch (e) {
+    console.warn('[WRC] use-limit store unavailable:', e instanceof Error ? e.message : e)
+  }
+  _useLimits = createMemoryUseLimitStore()
+  return _useLimits
+}
+
+/** Test seam: inject a use-limit store (null restores discovery). */
+export function setWrcUseLimitStoreForTests(store: WrcUseLimitStore | null): void {
+  _useLimits = store
 }
 
 /** Build (or rebuild) the process client. Tests call {@link setWrcClientForTests}. */
@@ -180,7 +223,7 @@ export async function handleWrcSubmitReference(params: {
         requestInstanceId:
           typeof params?.requestInstanceId === 'string' ? params.requestInstanceId : null,
       },
-      createWrcGateDeps(client),
+      createWrcGateDeps(client, { useLimits: await resolveUseLimitStore() }),
     )
     return { success: true, result: outcome }
   } catch (e) {

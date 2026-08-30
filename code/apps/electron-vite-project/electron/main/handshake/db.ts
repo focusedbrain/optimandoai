@@ -1393,6 +1393,34 @@ const HANDSHAKE_MIGRATIONS: Array<{
       )`,
     ],
   },
+  {
+    version: 78,
+    description:
+      'Schema v78 (WR Code Run 2 / Annex XVI §XVI.8.4): wrc_entry_use_state — one-time-use ' +
+      'state for use-limited entries. The declaration (use_limit, use_scope, consume_at, ' +
+      'claim_timeout_s) lives on the ENTRY, never in the reference; state carries the ' +
+      'CLAIMED/CONSUMED/EXHAUSTED cycle with the claim as an atomic conditional UPDATE ' +
+      '(compare-and-set in the statement, timeout release computed lazily). CONSUMED and ' +
+      'EXHAUSTED are terminal and never deleted (P11: a code found later still tells the ' +
+      'truth about itself). Additive only; no existing rows are touched.',
+    sql: [
+      `CREATE TABLE IF NOT EXISTS wrc_entry_use_state (
+        publisher_part TEXT NOT NULL,
+        entry_id TEXT NOT NULL,
+        use_limit INTEGER NOT NULL,
+        use_scope TEXT NOT NULL,
+        consume_at TEXT NOT NULL,
+        claim_timeout_s INTEGER NOT NULL,
+        state TEXT NOT NULL DEFAULT 'active',
+        uses_taken INTEGER NOT NULL DEFAULT 0,
+        claimed_by TEXT,
+        claimed_at_s INTEGER,
+        claim_request_id TEXT,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (publisher_part, entry_id)
+      )`,
+    ],
+  },
 ]
 
 /**
