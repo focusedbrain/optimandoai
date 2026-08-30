@@ -116,19 +116,9 @@ export type {
   CaptureMethodResolution,
   InvitationClassResolution,
 } from './captureMethods.js';
-// WR Code Baseline Code — check profile v1.4 [XVI.5.1–5.5]
-export {
-  ALPHABET,
-  normalize,
-  computeCheck,
-  verifyCheck,
-  parseStructure,
-  captureBaselineCode,
-  formatBaselineCodeForDisplay,
-  BASELINE_CODE_MIN_LENGTH,
-  BASELINE_CODE_PUBLISHER_LENGTH,
-} from './wrCode.js';
-export type { BaselineCodeCapture, BaselineCodeCaptureFailure } from './wrCode.js';
+// WR Code check arithmetic — Damm/GF(2^5) core, transcribed check profile v1.4,
+// ratified upstream Annex XVI v1.95 Appendix A. Framing lives in wrCodeGrammar.
+export { ALPHABET, normalize, computeCheck, verifyCheck } from './wrCode.js';
 // WR Code reference grammar v2 — Annex XVI v1.95 [XVI.5.1–5.5, 5.8, 5.11]
 export {
   WR_CODE_GRAMMAR_VERSION,

@@ -13,7 +13,7 @@
  * verified EVP means no offer, not an offer built from carrier bytes.
  */
 
-import { formatBaselineCodeForDisplay } from '@repo/ingestion-core'
+import { formatWrCodeReferenceForDisplay } from '@repo/ingestion-core'
 import type { WrcEvp, WrcSuspension } from './wrcContract'
 import type { WrcStatusComposition } from './entryStatusSurface'
 
@@ -115,14 +115,16 @@ export function buildOfferPresentation(
 }
 
 /**
- * O3 local renderer. Renders from a VALIDATED canonical identifier only, and
- * only on request. A received rendering is never displayed (P12) — this
- * regenerates the grouping locally from the identifier the check profile
- * accepted, so there is no path from carrier bytes to a rendered code.
+ * O3 local renderer. Renders from a VALIDATED grammar-v2 canonical reference
+ * only, and only on request. A received rendering is never displayed (P12) —
+ * this regenerates the §XVI.5.1 grouping locally from the identifier the
+ * capture gate accepted, so there is no path from carrier bytes to a rendered
+ * code. A stored value that no longer captures (including every old-format
+ * prefix-less code) renders as null, never as a guess.
  */
 export function renderCodeForDisplay(canonical: string | null | undefined): string | null {
   if (!canonical) return null
-  return formatBaselineCodeForDisplay(canonical)
+  return formatWrCodeReferenceForDisplay(canonical)
 }
 
 /** A4 — the per-item audit link. Null when either half is unknown. */

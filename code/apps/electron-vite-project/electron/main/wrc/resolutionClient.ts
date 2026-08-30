@@ -9,7 +9,7 @@
  * The order of operations is the security property, not an implementation
  * detail. Read it top to bottom:
  *
- *   capture (local check only, already done by `captureBaselineCode`)
+ *   capture (local check only, already done by `captureWrCodeReference`)
  *     → registry resolve            ... a CLAIM, trusted for nothing
  *     → dual-channel domain validation (DNS + manifest) + part cross-check
  *     → catalog head verification    ... signature, epoch floor, freshness

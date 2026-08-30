@@ -12,7 +12,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import {
-  captureBaselineCode,
+  captureWrCodeReference,
   applyPublisherDomainAlignment,
   createChannelProvenanceRecord,
 } from '@repo/ingestion-core'
@@ -38,9 +38,10 @@ function client(fx = FX) {
 }
 const FX = buildPublisherFixture()
 
-/** A conformant code for the fixture's parts is not required by these tests;
- *  the local renderer is exercised with a real check-passing identifier. */
-const VALID_CODE = 'WR7X4K9B2M3P' // §4.1 vector from the check profile
+/** A conformant reference for the fixture's parts is not required by these
+ *  tests; the local renderer is exercised with a real check-passing v1.95
+ *  P-class reference (Appendix A.2, publisher WR7X4K). Stored canonical form. */
+const VALID_CODE = 'PWR7X4K9B2M3C' // P-WR7X4K-9B2M3C, Annex XVI v1.95 A.2
 
 describe('(a) authenticated email → offer → consent pin', () => {
   it('resolves, composes an admissible status, and offers EVP material only', async () => {
@@ -125,9 +126,10 @@ describe('(b) forwarded / unauthenticated message', () => {
   it('5C: manual entry is the one downgrade path and completes the chain', async () => {
     // The capture gate does not consult provenance at all — that is what makes
     // manual entry work for a message whose channel failed.
-    const captured = captureBaselineCode(VALID_CODE)
+    const captured = captureWrCodeReference(VALID_CODE)
     expect(captured.ok).toBe(true)
     if (!captured.ok) return
+    expect(captured.cls).toBe('P')
     expect(captured.publisher).toBe('WR7X4K')
 
     // …and the resolution chain runs identically from there.
@@ -136,7 +138,7 @@ describe('(b) forwarded / unauthenticated message', () => {
   })
 
   it('character-level correction assistance is possible: a check failure is typed', () => {
-    const bad = captureBaselineCode('WR7X4K9B2M3Q')
+    const bad = captureWrCodeReference('P-WR7X4K-9B2M3D') // check must be C
     expect(bad.ok).toBe(false)
     if (!bad.ok) expect(bad.reason).toBe('check_failed')
   })
@@ -145,7 +147,9 @@ describe('(b) forwarded / unauthenticated message', () => {
     expect(renderCodeForDisplay(null)).toBeNull()
     expect(renderCodeForDisplay('')).toBeNull()
     expect(renderCodeForDisplay('TOOSHORT')).toBeNull()
-    expect(renderCodeForDisplay(VALID_CODE)).toBe('WR7X4K-9B2M3-P')
+    // Old prefix-less codes are no longer renderable identifiers.
+    expect(renderCodeForDisplay('WR7X4K9B2M3P')).toBeNull()
+    expect(renderCodeForDisplay(VALID_CODE)).toBe('P-WR7X4K-9B2M3C')
   })
 })
 

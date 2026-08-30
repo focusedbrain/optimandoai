@@ -38,11 +38,15 @@
  * two forms yield identical checks, so nothing deployed was ever affected, and
  * the suite keeps a regression guard so the withdrawn form cannot return.)
  *
- * What does NOT survive is the framing. This module has no notion of the class
- * prefix (P/I/C/SP/SI/SC/SE), so `parseStructure`, the 6-symbol publisher, and
- * the 12-symbol floor all mis-slice every v1.95 reference. Do not build the
- * prefix grammar on top of them; see the CR register in
- * `docs/analysis/annex-xvi-v193/implementation-state-analysis-v1.md`.
+ * What does NOT survive is the framing. The v1.95 reference grammar (class
+ * prefixes P/I/C/SP/SI/SC/SE, per-class block structure, prefix-before-alias
+ * normalization) lives in `wrCodeGrammar.ts`, which builds on the arithmetic
+ * exports below. `parseStructure` remains in this file ONLY because it is part
+ * of the verbatim v1.4 transcription — it mis-slices every v1.95 reference,
+ * is not exported from the package, and MUST NOT gain callers. The old
+ * prefix-less capture wrapper (`captureBaselineCode` and friends) is deleted:
+ * old-format codes are invalid under grammar version 2, with no dual
+ * acceptance.
  */
 
 /* eslint-disable */
@@ -110,63 +114,3 @@ export function parseStructure(
 }
 // ─── END check profile v1.4 §5 ───────────────────────────────────────────────
 /* eslint-enable */
-
-// ── Fail-closed capture gate (repo wrapper over the profile above) ────────────
-
-/** Minimum conformant canonical length [XVI.5.1]; extended forms are longer. */
-export const BASELINE_CODE_MIN_LENGTH = 12
-
-/** Publisher part is a fixed-width prefix; the local part absorbs extension. */
-export const BASELINE_CODE_PUBLISHER_LENGTH = 6
-
-export type BaselineCodeCaptureFailure =
-  /** A symbol outside Crockford Base32 survived normalization (U in particular). */
-  | 'out_of_alphabet'
-  /** Fewer than 12 canonical symbols — cannot carry publisher + local + check. */
-  | 'too_short'
-  /** Well-formed symbols, wrong check character. */
-  | 'check_failed'
-
-export type BaselineCodeCapture =
-  | {
-      ok: true
-      /** Ungrouped, upper-cased, mapped form the check was verified over. */
-      canonical: string
-      publisher: string
-      local: string
-      check: string
-    }
-  | { ok: false; reason: BaselineCodeCaptureFailure }
-
-/**
- * The ONE entry point a capture surface may call [XVI.5.4]. Normalization,
- * length guard, and check verification all run before anything is returned,
- * so a caller holding an `ok: true` result can resolve and a caller holding
- * `ok: false` has nothing to resolve WITH — rejection-before-resolution is
- * structural here, not a convention the caller has to remember.
- *
- * Callers MUST NOT reconstruct this sequence themselves, and MUST NOT treat a
- * check-passed capture as validated: a locally valid code is still unresolved
- * and unverified until the registry + dual-channel chain completes [XVI.15.1].
- */
-export function captureBaselineCode(raw: string): BaselineCodeCapture {
-  const canonical = normalize(raw)
-  if (canonical === null) return { ok: false, reason: 'out_of_alphabet' }
-  if (canonical.length < BASELINE_CODE_MIN_LENGTH) return { ok: false, reason: 'too_short' }
-  if (!verifyCheck(canonical)) return { ok: false, reason: 'check_failed' }
-  const structure = parseStructure(canonical)
-  if (structure === null) return { ok: false, reason: 'too_short' }
-  return { ok: true, canonical, ...structure }
-}
-
-/**
- * Reference grouping for LOCAL rendering only [XVI.5.5]: `PPPPPP-LLLLL-C`,
- * the local part growing with extended forms. Grouping is presentational —
- * the check is computed over the ungrouped canonical form, and a received
- * rendering is never displayed (P12), only a locally generated one.
- */
-export function formatBaselineCodeForDisplay(canonical: string): string | null {
-  const structure = parseStructure(canonical)
-  if (structure === null) return null
-  return `${structure.publisher}-${structure.local}-${structure.check}`
-}
