@@ -77,7 +77,10 @@ export function buildMerkle(leaves: readonly string[]): {
   root: string
   proofs: Map<string, WrcInclusionStep[]>
 } {
-  const sorted = [...leaves].sort()
+  // One leaf per object: two catalog rows referencing the SAME object (e.g.
+  // sub-handshake siblings sharing one EVP) must not duplicate its leaf, or
+  // the per-hash proof map would interleave two positions into one path.
+  const sorted = [...new Set(leaves)].sort()
   const proofs = new Map<string, WrcInclusionStep[]>()
   for (const l of sorted) proofs.set(l, [])
   if (sorted.length === 0) return { root: toHash(createHash('sha256').digest()), proofs }
