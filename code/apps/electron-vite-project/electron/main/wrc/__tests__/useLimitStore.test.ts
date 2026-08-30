@@ -12,6 +12,7 @@
  */
 import { createRequire } from 'node:module'
 import { describe, expect, it } from 'vitest'
+import { buildWrCodeReference } from '@repo/ingestion-core'
 import {
   WRC_DEFAULT_CLAIM_TIMEOUT_S,
   createDbUseLimitStore,
@@ -21,6 +22,7 @@ import {
   type WrcUseLimitStore,
 } from '../useLimitStore'
 import { runWrCodeGatePipeline } from '../gatePipeline'
+import { deriveEntryDesignator, useLimitEntryKey } from '../entryDesignator'
 import { createWrcGateDeps } from '../gatePipelineAdapter'
 import { WrcResolutionClient } from '../resolutionClient'
 import { WrcResolvedRecordStore, createMemoryPersistence } from '../resolvedRecordStore'
@@ -308,5 +310,90 @@ describe('one-time-use through the six gates [XVI.7.6 + XVI.8.4]', () => {
     expect(r.reason).toBe('claim_failed')
     // Nothing was reserved for the anonymous attempt.
     expect(store.posture(FX.publisherPart, FX.entryId, NOW + 1)?.state).toBe('active')
+  })
+})
+
+// ── Run 3 — canonical designator keys in the NATIVE table, non-destructively ──
+//
+// The persistence contract of the Run-3 order: the existing
+// `wrc_entry_use_state` schema carries expanded designations without any
+// migration — the canonical key is TEXT in the existing `entry_id` column —
+// and every row Run 2 wrote (bare P local ids) stays attached to exactly the
+// designator that owns it. Identifiers are never reissued or rewritten.
+
+describe.skipIf(!Database)('designator-keyed persistence [Run 3 §5]', () => {
+  const SP_DESIGNATOR = (() => {
+    const built = buildWrCodeReference('SP', [PUB, 'SPC4MB'])
+    if (!built.ok) throw new Error(built.reason)
+    const d = deriveEntryDesignator(
+      built,
+      {
+        cls: 'SP',
+        combination: 'SPC4MB',
+        receiving_party: { kind: 'principal', id: 'party-1' },
+        parent: { cls: 'P', publisher_part: PUB, entry_id: ENTRY },
+      },
+      'SPENT1',
+    )
+    if (!d.ok) throw new Error(d.reason)
+    return d.designator
+  })()
+
+  it('a canonical designator key rides the existing schema end to end', () => {
+    const s = dbStore()
+    const key = useLimitEntryKey(SP_DESIGNATOR)
+    expect(key.startsWith('wrd1|')).toBe(true)
+
+    s.declare(PUB, key, defaultUseLimitProfile(1))
+    const claim = s.claim(PUB, key, 'party-1', 'req-1', T0)
+    expect(claim.ok).toBe(true)
+
+    // The stored identity IS the canonical key, verbatim — versioned,
+    // positional, never a display string.
+    const row = s.read(PUB, key)
+    expect(row?.state).toBe('claimed')
+    expect(row?.claimed_by).toBe('party-1')
+
+    const consumed = s.consume(PUB, key, 'party-1', 'req-1', T0 + 3)
+    expect(consumed.ok).toBe(true)
+    expect(s.posture(PUB, key, T0 + 4)?.state).toBe('consumed')
+  })
+
+  it('rows written by Run 2 (bare P local id) attach to the P designator unchanged', () => {
+    const s = dbStore()
+    // Exactly what Run 2 persisted for a use-limited P entry.
+    s.declare(PUB, ENTRY, defaultUseLimitProfile(1))
+
+    // Run 3 reads the same row through the canonical model: the P designator's
+    // use-limit key IS the bare local id — no migration, no reissue.
+    const built = buildWrCodeReference('P', [PUB, ENTRY])
+    if (!built.ok) throw new Error(built.reason)
+    const derived = deriveEntryDesignator(built, null, ENTRY)
+    expect(derived.ok).toBe(true)
+    if (!derived.ok) return
+    expect(useLimitEntryKey(derived.designator)).toBe(ENTRY)
+
+    const claim = s.claim(PUB, useLimitEntryKey(derived.designator), 'party-1', 'req-1', T0)
+    expect(claim.ok).toBe(true)
+    expect(s.read(PUB, ENTRY)?.state).toBe('claimed')
+  })
+
+  it('the same child-local id under two parents is two distinct rows', () => {
+    const s = dbStore()
+    const otherParent = {
+      ...SP_DESIGNATOR,
+      cls: 'SE' as const,
+      parent: { cls: 'C' as const, publisher_part: PUB, counterparty_part: 'RCVPBX' },
+    }
+    const keyA = useLimitEntryKey(SP_DESIGNATOR)
+    const keyB = useLimitEntryKey(otherParent)
+    expect(keyA).not.toBe(keyB)
+
+    s.declare(PUB, keyA, defaultUseLimitProfile(1))
+    s.declare(PUB, keyB, defaultUseLimitProfile(1))
+    expect(s.claim(PUB, keyA, 'party-1', 'req-1', T0).ok).toBe(true)
+    // Consuming A's use leaves B untouched.
+    expect(s.consume(PUB, keyA, 'party-1', 'req-1', T0 + 1).ok).toBe(true)
+    expect(s.posture(PUB, keyB, T0 + 2)).toEqual({ state: 'active', claimed_by: null })
   })
 })
