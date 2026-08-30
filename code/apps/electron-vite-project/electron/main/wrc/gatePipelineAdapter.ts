@@ -10,6 +10,17 @@
  * interface is written against the directory model, so replacing this adapter
  * with a real directory client later is internal to this file.
  *
+ * Run 3 — entry designation (§XVI.5.10): the class determines the resolver
+ * lookup key (local block for P, responder identifier for the C ordered pair,
+ * the combination block for I and every sub-handshake class), and the
+ * resolver's answer carries a publisher-signed `designation` claim — the
+ * registered pair, or the EXPANSION of the combination code into its entry
+ * and receiving-party constituents plus the parent binding. This adapter
+ * verifies the network legs (the entry chain itself, the governing parent's
+ * existence and state, the responder namespace of an SC pair); the CANONICAL
+ * designator is derived inside the pipeline from the same claim, so no deps
+ * implementation and no caller can substitute identity.
+ *
  * TODO(§XVI.6.4/6.5): swap the interim anchor for the Namespace Directory —
  *  - `verifyNamespace` should read the signed Directory Record (operator +
  *    publisher dual signature, account-holder attestation, successor part)
@@ -26,7 +37,13 @@ import {
   type WrCodeGateDeps,
   type WrCodeNamespaceVerdict,
 } from './gatePipeline'
+import {
+  deriveEntryDesignator,
+  useLimitEntryKey,
+  type WrCodeDesignationClaim,
+} from './entryDesignator'
 import type { WrcResolutionClient } from './resolutionClient'
+import type { WrcEntryDesignation } from './wrcContract'
 import type { WrcUseLimitStore } from './useLimitStore'
 
 export interface WrcGateAdapterOptions {
@@ -34,16 +51,28 @@ export interface WrcGateAdapterOptions {
    * §XVI.8.4 one-time-use state. Absent (Phase-3 default) means no entry is
    * known to be use-limited — the unbounded default. When present, Gate 3
    * reads the posture from it and Gate 5 runs the atomic compare-and-set
-   * claim against it.
+   * claim against it — both keyed by the canonical designator.
    */
   useLimits?: WrcUseLimitStore
   /** Unix seconds; injected for deterministic claim-timeout tests. */
   now?: () => number
 }
 
-/** The third address block designates the entry (P: local; others per class). */
-function entryIdOf(reference: WrCodeReference): string | null {
-  return reference.local ?? reference.combination ?? reference.counterparty ?? null
+/**
+ * §XVI.5.10 — the resolver lookup key per class: the local block designates a
+ * P entry directly; a C umbrella is looked up by its ordered pair (initiator
+ * namespace + responder id); I and sub-handshake classes are looked up by the
+ * combination block, which the resolver alone expands.
+ */
+function lookupKeyOf(reference: WrCodeReference): string | null {
+  if (reference.cls === 'P') return reference.local
+  if (reference.cls === 'C') return reference.counterparty
+  return reference.combination
+}
+
+/** Wire designation → derivation claim (shapes align; typed hand-off only). */
+function claimOf(designation: WrcEntryDesignation | null): WrCodeDesignationClaim | null {
+  return designation
 }
 
 /**
@@ -94,16 +123,12 @@ export function createWrcGateDeps(
     },
 
     async verifyEntry(reference, _namespaces): Promise<WrCodeEntryVerdict> {
-      // Interim resolver reach: P entries only — the local block designates
-      // the entry directly. C is designated by the ordered pair and I / sub-
-      // handshake classes by combination expansion (§XVI.5.10), neither of
-      // which the Phase-3 registry exposes yet. Fail closed, precisely.
-      // TODO(§XVI.5.10): ordered-pair and combination-code entry designation.
-      if (reference.cls !== 'P' || !reference.local) {
+      const lookupKey = lookupKeyOf(reference)
+      if (!lookupKey) {
         return {
           ok: false,
-          reason: 'entry_verification_unavailable',
-          detail: `class ${reference.cls} entry designation is not resolvable by the interim anchor`,
+          reason: 'entry_unverified',
+          detail: `class ${reference.cls} reference carries no entry-designating block`,
         }
       }
 
@@ -112,7 +137,7 @@ export function createWrcGateDeps(
       // refusal, and the pipeline's Gate 3 evaluates that state fail-closed
       // with the precise reason the status surface needs.
       const res = await client.resolvePublisher(reference.publisher, {
-        entryId: reference.local,
+        entryId: lookupKey,
         allowSuspended: true,
       })
       if (!res.ok) {
@@ -129,28 +154,98 @@ export function createWrcGateDeps(
         return { ok: false, reason: 'entry_unverified', detail: 'resolution returned no entry object' }
       }
 
+      const designation = claimOf(res.entry.designation)
+
+      // §XVI.5.10 network legs — only when the claim already derives cleanly;
+      // a malformed claim refuses in the PIPELINE with the precise derivation
+      // reason, so no fetch races a structural refusal.
+      const derived = deriveEntryDesignator(reference, designation, res.entry.entry_id)
+      if (derived.ok && derived.designator.parent) {
+        const parent = derived.designator.parent
+
+        if (parent.cls === 'C' && parent.counterparty_part) {
+          // "an ESTABLISHED C relationship whose two namespaces have
+          // themselves passed account-holder and DNS verification" — the
+          // responder is not in the reference, so Gate 2 could not have seen
+          // it; verify its namespace here, at the expanded form.
+          const responder = await client.resolvePublisher(parent.counterparty_part)
+          if (!responder.ok || responder.status !== 'active') {
+            return {
+              ok: false,
+              reason: 'unresolved_parent',
+              detail: `responder namespace ${parent.counterparty_part}: ${responder.ok ? responder.status : responder.reason}`,
+            }
+          }
+        }
+
+        // The entry constituent must bind "under a currently governing
+        // parent". The parent entry's lookup key: the responder id for a C
+        // umbrella, else the repository id the resolver named.
+        const parentLookup =
+          parent.cls === 'C'
+            ? parent.counterparty_part
+            : (res.entry.designation?.parent?.entry_id ?? null)
+        if (parent.cls === 'C' || parentLookup) {
+          const parentRes = await client.resolvePublisher(parent.publisher_part, {
+            entryId: parentLookup!,
+            allowSuspended: true,
+          })
+          if (!parentRes.ok || !parentRes.entry) {
+            return {
+              ok: false,
+              reason: 'unresolved_parent',
+              detail: `parent ${parent.cls} entry: ${parentRes.ok ? 'no entry object' : parentRes.reason}`,
+            }
+          }
+          if (parentRes.entry.status !== 'published' || parentRes.suspension) {
+            return {
+              ok: false,
+              reason: 'unresolved_parent',
+              detail: `parent ${parent.cls} entry is not in a governing state (${
+                parentRes.suspension ? 'platform_suspended' : parentRes.entry.status
+              })`,
+            }
+          }
+        }
+        // A parent without a named entry (SP/SI/SE structural binding to the
+        // namespace itself) was verified at Gate 2: the namespace IS block 2.
+      }
+
       const material: WrCodeEntryMaterial = {
         entry_id: res.entry.entry_id,
         catalog_status: res.entry.status,
         suspension: res.suspension ?? null,
-        // Interim entries are offerings; C-class invitations arrive with the
-        // ordered-pair designation above.
+        // A C umbrella in PENDING is an invitation; everything else the
+        // interim registry serves is an offering.
         kind: 'offering',
         // The Phase-3 resolver declares no §XVI.8.1 lifecycle of its own; the
         // catalog status and the use-limit posture carry the state.
         lifecycle: null,
         // Phase-3 entries carry no recipient binding: public offerings.
-        // TODO(§XVI.7.6 Gate 4): read the issuer-bound recipient granularity.
+        // I/S* receiving-party binding rides on the designation and is
+        // matched at Gate 4 from the canonical designator.
         recipient_binding: null,
-        use_limit: options.useLimits?.posture(reference.publisher, reference.local, now()) ?? null,
+        // Posture is read by the PIPELINE via `useLimitPosture`, keyed by the
+        // canonical designator — never precomputed here.
+        use_limit: null,
         successor_entry_id: null,
+        designation,
         entry: res.entry,
         evp: res.evp ?? null,
       }
       return { ok: true, material }
     },
 
-    async releaseMaterial({ reference, material, receiver, requestInstanceId }) {
+    useLimitPosture(designator) {
+      if (!options.useLimits) return null
+      return options.useLimits.posture(
+        designator.publisher_part,
+        useLimitEntryKey(designator),
+        now(),
+      )
+    },
+
+    async releaseMaterial({ material, designator, receiver, requestInstanceId }) {
       // Interim release: there is no Relay in Phase 3. For a public offering
       // the pre-consent material was verified at Gate 3; "release" hands it
       // over. Recipient-bound capsule release (signed claim, delegation with
@@ -167,9 +262,9 @@ export function createWrcGateDeps(
       // §XVI.8.4 — successful passage through Gate 5 by an identified party
       // moves a use-limited entry atomically, by compare-and-set, to CLAIMED
       // for that party; a concurrent claimant receives CLAIMED_BY_OTHER and
-      // no material.
-      const entryId = entryIdOf(reference)
-      if (options.useLimits && entryId && options.useLimits.read(reference.publisher, entryId)) {
+      // no material. Keyed by the canonical designator the PIPELINE derived.
+      const entryKey = useLimitEntryKey(designator)
+      if (options.useLimits && options.useLimits.read(designator.publisher_part, entryKey)) {
         const party = claimantIdOf(receiver)
         if (!party) {
           return {
@@ -179,8 +274,8 @@ export function createWrcGateDeps(
           }
         }
         const claim = options.useLimits.claim(
-          reference.publisher,
-          entryId,
+          designator.publisher_part,
+          entryKey,
           party,
           requestInstanceId,
           now(),
@@ -209,14 +304,13 @@ export function createWrcGateDeps(
       return { ok: true }
     },
 
-    releaseClaim({ reference, receiver }) {
+    releaseClaim({ designator, receiver }) {
       // Post-claim gate failure: the reservation reverts to ACTIVE — a failed
       // verification never consumes a use (§XVI.8.4). The claim timeout is
       // the backstop if this process dies before reverting.
-      const entryId = entryIdOf(reference)
       const party = claimantIdOf(receiver)
-      if (options.useLimits && entryId && party) {
-        options.useLimits.release(reference.publisher, entryId, party)
+      if (options.useLimits && party) {
+        options.useLimits.release(designator.publisher_part, useLimitEntryKey(designator), party)
       }
     },
   }

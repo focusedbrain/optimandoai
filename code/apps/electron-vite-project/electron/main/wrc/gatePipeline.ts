@@ -40,6 +40,12 @@ import {
   evaluateEntryLifecycleForRequest,
   type WrEntryLifecycleStatus,
 } from './entryLifecycle'
+import {
+  deriveEntryDesignator,
+  type WrCodeDesignationClaim,
+  type WrCodeDesignationFailureReason,
+  type WrCodeEntryDesignator,
+} from './entryDesignator'
 import type { WrcEntry, WrcEntryStatus, WrcEvp, WrcPublisherStatus, WrcSuspension } from './wrcContract'
 
 // ── Gate identity ─────────────────────────────────────────────────────────────
@@ -103,6 +109,10 @@ export type WrCodeGateReason =
   | 'CONSUMED'
   | 'CLAIMED_BY_OTHER'
   | 'CONTEXT_EXHAUSTED'
+  // Gate 3 — Run-3 canonical designation vocabulary (§XVI.5.10): the pure
+  // derivation reasons plus the network-leg parent resolution failure.
+  | WrCodeDesignationFailureReason
+  | 'unresolved_parent'
   // Gate 4 — self-match.
   | 'NOT_FOR_YOU'
   | 'NOT_FOR_THIS_DEVICE'
@@ -191,6 +201,13 @@ export interface WrCodeEntryMaterial {
   use_limit: WrCodeUseLimitPosture | null
   /** Superseded entries surface their successor explicitly (§XVI.8.1). */
   successor_entry_id: string | null
+  /**
+   * §XVI.5.10 designation CLAIM as the resolver stated it (Run 3): the
+   * registered pair for C, the combination expansion for I/S*. The pipeline —
+   * never the deps, never a caller — derives the canonical designator from
+   * this claim inside Gate 3; the claim itself is data, not identity.
+   */
+  designation: WrCodeDesignationClaim | null
   entry: WrcEntry | null
   evp: WrcEvp | null
 }
@@ -199,7 +216,14 @@ export type WrCodeEntryVerdict =
   | { ok: true; material: WrCodeEntryMaterial }
   | {
       ok: false
-      reason: 'entry_unknown' | 'entry_unverified' | 'entry_verification_unavailable'
+      reason:
+        | 'entry_unknown'
+        | 'entry_unverified'
+        | 'entry_verification_unavailable'
+        // Run 3 (§XVI.5.10): the entry constituent must resolve to an entry
+        // binding "under a currently governing parent" — a parent that does
+        // not resolve, or is not in a governing state, refuses here.
+        | 'unresolved_parent'
       detail?: string
     }
 
@@ -255,6 +279,8 @@ export interface WrCodeGateDeps {
   releaseMaterial(input: {
     reference: WrCodeReference
     material: WrCodeEntryMaterial
+    /** The PIPELINE-derived canonical designator — the only claim/state key. */
+    designator: WrCodeEntryDesignator
     receiver: WrCodeReceiverIdentity
     requestInstanceId: string | null
   }): Promise<WrCodeReleaseVerdict>
@@ -272,11 +298,21 @@ export interface WrCodeGateDeps {
     requestInstanceId: string | null
   }): Promise<WrCodeAdmissionVerdict>
   /**
+   * §XVI.8.4 posture read for Gate 3, keyed by the PIPELINE-derived canonical
+   * designator (Run 3). Optional: absent means the deps keep no use-limit
+   * state; a stubbed `material.use_limit` remains the fixture-side carrier.
+   */
+  useLimitPosture?(designator: WrCodeEntryDesignator): WrCodeUseLimitPosture | null
+  /**
    * Called when a gate AFTER a successful Gate-5 claim fails, so the §XVI.8.4
    * reservation reverts to ACTIVE — a failed verification never consumes a
    * use. Optional because only claim-capable deps have anything to revert.
    */
-  releaseClaim?(input: { reference: WrCodeReference; receiver: WrCodeReceiverIdentity }): void
+  releaseClaim?(input: {
+    reference: WrCodeReference
+    designator: WrCodeEntryDesignator
+    receiver: WrCodeReceiverIdentity
+  }): void
 }
 
 // ── Pipeline input / outcome ──────────────────────────────────────────────────
@@ -317,6 +353,8 @@ export interface WrCodeGateAdmission {
   /** One verified record per Publisher Identifier, in reference order. */
   namespaces: WrCodeNamespaceRecord[]
   material: WrCodeEntryMaterial
+  /** Canonical entry designator, derived inside Gate 3 (Run 3, §XVI.5.10). */
+  designator: WrCodeEntryDesignator
   released: { evp: WrcEvp | null }
   /** Always all six, in normative order — pinned by fixtures. */
   gatesPassed: WrCodeGateName[]
@@ -334,6 +372,7 @@ export function evaluateSelfMatch(
   reference: WrCodeReference,
   material: WrCodeEntryMaterial,
   receiver: WrCodeReceiverIdentity,
+  designator?: WrCodeEntryDesignator | null,
 ):
   | { ok: true }
   | { ok: false; reason: 'NOT_FOR_YOU' | 'NOT_FOR_THIS_DEVICE' | 'self_match_unavailable'; detail?: string } {
@@ -352,16 +391,34 @@ export function evaluateSelfMatch(
       : { ok: false, reason: 'NOT_FOR_YOU' }
   }
 
-  // I and sub-handshake classes — the receiving-party constituent lives inside
-  // the combination code, whose expansion is resolver-side (§XVI.5.10) and not
-  // yet available. Fail closed rather than guess.
-  // TODO(§XVI.5.10, §XVI.13.x): expand the combination and match the receiver's
-  // Party Identifier at the issuer-bound granularity.
+  // I and sub-handshake classes — the receiving-party constituent of the
+  // expanded combination code must be the receiver, at the granularity the
+  // issuer bound (§XVI.5.10, §XVI.7.6 Gate 4). Run 3: the constituent arrives
+  // on the canonical designator the pipeline derived in Gate 3.
   if (reference.cls !== 'P') {
-    return {
-      ok: false,
-      reason: 'self_match_unavailable',
-      detail: `combination expansion for class ${reference.cls} is not available yet`,
+    const rp = designator?.receiving_party ?? null
+    if (!rp) {
+      // No verified expansion — never guess.
+      return {
+        ok: false,
+        reason: 'self_match_unavailable',
+        detail: `no verified receiving-party constituent for class ${reference.cls}`,
+      }
+    }
+    switch (rp.kind) {
+      case 'publisher':
+        return receiver.publisher_part === rp.id ? { ok: true } : { ok: false, reason: 'NOT_FOR_YOU' }
+      case 'principal':
+        return receiver.party_id === rp.id ? { ok: true } : { ok: false, reason: 'NOT_FOR_YOU' }
+      case 'device': {
+        // Bound to one Device-Scoped Principal Identifier: only that device.
+        if (receiver.device_party_id === rp.id) return { ok: true }
+        // Another device of the same principal is told so, distinctly
+        // (NOT_FOR_THIS_DEVICE, a refinement of NOT_FOR_YOU — §XVI.5.10).
+        return receiver.party_id && rp.id.startsWith(`${receiver.party_id}:`)
+          ? { ok: false, reason: 'NOT_FOR_THIS_DEVICE' }
+          : { ok: false, reason: 'NOT_FOR_YOU' }
+      }
     }
   }
 
@@ -513,7 +570,20 @@ export async function runWrCodeGatePipeline(
   }
   const material = entryVerdict.material
 
-  const stateRefusal = evaluateEntryStateForGate3(material, receiver)
+  // Run 3 (§XVI.5.10/5.11): the canonical designator is derived HERE, inside
+  // the trusted boundary, from the parsed reference and the resolver's claim —
+  // no dependency injection and no caller-supplied designation can replace it.
+  const derived = deriveEntryDesignator(reference, material.designation, material.entry_id)
+  if (!derived.ok) {
+    return refuse(3, derived.reason, { detail: derived.detail })
+  }
+  const designator = derived.designator
+
+  // §XVI.8.4 posture, keyed by the canonical designator when the deps keep
+  // state; a fixture-declared posture on the material is the local fallback.
+  const posture = deps.useLimitPosture?.(designator) ?? material.use_limit
+
+  const stateRefusal = evaluateEntryStateForGate3(material, posture, receiver)
   if (stateRefusal) {
     return refuse(3, stateRefusal.reason, {
       detail: stateRefusal.detail,
@@ -524,7 +594,7 @@ export async function runWrCodeGatePipeline(
   gatesPassed.push('entry')
 
   // ── Gate 4 — self-match (local, non-delegable) ─────────────────────────────
-  const selfMatch = evaluateSelfMatch(reference, material, receiver)
+  const selfMatch = evaluateSelfMatch(reference, material, receiver, designator)
   if (!selfMatch.ok) {
     return refuse(4, selfMatch.reason, { detail: selfMatch.detail })
   }
@@ -533,7 +603,13 @@ export async function runWrCodeGatePipeline(
   // ── Gate 5 — recipient-bound release (+ §XVI.8.4 claim) ────────────────────
   let release: WrCodeReleaseVerdict
   try {
-    release = await deps.releaseMaterial({ reference, material, receiver, requestInstanceId })
+    release = await deps.releaseMaterial({
+      reference,
+      material,
+      designator,
+      receiver,
+      requestInstanceId,
+    })
   } catch (e) {
     release = { ok: false, reason: 'release_refused', detail: e instanceof Error ? e.message : String(e) }
   }
@@ -546,7 +622,7 @@ export async function runWrCodeGatePipeline(
   // it — a failed verification never consumes a use.
   const revertClaim = () => {
     try {
-      deps.releaseClaim?.({ reference, receiver })
+      deps.releaseClaim?.({ reference, designator, receiver })
     } catch {
       // Reverting is best-effort here; the claim's own timeout is the backstop.
     }
@@ -581,6 +657,7 @@ export async function runWrCodeGatePipeline(
     reference,
     namespaces,
     material,
+    designator,
     released: release.released,
     gatesPassed: [...gatesPassed],
   }
@@ -615,6 +692,7 @@ export function claimantIdOf(receiver: WrCodeReceiverIdentity): string | null {
  */
 function evaluateEntryStateForGate3(
   material: WrCodeEntryMaterial,
+  posture: WrCodeUseLimitPosture | null,
   receiver: WrCodeReceiverIdentity,
 ): Gate3StateRefusal | null {
   if (material.suspension) {
@@ -631,7 +709,6 @@ function evaluateEntryStateForGate3(
 
   // Effective lifecycle: an explicit resolver/store declaration wins; a
   // §XVI.8.4 posture overlays the catalog's implicit ACTIVE; default active.
-  const posture = material.use_limit
   const lifecycle: WrEntryLifecycleStatus =
     material.lifecycle ?? (posture && posture.state !== 'active' ? posture.state : 'active')
 

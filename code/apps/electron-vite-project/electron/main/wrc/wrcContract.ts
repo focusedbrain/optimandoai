@@ -114,6 +114,75 @@ export interface WrcEntryCode {
   channels: string[]
 }
 
+/**
+ * §XVI.5.10 designation block (Run 3) — the resolver-side answer to "which
+ * designation does this entry satisfy": the registered ordered pair for a C
+ * umbrella, or the expansion of a combination code (entry constituent is the
+ * enclosing entry itself; receiving-party constituent and parent binding are
+ * carried here). OPTIONAL on the wire — Phase-3 P entries carry none — but
+ * when present it must be fully well-formed or the whole entry refuses to
+ * decode. It is inside the publisher-signed object, so it is covered by the
+ * publisher signature, the ingest countersignature, and Merkle inclusion.
+ */
+export interface WrcEntryDesignation {
+  cls: string
+  combination: string | null
+  initiator_part: string | null
+  counterparty_part: string | null
+  receiving_party: { kind: string; id: string } | null
+  parent: {
+    cls: string
+    publisher_part: string
+    counterparty_part: string | null
+    entry_id: string | null
+  } | null
+}
+
+function decodeEntryDesignation(value: unknown): WrcEntryDesignation | null {
+  const o = asRecord(value)
+  if (!o) return null
+  if (!isNonEmptyString(o.cls)) return null
+
+  const optionalPart = (v: unknown): string | null | undefined =>
+    v === null || v === undefined ? null : isNonEmptyString(v) ? v : undefined
+
+  const combination = optionalPart(o.combination)
+  const initiator = optionalPart(o.initiator_part)
+  const counterparty = optionalPart(o.counterparty_part)
+  if (combination === undefined || initiator === undefined || counterparty === undefined) return null
+
+  let receivingParty: WrcEntryDesignation['receiving_party'] = null
+  if (o.receiving_party !== null && o.receiving_party !== undefined) {
+    const rp = asRecord(o.receiving_party)
+    if (!rp || !isNonEmptyString(rp.kind) || !isNonEmptyString(rp.id)) return null
+    receivingParty = { kind: rp.kind, id: rp.id }
+  }
+
+  let parent: WrcEntryDesignation['parent'] = null
+  if (o.parent !== null && o.parent !== undefined) {
+    const p = asRecord(o.parent)
+    if (!p || !isNonEmptyString(p.cls) || !isNonEmptyString(p.publisher_part)) return null
+    const pCounterparty = optionalPart(p.counterparty_part)
+    const pEntryId = optionalPart(p.entry_id)
+    if (pCounterparty === undefined || pEntryId === undefined) return null
+    parent = {
+      cls: p.cls,
+      publisher_part: p.publisher_part,
+      counterparty_part: pCounterparty,
+      entry_id: pEntryId,
+    }
+  }
+
+  return {
+    cls: o.cls,
+    combination,
+    initiator_part: initiator,
+    counterparty_part: counterparty,
+    receiving_party: receivingParty,
+    parent,
+  }
+}
+
 export interface WrcEntry {
   type: 'wrc/entry'
   entry_id: string
@@ -124,6 +193,8 @@ export interface WrcEntry {
   evp_ref: WrcHash
   template_ref: WrcHash | null
   status: WrcEntryStatus
+  /** §XVI.5.10 designation (Run 3). Null for plain local entries. */
+  designation: WrcEntryDesignation | null
   epoch: number
   kid: string
   sig: string
@@ -163,6 +234,15 @@ export function decodeEntry(value: unknown): WrcEntry | null {
   if (!isSafeNonNegativeInt(o.epoch)) return null
   if (!isNonEmptyString(o.kid) || !isB64Url(o.sig)) return null
 
+  // A present-but-malformed designation is a decode failure (same discipline
+  // as the head's delegation): downgrading it to null would turn a broken
+  // §XVI.5.10 expansion into "plain local entry" and skip parent binding.
+  let designation: WrcEntryDesignation | null = null
+  if (o.designation !== null && o.designation !== undefined) {
+    designation = decodeEntryDesignation(o.designation)
+    if (!designation) return null
+  }
+
   return {
     type: 'wrc/entry',
     entry_id: o.entry_id,
@@ -173,6 +253,7 @@ export function decodeEntry(value: unknown): WrcEntry | null {
     evp_ref: o.evp_ref,
     template_ref: templateRef,
     status: o.status,
+    designation,
     epoch: o.epoch,
     kid: o.kid,
     sig: o.sig,

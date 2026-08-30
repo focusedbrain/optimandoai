@@ -133,6 +133,24 @@ export interface WrcPublisherFixtureOptions {
   delegationSigner?: WrcTestKeyPair
   /** Override the delegation's `root_kid` — used to attempt sub-delegation. */
   delegationRootKid?: string
+  /** §XVI.5.10 designation block on the primary entry (Run 3). */
+  entryDesignation?: Record<string, unknown> | null
+  /**
+   * Additional entries under the SAME catalog head (Run 3): parent entries,
+   * combination-code expansions, sibling sub-handshakes. `lookupKey` is the
+   * resolver lookup id (a combination block, a responder part for a C pair, a
+   * repository id); `entryId` is the entry's own id — for a combination
+   * lookup they differ, which IS the expansion.
+   */
+  extraEntries?: Array<{
+    lookupKey: string
+    entryId: string
+    status?: 'published' | 'suspended' | 'retired'
+    designation?: Record<string, unknown> | null
+    suspend?: boolean
+  }>
+  /** Share one WRC ingest key across fixtures (multi-publisher scenarios). */
+  ingestKey?: WrcTestKeyPair
 }
 
 export interface WrcPublisherFixture {
@@ -149,6 +167,9 @@ export interface WrcPublisherFixture {
   evp: WrcEvp
   entryEnvelope: WrcEnvelope
   evpEnvelope: WrcEnvelope
+  /** Run 3: envelopes for `extraEntries`, by lookup key / by object hash. */
+  entriesByLookup: Map<string, WrcEnvelope>
+  envelopesByHash: Map<string, WrcEnvelope>
   delegation: WrcDelegationRecord | null
   /** Delta v1.1 §B history payload, oldest first. */
   delegationHistory: WrcDelegationRecord[]
@@ -168,7 +189,7 @@ export function buildPublisherFixture(
 
   const root = makeKeyPair('root-a1')
   const catalogKey = options.useDelegation ? makeKeyPair('cat-b2') : root
-  const ingest = makeKeyPair('wrc-ingest-1')
+  const ingest = options.ingestKey ?? makeKeyPair('wrc-ingest-1')
 
   const delegation: WrcDelegationRecord | null = options.useDelegation
     ? (signObject(
@@ -224,24 +245,70 @@ export function buildPublisherFixture(
   const evp = signObject(evpBase, catalogKey) as unknown as WrcEvp
   const evpHash = hashObject(evp)
 
-  const entryBase: Record<string, unknown> = {
-    type: 'wrc/entry',
-    entry_id: entryId,
-    publisher_part: publisherPart,
-    display: { name: 'Test Entry', icon: null, value_statement: 'Carrier-independent statement' },
-    codes: [{ canonical: `${publisherPart}${entryId}C`, channels: ['assisted_email'] }],
-    scopes: [hashObject({ scope: 1 })],
-    evp_ref: evpHash,
-    template_ref: null,
-    status: options.entryStatus ?? 'published',
-    epoch,
-    kid: catalogKey.kid,
-    sig: '',
+  const makeEntry = (
+    id: string,
+    status: 'published' | 'suspended' | 'retired',
+    evpRef: string,
+    designation: Record<string, unknown> | null | undefined,
+  ): { entry: WrcEntry; hash: string } => {
+    const base: Record<string, unknown> = {
+      type: 'wrc/entry',
+      entry_id: id,
+      publisher_part: publisherPart,
+      display: { name: 'Test Entry', icon: null, value_statement: 'Carrier-independent statement' },
+      codes: [{ canonical: `${publisherPart}${id}C`, channels: ['assisted_email'] }],
+      scopes: [hashObject({ scope: 1 })],
+      evp_ref: evpRef,
+      template_ref: null,
+      status,
+      designation: designation ?? null,
+      epoch,
+      kid: catalogKey.kid,
+      sig: '',
+    }
+    const signed = signObject(base, catalogKey) as unknown as WrcEntry
+    return { entry: signed, hash: hashObject(signed) }
   }
-  const entry = signObject(entryBase, catalogKey) as unknown as WrcEntry
-  const entryHash = hashObject(entry)
 
-  const { root: catalogRoot, proofs } = buildMerkle([entryHash, evpHash])
+  const makeEvpFor = (id: string): { evp: WrcEvp; hash: string } => {
+    const signed = signObject({ ...evpBase, entry_id: id }, catalogKey) as unknown as WrcEvp
+    return { evp: signed, hash: hashObject(signed) }
+  }
+
+  const { entry, hash: entryHash } = makeEntry(
+    entryId,
+    options.entryStatus ?? 'published',
+    evpHash,
+    options.entryDesignation,
+  )
+
+  // Run 3: extra entries (parents, expansions) each with their own EVP, all
+  // under the ONE catalog head so inclusion proofs stay real.
+  const extraBuilt: Array<{
+    lookupKey: string
+    entry: WrcEntry
+    entryHash: string
+    evp: WrcEvp
+    evpHash: string
+    suspend: boolean
+  }> = (options.extraEntries ?? []).map((spec) => {
+    const extraEvp = makeEvpFor(spec.entryId)
+    const built = makeEntry(spec.entryId, spec.status ?? 'published', extraEvp.hash, spec.designation)
+    return {
+      lookupKey: spec.lookupKey,
+      entry: built.entry,
+      entryHash: built.hash,
+      evp: extraEvp.evp,
+      evpHash: extraEvp.hash,
+      suspend: spec.suspend === true,
+    }
+  })
+
+  const { root: catalogRoot, proofs } = buildMerkle([
+    entryHash,
+    evpHash,
+    ...extraBuilt.flatMap((b) => [b.entryHash, b.evpHash]),
+  ])
 
   // Delta v1.1 §A: the delegation travels IN the head, so verification needs
   // nothing but the DNS-pinned root and this object.
@@ -288,6 +355,36 @@ export function buildPublisherFixture(
     suspension: null,
   }
 
+  const envelopeOf = (
+    object: Record<string, unknown>,
+    hash: string,
+    suspend: boolean,
+  ): WrcEnvelope => ({
+    object,
+    hash,
+    publisher_sig_valid_kid: catalogKey.kid,
+    ingest_countersig: { kid: ingest.kid, at: issuedAt + 100, sig: countersign(hash) },
+    epoch,
+    inclusion_proof: proofs.get(hash)!,
+    suspension: suspend
+      ? { since: issuedAt + 500, reason_code: 'platform_review', reversible: true }
+      : null,
+  })
+
+  const entriesByLookup = new Map<string, WrcEnvelope>()
+  const envelopesByHash = new Map<string, WrcEnvelope>([
+    [entryHash, entryEnvelope],
+    [evpHash, evpEnvelope],
+  ])
+  entriesByLookup.set(entryId, entryEnvelope)
+  for (const b of extraBuilt) {
+    const env = envelopeOf(b.entry as unknown as Record<string, unknown>, b.entryHash, b.suspend)
+    const evpEnv = envelopeOf(b.evp as unknown as Record<string, unknown>, b.evpHash, false)
+    entriesByLookup.set(b.lookupKey, env)
+    envelopesByHash.set(b.entryHash, env)
+    envelopesByHash.set(b.evpHash, evpEnv)
+  }
+
   return {
     publisherPart,
     domain,
@@ -302,6 +399,8 @@ export function buildPublisherFixture(
     evp,
     entryEnvelope,
     evpEnvelope,
+    entriesByLookup,
+    envelopesByHash,
     delegation,
     delegationHistory: delegation ? [delegation] : [],
     txtRecords: [`v=wr1; root=${fingerprintOf(root.pub)}`],
@@ -349,15 +448,20 @@ export function createFixtureTransport(
       // Delta v1.1 §B: append-only rotation history, oldest first. Audit only.
       return overrides.delegations ?? { ok: true, value: fx.delegationHistory }
     },
-    async entry() {
+    async entry(_part, entryId) {
       note('entry')
-      return overrides.entry ?? { ok: true, value: fx.entryEnvelope }
+      if (overrides.entry) return overrides.entry
+      // Run 3: serve by lookup key when the id is known (combination blocks,
+      // pair responders); legacy fallback keeps single-entry tests unchanged.
+      const byLookup = fx.entriesByLookup.get(entryId)
+      if (byLookup) return { ok: true, value: byLookup }
+      return { ok: true, value: fx.entryEnvelope }
     },
     async object(hash) {
       note('object')
       if (overrides.object) return overrides.object
-      if (hash === fx.evpEnvelope.hash) return { ok: true, value: fx.evpEnvelope }
-      if (hash === fx.entryEnvelope.hash) return { ok: true, value: fx.entryEnvelope }
+      const env = fx.envelopesByHash.get(hash)
+      if (env) return { ok: true, value: env }
       return { ok: false, code: 'http_status', message: 'HTTP 404', status: 404 }
     },
     async publisherManifest() {
@@ -367,6 +471,54 @@ export function createFixtureTransport(
     async wrTxtRecords() {
       note('wrTxtRecords')
       return overrides.txt ?? { ok: true, records: fx.txtRecords }
+    },
+  }
+}
+
+/**
+ * Run 3: one transport over SEVERAL publisher fixtures, routed by publisher
+ * part / domain — what a C ordered pair or an SC responder verification needs.
+ * Build the fixtures with a shared `ingestKey` so one client can verify all
+ * countersignatures.
+ */
+export function createMultiFixtureTransport(fixtures: readonly WrcPublisherFixture[]): WrcTransport {
+  const byPart = new Map(fixtures.map((f) => [f.publisherPart, f]))
+  const byDomain = new Map(fixtures.map((f) => [f.domain, f]))
+  const notFound = { ok: false as const, code: 'http_status' as const, message: 'HTTP 404', status: 404 }
+
+  return {
+    async resolve(part) {
+      const fx = byPart.get(part)
+      return fx ? { ok: true, value: fx.resolveClaim } : notFound
+    },
+    async catalogHead(part) {
+      const fx = byPart.get(part)
+      return fx ? { ok: true, value: fx.head } : notFound
+    },
+    async delegations(part) {
+      const fx = byPart.get(part)
+      return fx ? { ok: true, value: fx.delegationHistory } : notFound
+    },
+    async entry(part, entryId) {
+      const fx = byPart.get(part)
+      if (!fx) return notFound
+      const env = fx.entriesByLookup.get(entryId)
+      return env ? { ok: true, value: env } : notFound
+    },
+    async object(hash) {
+      for (const fx of fixtures) {
+        const env = fx.envelopesByHash.get(hash)
+        if (env) return { ok: true, value: env }
+      }
+      return notFound
+    },
+    async publisherManifest(domain) {
+      const fx = byDomain.get(domain)
+      return fx ? { ok: true, value: fx.manifest } : notFound
+    },
+    async wrTxtRecords(domain) {
+      const fx = byDomain.get(domain)
+      return fx ? { ok: true, records: fx.txtRecords } : { ok: true, records: [] }
     },
   }
 }

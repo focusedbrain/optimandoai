@@ -75,11 +75,19 @@ function publishedMaterial(overrides: Partial<WrCodeEntryMaterial> = {}): WrCode
     recipient_binding: null,
     use_limit: null,
     successor_entry_id: null,
+    designation: null,
     entry: FX.entry,
     evp: FX.evp,
     ...overrides,
   }
 }
+
+/** Resolver designation claim for the C_REF_FOR_ME ordered pair (Run 3). */
+const C_PAIR_DESIGNATION = {
+  cls: 'C',
+  initiator_part: 'WR7X4K',
+  counterparty_part: RECEIVER_PUB,
+} as const
 
 interface StubLog {
   calls: string[]
@@ -204,7 +212,9 @@ describe('Gate 1 — local syntax [XVI.7.6, XVI.5.8]', () => {
 
 describe('Gate 2 — namespace [XVI.7.6]', () => {
   it('class C verifies BOTH Publisher Identifiers, initiator first', async () => {
-    const { deps, log } = stubDeps()
+    const { deps, log } = stubDeps({
+      material: publishedMaterial({ designation: C_PAIR_DESIGNATION }),
+    })
     const r = await runWrCodeGatePipeline({ raw: C_REF_FOR_ME, receiver: RECEIVER }, deps)
     expect(log.calls.filter((c) => c.startsWith('namespace:'))).toEqual([
       'namespace:WR7X4K',
@@ -338,7 +348,11 @@ describe('Gate 4 — self-match [XVI.7.6]', () => {
       verifyEntry: async () => ({
         ok: true,
         // An invitation admits a request in PENDING (§XVI.7.6 Gate 3).
-        material: publishedMaterial({ kind: 'invitation', lifecycle: 'pending' }),
+        material: publishedMaterial({
+          kind: 'invitation',
+          lifecycle: 'pending',
+          designation: C_PAIR_DESIGNATION,
+        }),
       }),
     })
     const r = await runWrCodeGatePipeline(
@@ -515,13 +529,16 @@ describe('interim adapter — full pipeline over the Phase-3 anchor', () => {
     expect(r.reason).toBe('entry_platform_suspended')
   })
 
-  it('an I-class reference fails CLOSED at Gate 3 until combination expansion exists', async () => {
+  it('an I-class reference whose resolver returns NO expansion fails CLOSED at Gate 3 [Run 3]', async () => {
+    // The fixture's primary entry carries no §XVI.5.10 designation, so the
+    // combination code cannot be expanded — a designation mismatch, never a
+    // guessed identity.
     const deps = createWrcGateDeps(clientFor(createFixtureTransport(FX)))
     const r = await runWrCodeGatePipeline({ raw: I_REF, receiver: RECEIVER }, deps)
     expect(r.ok).toBe(false)
     if (r.ok) return
     expect(r.gate).toBe(3)
-    expect(r.reason).toBe('entry_verification_unavailable')
+    expect(r.reason).toBe('designation_mismatch')
   })
 })
 
