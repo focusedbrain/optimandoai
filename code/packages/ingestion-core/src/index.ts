@@ -129,6 +129,35 @@ export {
   BASELINE_CODE_PUBLISHER_LENGTH,
 } from './wrCode.js';
 export type { BaselineCodeCapture, BaselineCodeCaptureFailure } from './wrCode.js';
+// WR Code reference grammar v2 — Annex XVI v1.95 [XVI.5.1–5.5, 5.8, 5.11]
+export {
+  WR_CODE_GRAMMAR_VERSION,
+  WR_CODE_CLASSES,
+  WR_CODE_CLASS_SPECS,
+  WR_CODE_CLASS_VALUES,
+  WR_CODE_DETECTION_MAX_TEXT_LENGTH,
+  classifyWrCodePrefix,
+  wrCodeBodyLength,
+  captureWrCodeReference,
+  formatWrCodeReferenceForDisplay,
+  computeWrCodeCheckSymbol,
+  buildWrCodeReference,
+  detectWrCodeReferences,
+  classifyStoredWrCodeValue,
+} from './wrCodeGrammar.js';
+export type {
+  WrCodeClass,
+  WrCodeFieldRole,
+  WrCodeFieldSpec,
+  WrCodeClassSpec,
+  WrCodePrefixState,
+  WrCodeCaptureFailureReason,
+  WrCodeCaptureFailure,
+  WrCodeReference,
+  WrCodeCaptureResult,
+  WrCodeDetection,
+  StoredWrCodeShape,
+} from './wrCodeGrammar.js';
 // Channel Provenance Record [IX.3.1, IX.11]
 export {
   CHANNEL_PROVENANCE_SCHEME,
