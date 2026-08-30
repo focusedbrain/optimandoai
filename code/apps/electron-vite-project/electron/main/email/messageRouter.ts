@@ -44,6 +44,11 @@ import {
   produceChannelProvenance,
   recordChannelProvenanceEvidence,
 } from './channelProvenanceProducer'
+import {
+  detectWrCodeReferencesInEmailBody,
+  mergeWrCodeDetectionMetadata,
+  type WrCodeEmailDetection,
+} from './wrCodeEmailDetection'
 import { validatorOrchestrator } from '../validator-process/orchestrator'
 import { isSeamValidationCutoverEnabled } from '../critical-jobs/featureFlags'
 import { isOpaqueIngestionActive } from './opaqueIngestion'
@@ -521,6 +526,16 @@ export async function detectAndRouteMessageInline(
   const handshakeId: string | null = detection.handshakeId
   const detectedType: 'beap' | 'plain' = detection.detectedType
 
+  // WR Code reference detection (Annex XVI v1.95, §XVI.7.5 linkless email):
+  // same structural gate as BEAP carrier detection — a failing `channel_pass`
+  // means this scan is never reached. Plain messages only; a BEAP capsule's
+  // WR material arrives through the offer path, not free-text scanning. Every
+  // entry is check-verified by the grammar-v2 capture gate before it exists.
+  const wrCodeDetections: WrCodeEmailDetection[] =
+    channelProvenance.channel_pass && detectedType === 'plain'
+      ? detectWrCodeReferencesInEmailBody(bodyText)
+      : []
+
   // ── Step 2a: Attachment preprocessing (Att-2, PR B-3.1) ──────────────────
   //
   // Runs BEFORE the validator call so that attachment content_sha256 values
@@ -859,7 +874,12 @@ export async function detectAndRouteMessageInline(
       inboxMessageId, messageId, accountId, rawMsg, fromAddr,
       fromName, subject, bodyText, bodyHtml, toList, ccList,
       receivedAt, attachmentsCanonical,
-      mergeChannelProvenanceMetadata(null, channelProvenance),
+      // Detections ride beside the CPR in the seal-bound metadata blob, so a
+      // stored detection is as tamper-evident as the channel verdict itself.
+      mergeChannelProvenanceMetadata(
+        mergeWrCodeDetectionMetadata(null, wrCodeDetections),
+        channelProvenance,
+      ),
     )
   }
 

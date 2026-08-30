@@ -3579,6 +3579,14 @@ export async function handleHandshakeRPC(
       return handleWrcResolvePublisher((params ?? {}) as Record<string, unknown>)
     }
 
+    // WR Code grammar-v2 manual entry [XVI.5.8, XVI.5.9]: the capture gate
+    // (all classes, prefix-aware, fail-closed) as a pure local call. No
+    // network effect — submission remains the separate resolve call above.
+    case 'wrc.captureReference': {
+      const { handleWrcCaptureReference } = await import('../wrc/wrcRuntime')
+      return handleWrcCaptureReference((params ?? {}) as Record<string, unknown>)
+    }
+
     // ── Phase B, PR B-8: Extension BEAP Inbox — sealed read + operational mutations ──
     // ── Phase B, PR B-8.1: cursor-based pagination helpers ──
 

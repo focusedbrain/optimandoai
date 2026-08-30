@@ -13,6 +13,7 @@
  */
 
 import { app } from 'electron'
+import { captureWrCodeReference, type WrCodeCaptureResult } from '@repo/ingestion-core'
 import {
   WrcResolutionClient,
   type WrcResolutionResult,
@@ -122,6 +123,22 @@ export async function isWrcConfigured(): Promise<boolean> {
 export function setWrcClientForTests(client: WrcResolutionClient | null, configured = true): void {
   _client = client
   _configured = client ? configured : false
+}
+
+/**
+ * Loopback-RPC entry point for the extension (`wrc.captureReference`) — the
+ * manual-entry path of §XVI.5.8/§XVI.5.9. Runs the grammar-v2 capture gate
+ * (all classes, prefix-aware, fail-closed reason codes) with NO network
+ * effect: completeness and the local check are decided here; submission is
+ * the caller's separate, explicit `wrc.resolvePublisher` call afterwards.
+ * A check failure is a capture error the field can show for character-level
+ * correction — nothing was looked up anywhere.
+ */
+export function handleWrcCaptureReference(params: {
+  raw?: unknown
+}): { success: true; result: WrCodeCaptureResult } | { success: false; error: string } {
+  if (typeof params?.raw !== 'string') return { success: false, error: 'raw is required' }
+  return { success: true, result: captureWrCodeReference(params.raw) }
 }
 
 /**
