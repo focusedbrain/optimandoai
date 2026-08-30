@@ -3581,10 +3581,19 @@ export async function handleHandshakeRPC(
 
     // WR Code grammar-v2 manual entry [XVI.5.8, XVI.5.9]: the capture gate
     // (all classes, prefix-aware, fail-closed) as a pure local call. No
-    // network effect — submission remains the separate resolve call above.
+    // network effect — submission is the separate `wrc.submitReference` below.
     case 'wrc.captureReference': {
       const { handleWrcCaptureReference } = await import('../wrc/wrcRuntime')
       return handleWrcCaptureReference((params ?? {}) as Record<string, unknown>)
+    }
+
+    // WR Code submission [XVI.7.6]: THE resolution path. Runs the six ordered
+    // fail-closed gates (syntax → namespace → entry → self-match →
+    // relay-release → capsule-admission); first failure terminates with the
+    // gate number and a precise reason. No other call resolves a reference.
+    case 'wrc.submitReference': {
+      const { handleWrcSubmitReference } = await import('../wrc/wrcRuntime')
+      return handleWrcSubmitReference((params ?? {}) as Record<string, unknown>)
     }
 
     // ── Phase B, PR B-8: Extension BEAP Inbox — sealed read + operational mutations ──

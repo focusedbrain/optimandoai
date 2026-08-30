@@ -15,6 +15,12 @@
 import { app } from 'electron'
 import { captureWrCodeReference, type WrCodeCaptureResult } from '@repo/ingestion-core'
 import {
+  runWrCodeGatePipeline,
+  type WrCodeGateOutcome,
+  type WrCodeReceiverIdentity,
+} from './gatePipeline'
+import { createWrcGateDeps } from './gatePipelineAdapter'
+import {
   WrcResolutionClient,
   type WrcResolutionResult,
   type ResolvePublisherOptions,
@@ -130,7 +136,7 @@ export function setWrcClientForTests(client: WrcResolutionClient | null, configu
  * manual-entry path of §XVI.5.8/§XVI.5.9. Runs the grammar-v2 capture gate
  * (all classes, prefix-aware, fail-closed reason codes) with NO network
  * effect: completeness and the local check are decided here; submission is
- * the caller's separate, explicit `wrc.resolvePublisher` call afterwards.
+ * the caller's separate, explicit `wrc.submitReference` call afterwards.
  * A check failure is a capture error the field can show for character-level
  * correction — nothing was looked up anywhere.
  */
@@ -142,9 +148,55 @@ export function handleWrcCaptureReference(params: {
 }
 
 /**
+ * Submission — the ONE resolution path (`wrc.submitReference`). Runs the six
+ * ordered gates of §XVI.7.6 end to end: syntax (the Run-1 grammar module),
+ * namespace, entry, self-match, relay-release, capsule-admission. Every
+ * capture surface (manual entry, e-mail detection, clipboard/selection) exits
+ * into this call when the user's explicit submission act occurs; nothing may
+ * present a reference as resolvable without the admission returned here, and
+ * no caller can reorder or skip a gate — the pipeline owns the order.
+ */
+export async function handleWrcSubmitReference(params: {
+  raw?: unknown
+  receiver?: unknown
+  requestInstanceId?: unknown
+}): Promise<{ success: true; result: WrCodeGateOutcome } | { success: false; error: string }> {
+  if (typeof params?.raw !== 'string' || !params.raw.trim()) {
+    return { success: false, error: 'raw is required' }
+  }
+  const receiver: WrCodeReceiverIdentity = {}
+  if (params?.receiver && typeof params.receiver === 'object') {
+    const r = params.receiver as Record<string, unknown>
+    if (typeof r.publisher_part === 'string') receiver.publisher_part = r.publisher_part
+    if (typeof r.party_id === 'string') receiver.party_id = r.party_id
+    if (typeof r.device_party_id === 'string') receiver.device_party_id = r.device_party_id
+  }
+  try {
+    const client = await getWrcClient()
+    const outcome = await runWrCodeGatePipeline(
+      {
+        raw: params.raw,
+        receiver,
+        requestInstanceId:
+          typeof params?.requestInstanceId === 'string' ? params.requestInstanceId : null,
+      },
+      createWrcGateDeps(client),
+    )
+    return { success: true, result: outcome }
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : String(e) }
+  }
+}
+
+/**
  * Loopback-RPC entry point for the extension (`wrc.resolvePublisher`).
  * Returns the client's typed result unchanged: the renderer must see the same
  * distinct reason the client produced, not a flattened boolean.
+ *
+ * Run 2 demotion: this is the STATUS / AUDIT surface (and the substrate the
+ * gate adapter composes). It is not a resolution-to-offer path — submission
+ * goes through `wrc.submitReference` and the §XVI.7.6 pipeline above, which
+ * no caller may bypass.
  */
 export async function handleWrcResolvePublisher(params: {
   publisherPart?: unknown

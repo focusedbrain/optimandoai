@@ -21,9 +21,12 @@
  *
  * TODO [XVI.7.7]: capture-indicator surface + SUBMITTED state for detected
  *   candidates (explicit submission act; out of scope for this run).
- * TODO [XVI.7.6]: the six admission gates run at submission, not detection.
- * TODO [XVI.8.4]: one-time-use enforcement is resolver/grant state, never
- *   detection state.
+ *
+ * Run 2: submission EXISTS — a detected candidate's explicit submission act
+ * exits into `wrc.submitReference` (`handleWrcSubmitReference`), the one
+ * §XVI.7.6 six-gate pipeline. No path from a detection to a resolution
+ * bypasses it; §XVI.8.4 one-time-use is enforced inside those gates, never
+ * as detection state.
  */
 
 import { detectWrCodeReferences, type WrCodeClass } from '@repo/ingestion-core'
