@@ -22,6 +22,28 @@
  * different table, mapping, or algorithm is non-conformant [XVI.5.4].
  * `wrCode.profileTranscription.guard.test.ts` fails if the two ever diverge,
  * so edit the registry material first and re-transcribe — never patch here.
+ *
+ * SUPERSESSION (Annex XVI v1.93). The ratified upstream is now Annex XVI
+ * Appendix A, and v1.4 above is superseded IN PART. What survives untouched is
+ * the check itself: every Appendix A.2 vector reproduces under the functions
+ * below, pinned by `wrCode.annexXVI.appendixA.conformance.test.ts`. What does
+ * NOT survive is the framing — this module has no notion of the class prefix
+ * (P/I/C/SP/SI/SC/SE), so `parseStructure`, the 6-symbol publisher, and the
+ * 12-symbol floor all mis-slice every v1.93 reference. Do not build v1.93
+ * grammar on top of them; see the CR register in
+ * `docs/analysis/annex-xvi-v193/implementation-state-analysis-v1.md`.
+ *
+ * TWO TRAPS, both measured and pinned by that suite:
+ *  1. Appendix A.1 publishes a DIFFERENT quasigroup from the one below —
+ *     `α·(x ⊕ y)` against this module's `α·x ⊕ y`, differing in 992 of 1024
+ *     cells. They compute the same check (proven: both fold to Σ α^(n-k+1)·d_k)
+ *     but ONLY end to end. Mixing A.1's interim with this module's final α
+ *     step, or the reverse, silently yields wrong check characters.
+ *  2. A.1's claim of total anti-symmetry is false for the operation A.1
+ *     defines: `α·(x ⊕ y)` is commutative. The operation below IS totally
+ *     anti-symmetric. Do not "align" this module with A.1's table on the
+ *     strength of its stated properties — that trades the stronger algebra for
+ *     a weaker one. Disposition is an open Author question (Q9/Q10).
  */
 
 /* eslint-disable */

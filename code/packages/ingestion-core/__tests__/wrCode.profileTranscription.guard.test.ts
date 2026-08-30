@@ -6,6 +6,22 @@
  * with a different table, mapping, or algorithm is non-conformant. A silent
  * local edit to the transcribed region is exactly the failure this guard
  * exists to catch, so it compares bytes rather than behaviour.
+ *
+ * SCOPE UNDER ANNEX XVI v1.93. The ratified upstream is now Annex XVI
+ * Appendix A, so the document this guard pins is superseded in part and this
+ * guard's pointer will eventually move. It has deliberately NOT moved yet.
+ * Appendix A.1 publishes a different presentation of the quasigroup — one that
+ * computes the same check but is commutative, and therefore not totally
+ * anti-symmetric — so re-pointing these byte assertions at A.1 would require
+ * rewriting `wrCode.ts` to weaker algebra, not merely redirecting a citation.
+ * That is an open Author question (Q9/Q10 in
+ * `docs/analysis/annex-xvi-v193/implementation-state-analysis-v1.md`).
+ *
+ * Until it is dispositioned, this guard keeps doing its original job over the
+ * v1.4 text, and conformance to what v1.93 actually requires of the check is
+ * asserted separately, behaviourally, by
+ * `wrCode.annexXVI.appendixA.conformance.test.ts`. Neither suite subsumes the
+ * other: this one pins the bytes, that one pins the result.
  */
 import { describe, test, expect } from 'vitest'
 import { readFileSync } from 'node:fs'

@@ -6,7 +6,15 @@ sha256 matched against an author-drop commit message), so the §2.1 STOP conditi
 was raised on **provenance**, not substance. **Author ruling, 2026-08-30: the
 supplied file is the correct v1.93; no further identity checking.** Q1 and Q2 are
 closed on that ruling (§7). The report stands as written; every annex claim is
-section-cited. Analysis only. No code, test, fixture, or dependency was changed.
+section-cited.
+
+**Revision v1.1 — Phase 0 executed on author instruction (2026-08-30).** The
+analysis pass itself changed nothing. Phase 0 has since been authorised and run,
+and two new findings surfaced while doing so — **F1a** and **F1b** — which correct
+this report's original verdict on the quasigroup and reverse the recommendation on
+**Q9**. See §10 for what was landed. Phase 0 changed **no runtime code**: two
+comment-only annotations and one new test file, 0 regressions across 155 baseline
+failing identities. Everything from Phase 1 on remains unratified.
 
 Date 2026-08-30. Branch `integration/consolidated-current`.
 
@@ -75,7 +83,7 @@ gate.
 
 ## 2. Headline findings, before the matrix
 
-Four results change the shape of any phase plan, so they are stated up front.
+Six results change the shape of any phase plan, so they are stated up front.
 
 **F1 — The check core survives v1.93 completely, bit for bit.** This was not
 expected. §XVI.5.4 defines the check over `[class values] ‖ [body values]`, and
@@ -102,8 +110,82 @@ substitution** (`P-WR7X4K-H2N5V8-7`), transposed Publisher Identifiers in a C
 reference, altered check — fail under the repo's `verifyCheck`, exactly as the
 annex requires. The three A.2 alias rows (`p-wr7x4k-9b2m3c`, `PWR7X4K9B2M3C`,
 `C-ABCl23-XYZ789-H`) all verify. Consequence: **the arithmetic primitive, the
-alphabet, the quasigroup, and the transcription guard that pins them are not part
-of the migration.** The migration is entirely in the *framing* around them.
+alphabet, and the check function are not part of the migration.** The migration is
+entirely in the *framing* around them — with one qualification, F1a.
+
+**F1a — The repo agrees with the annex on the check, but implements a different
+published table. This is a presentation divergence with a live implementation
+hazard.** F1 says the *check function* survives; it does not say the *quasigroup*
+does, and on a first pass I recorded the quasigroup as conformant. That was too
+generous, so I measured it. Appendix A.1 defines `x ∗ y = α·(x ⊕ y)` with a **zero
+diagonal** and therefore `check = ALPHABET[interim(v)]`. The repo implements
+`x ∗ y = α·x ⊕ y`, whose diagonal is deliberately non-zero, and recovers the check
+as `A(interim)` instead. The two tables **differ in 992 of their 1024 cells**;
+A.1's row 0 is `0 2 4 6 8 A C E …` where the repo's is `0 1 2 3 4 5 6 7 …`.
+
+They nevertheless compute the same check character, and this is provable rather
+than coincidental. Writing `Iₙ` for the repo's interim and `Jₙ` for the annex's over
+the same value sequence `d₁…dₙ`:
+
+- repo: `Iₙ = α·Iₙ₋₁ ⊕ dₙ`, so `Iₙ = Σ αⁿ⁻ᵏ·dₖ`, and its check is `α·Iₙ = Σ αⁿ⁻ᵏ⁺¹·dₖ`
+- annex: `Jₙ = α·(Jₙ₋₁ ⊕ dₙ)`, so `Jₙ = Σ αⁿ⁻ᵏ⁺¹·dₖ`, and its check is `Jₙ` itself
+
+Both reduce to `Σ αⁿ⁻ᵏ⁺¹·dₖ`, so `α·Iₙ = Jₙ` identically. I verified this
+exhaustively over **all 33,824 value sequences of length ≤ 3** and over **200,000
+random sequences of length 2–16**: zero disagreements. Both conventions also
+fold a complete reference (check included) to 0, so validation agrees too. Registry
+Material v1.4 §2.3 in fact predicted exactly this, calling the zero diagonal "a
+normalization convenience … whose only effect is to make the check character equal
+the interim value"; the annex simply chose the normalized presentation.
+
+The hazard is that the two presentations are interchangeable **only as whole check
+functions, never component-wise.** Mixing them silently produces wrong checks: on
+A.2's P vector, the annex's interim is 12 and the repo's is 6, and pairing either
+interim with the other's final step yields `6` or `R` instead of `C`. Any Phase 1
+work that lifts A.1's `interim` pseudocode next to the repo's `computeCheck`, or
+that reproduces A.1's table as a conformance guard over the repo's `star`, will
+break. So F1a is **not** a behavioural contradiction and needs no code change to
+stay correct today — but it does mean the "transcription guard is not part of the
+migration" half of F1 is wrong, because that guard pins the *other* table. Which
+presentation `wrCode.ts` should carry going forward is a ratification question, not
+mine to settle: see **Q9**.
+
+**F1b — Appendix A.1's stated algebraic property does not hold for the operation
+A.1 defines. The repo's presentation is the strictly stronger one.** Having found
+the two tables differ, I audited both against the standard conditions rather than
+assuming the annex's own claim. A.1 asserts its operation is a "quasigroup, zero
+diagonal (x ∗ x = 0), and total anti-symmetry", "verified exhaustively over all 32³
+triples". Measured over all pairs and all 32³ triples:
+
+| Property | v1.4 / repo `α·x ⊕ y` | Annex A.1 `α·(x ⊕ y)` |
+|---|---|---|
+| Quasigroup (rows and columns are permutations) | yes | yes |
+| Zero diagonal | no (by design, §2.3) | yes |
+| Commutative | no | **yes** |
+| TA condition `x∗y = y∗x ⟹ x = y` | **0 violations** | **992 violations — every off-diagonal pair** |
+| TA condition `(c∗x)∗y = (c∗y)∗x ⟹ x = y` | 0 violations | 0 violations |
+| **Totally anti-symmetric** | **yes** | **no** |
+
+`α·(x ⊕ y)` is commutative by inspection, so `x ∗ y = y ∗ x` holds for *every* pair
+and the two-variable TA condition cannot hold for any `x ≠ y`. The likely account of
+the error is visible in the annex's own wording: the three-variable condition — the
+one an exhaustive sweep "over all 32³ triples" would test — **does** hold, while the
+condition that fails is a two-variable, 32² check that such a sweep would never
+reach.
+
+This does **not** invalidate the annex's check. The fold multiplies the accumulator
+by α every round, and that supplies the positional asymmetry the commutative
+operation lacks: running A.1's own fold over `PWR7X4K9B2M3C` I measured **0
+undetected** cases across all 403 single substitutions and all 12 adjacent
+transpositions. The defect is in the *stated justification*, not the result.
+
+Two consequences. First, it reverses Q9: adopting A.1's form literally would trade a
+genuinely totally anti-symmetric quasigroup for a commutative one and would break
+class 1 of the existing conformance suite, which reproduces both TA conditions per
+v1.4 §6. Second, it is an **annex defect requiring Author disposition** — either A.1's
+property list should be corrected to drop total anti-symmetry (and rest the
+guarantee on the fold, as measured above), or A.1's operation should be restated as
+v1.4's. I am not treating either as settled; see **Q10**.
 
 **F2 — The framing is where every contradiction lives.** `parseStructure` mis-slices
 every v1.93 class. Measured: for `P-WR7X4K-9B2M3C` it returns
@@ -153,7 +235,8 @@ the file imports `@repo/ingestion-core`.
 | G-6 | Block structure C: `C-IIIIII-RRRRRR-X` — ordered initiator/responder pair, **separate** check, no local block (§XVI.5.1, §XVI.5.6) | No second publisher block. Schema has `publisher_part` + `entry_local_part` only (`connectOfferStaging.ts:64-66`) | **ABSENT** | BLIND |
 | G-7 | SP/SI/SC/**SE** uniform: `ST-PPPPPP-BBBBBB-X`, separate check, **no SC exception** (§XVI.5.1) | No sub-handshake class of any kind | **ABSENT** | — |
 | G-8 | Check on **every** human-enterable reference, all classes (§XVI.5.4) | `verifyCheck` is unconditional on the capture path (`wrCode.ts:135`) | **CONFORM** | pkg src |
-| G-9 | Damm order 32, GF(2⁵), poly x⁵+x²+1, α=2, `x∗y = α·(x⊕y)` (§XVI.5.4, A.1) | `mulAlpha` + `star` (`wrCode.ts:34-42`), byte-identical to the profile and pinned by `wrCode.profileTranscription.guard.test.ts` | **CONFORM** | pkg src |
+| G-9a | The **check function**: Damm order 32 over GF(2⁵), poly x⁵+x²+1, α=2 (§XVI.5.4, A.1) | `mulAlpha` + `star` + `computeCheck` (`wrCode.ts:34-67`). Proven equivalent to the annex's, not merely similar — see F1a | **CONFORM** | pkg src |
+| G-9b | The **published quasigroup table** and the interim convention `x∗y = α·(x⊕y)`, zero diagonal, `check = ALPHABET[interim(v)]` (A.1) | The repo implements the *other* presentation: `star = α·x ⊕ y` (`wrCode.ts:42`), non-zero diagonal by deliberate choice (Registry Material v1.4 §2.3), and `check = A(interim)` (`wrCode.ts:66-67`). Measured: the two tables differ in **992 of 1024 cells**; the repo's diagonal is non-zero, the annex's is zero | **DIVERGENT (presentation)** — see F1a | pkg src |
 | G-10 | Appendix A.2 vectors, positive **and** negative | All 7 positives + 5 negatives reproduce (F1) | **CONFORM** | pkg src |
 | G-11 | **Prefix participates in the check stem** (§XVI.5.4; A.3 "the computation equals running the algorithm over the complete alias-normalized string") | Extracted, not assumed: because the class values are the Crockford values, folding the whole normalized string *including* the prefix is the specified computation. `verifyCheck` already does this | **CONFORM** | pkg src |
 | G-12 | Prefix parsed **before** payload aliasing; a class symbol `I` is never rewritten to `1` (§XVI.5.3) | `normalize` applies `I/L→1`, `O→0` to every position including index 0 (`wrCode.ts:49-60`). Check arithmetic is unaffected (I's class value *is* 1) but class identity is destroyed: `I-…`→`1…`, `SI-…`→`S1…` | **SUPERSEDED** (ordering) | pkg src |
@@ -276,12 +359,15 @@ written.
 | **CR-12** | Entry status vocabulary `published \| suspended \| retired` coexists with the annex's ACTIVE/INACTIVE/REVOKED/SUPERSEDED/COMPROMISED | `wrc/wrcContract.ts:110`, `:162` | §XVI.8.1 — one state set, and it "applies to Publisher Identifiers at the Namespace Directory level" too; Gate 3 requires **ACTIVE** for an offering | Contract v1.0 §3.2; Annex XVII §XVII.3.2 as cited there |
 | **CR-13** | Committed test vectors and fixtures are prefix-less 12/13/14-char codes; the transcription guard pins the old profile text as authoritative | `wrCode.conformance.test.ts:63-73`; `wrCode.profileTranscription.guard.test.ts`; `wrc/__tests__/wrcFixtures.ts:162-164,232`; `connectOfferWrCodeSchema.test.ts:38-40` | §XVI.5.5 + A.2 — the registry-derived vectors are class-prefixed | Registry Material v1.4 §4.1–4.4 |
 
-**Note on what is *not* a contradiction.** The Damm core, alphabet, quasigroup,
-`computeCheck`, `verifyCheck`, the U-rejection, case folding, separator stripping,
-and the reject-before-resolve structure are all conform (F1, G-8…G-11, G-18, G-19).
-The v1.4 transcription guard should be **re-pointed**, not deleted: its subject
-(§5 of the registry material) is now Appendix A.1 of the annex, and the arithmetic
-it pins is unchanged.
+**Note on what is *not* a contradiction.** The Damm core, alphabet, `computeCheck`,
+`verifyCheck`, the U-rejection, case folding, separator stripping, and the
+reject-before-resolve structure are all conform (F1, G-8…G-11, G-18, G-19). The
+*published table* is the one exception and is tracked as G-9b / F1a / Q9: it is a
+presentation divergence that computes the same check, not a contradiction, so it is
+deliberately not given a CR number. The v1.4 transcription guard should be
+**re-pointed**, not deleted — but per F1a that re-point is not the no-op it first
+appeared to be, because Appendix A.1 publishes the other presentation. Re-pointing
+therefore waits on Q9.
 
 ---
 
@@ -383,12 +469,14 @@ introduced later must set background and explicit foreground together.
 ### 6.4 Docs
 
 `WR-Code_Check-Profile_Registry-Material_v1.4.md` is superseded **in part only**:
-§1 alphabet, §2 quasigroup, §2.3 diagonal note, §3 fold/derivation, and §4.4
-error classes all survive (F1); §1 normalization ordering (CR-4), §3 length guard
-(CR-2), §4.1–4.3 vectors, and §4.2 extended-length forms (CR-3) do not. The
-`profileTranscription` guard currently makes the superseded document authoritative
-over `wrCode.ts:19-24` — that pointer must move before any grammar work, or the
-guard will block the migration it is supposed to protect.
+§1 alphabet, §3 fold/derivation, and §4.4 error classes all survive (F1); §1
+normalization ordering (CR-4), §3 length guard (CR-2), §4.1–4.3 vectors, and §4.2
+extended-length forms (CR-3) do not. §2's table and §2.3's diagonal note are the
+subtle case: they remain *internally* correct and their §2.3 reasoning is what makes
+F1a work, but they no longer match the table the registry publishes in A.1 (G-9b).
+The `profileTranscription` guard makes this partly-superseded document authoritative
+over `wrCode.ts:19-24`; that pointer must move before any grammar work, but per F1a
+the move is a real change rather than a redirection, so it is gated on Q9.
 
 ---
 
@@ -491,6 +579,42 @@ intends a live email/manual-entry surface in the same phase, Phase 1 and Phase 4
 must merge and the fail-closed default (no detection until the grammar is proven)
 would be lost.
 
+**Q9 — Which quasigroup presentation should `wrCode.ts` carry? (raised by F1a.)**
+*"The repo's table and the annex's Appendix A.1 table differ in 992 of 1024 cells
+while computing an identical check (proven, F1a). Should the module (i) keep the
+current non-normalized `α·x ⊕ y` presentation and record the equivalence as a
+pinned theorem, or (ii) be rewritten to A.1's normalized `α·(x ⊕ y)` form so the
+published table can be reproduced cell-for-cell as §6's conformance checklist
+item 1 asks?"*
+**Recommendation:** (i) — **reversed by F1b.** Before auditing A.1's properties I
+would have said (ii), on the reasoning that matching the published table is worth a
+behaviour-preserving rewrite. F1b removes that reasoning: A.1's operation is
+commutative and therefore **not** totally anti-symmetric, so (ii) would replace a
+genuinely TA quasigroup with one that is not, and would break class 1 of
+`wrCode.conformance.test.ts`, which reproduces both TA conditions per v1.4 §6.
+**Consequence:** under (i) the code keeps the stronger algebra and the equivalence
+becomes a pinned theorem, at the cost of a permanent, documented gap between A.1's
+printed table and the module — which is acceptable only because the gap is now
+proven to be presentational. (ii) should not proceed at all unless Q10 resolves in
+favour of restating A.1. Either way Phase 0 must **not** re-point the byte-exact
+guard.
+
+**Q10 — Disposition of the Appendix A.1 defect (raised by F1b).** *"A.1 claims total
+anti-symmetry for `x ∗ y = α·(x ⊕ y)`, but that operation is commutative and violates
+the two-variable TA condition for all 992 off-diagonal pairs; only the three-variable
+condition — the one a '32³ triples' sweep tests — holds. Should A.1 (a) keep its
+operation and correct its property list, resting the error-detection guarantee on the
+fold's per-round α multiplication as measured in F1b, or (b) restate its operation as
+v1.4's `α·x ⊕ y`, which is genuinely TA?"*
+**Recommendation:** (b) if the annex can still be revised, else (a).
+**Consequence:** the published check character is identical under both, so no
+implementation and no A.2 vector changes either way — this is purely which text the
+registry stands behind. (b) makes A.1 and the repo agree cell-for-cell and closes Q9
+as a no-op. (a) leaves A.1 correct-as-to-result but requires deleting a property
+claim the registry has already published, and leaves Q9 permanently at (i). Until
+this is dispositioned I am treating the *result* (A.2's checks) as authoritative and
+A.1's *property list* as unreliable.
+
 ---
 
 ## 8. Proposed Phase Cut — proposal only, no authority
@@ -500,12 +624,24 @@ because Appendix A.2 gives an externally checkable oracle for it; leave anything
 touching stored consent until Q7 is ratified; keep fail-closed defaults so that no
 intermediate state can surface an unverified reference.
 
-**Phase 0 — Doc custody (unblocked; AR-1/AR-2 close Q1 and Q2).** Re-point the
+**Phase 0 — Doc custody and the conformance oracle (unblocked; AR-1/AR-2 close Q1
+and Q2).** *Revised by F1a.* The original plan here was to re-point the
 `profileTranscription` guard from Registry Material v1.4 §5 to Annex XVI
-Appendix A.1, asserting the arithmetic that F1 proves is unchanged. Optionally
-commit the annex (Q1′). No behaviour change. *Rationale:* the guard currently makes
-a superseded document authoritative over the core module, so it will block every
-later phase until it is re-pointed. This is now the true first action.
+Appendix A.1. F1a shows that is **not** a no-op: A.1 publishes the other
+presentation, so a byte-exact re-point would demand the Q9 rewrite in the same
+breath. Phase 0 is therefore reduced to what is provably additive:
+
+1. Land the Appendix A.2 vectors and the F1a equivalence proof as a committed
+   conformance suite over the *current* module, including a negative assertion that
+   pins the mixing hazard.
+2. Annotate the v1.4 guard and `wrCode.ts` to name Appendix A.1 as the ratified
+   upstream and to record that the transcribed region is superseded in part,
+   without changing what the guard asserts.
+3. Commit the annex itself (Q1′).
+
+No behaviour change, and no dependency on any open Q. *Rationale:* this converts the
+one-off verification behind F1/F1a into a permanent guard, so the Q9 rewrite — and
+every later phase — has an externally checkable oracle in-tree before it starts.
 
 **Phase 1 — Prefix grammar as a pure, additive module (blocked on Q3).** A Prefix
 Grammar Registry (TERMINAL / NON_TERMINAL / INVALID, grammar version 2, §XVI.5.2),
@@ -588,3 +724,42 @@ Stated plainly so nothing here is over-read:
 - Subagent inventories were used to locate surfaces. Every load-bearing claim was
   re-verified by my own read or grep, and the absence findings (L-5, L-6, L-10,
   L-11, L-12, I-10, G-3, P-6, P-7, P-8) were re-run as my own searches.
+
+---
+
+## 10. Phase 0 execution record (revision v1.1)
+
+Phase 0 as originally proposed was "re-point the `profileTranscription` guard to
+Appendix A.1". Attempting it produced F1a and F1b, which showed the re-point is not
+a redirection but a rewrite to weaker algebra — so the pointer was deliberately
+**not** moved, and Phase 0 was reduced to the provably additive part.
+
+**Landed.**
+
+| Artifact | What it does |
+|---|---|
+| `packages/ingestion-core/__tests__/wrCode.annexXVI.appendixA.conformance.test.ts` | 37 tests. Appendix A.3 class-value coincidence; all 7 A.2 positives; the 3 alias rows; the 2 structural A.2 negatives; substitution, transposition, and altered-check negatives asserted **exhaustively** over all 7 positives rather than as 3 sampled strings; the F1a equivalence theorem; the F1a mixing hazard; the F1b property audit of both presentations. |
+| `packages/ingestion-core/src/wrCode.ts` | Header comment only. Names Appendix A as the ratified upstream, records that the framing (not the check) is superseded, and warns about both traps. The transcribed BEGIN/END region is byte-for-byte untouched. |
+| `packages/ingestion-core/__tests__/wrCode.profileTranscription.guard.test.ts` | Docstring only. Records why the pointer has not moved and that the two suites are complementary — one pins bytes, the other pins the result. No assertion changed. |
+| `docs/analysis/annex-xvi-v193/captures/annex-xvi-v193-phase0.after.a62d4856.txt` | After-capture paired to the analysis baseline. |
+
+**Verification.**
+
+- Package suite: 12 files, 259 tests, all passing — including the byte-exact
+  transcription guard, which confirms the header annotation fell outside the
+  pinned region.
+- Full `test:native-db`: **0 regressions** against the baseline's 155 failing
+  identities. 153 remain; the 2 that went green are not reachable from a comment
+  or a new test file, and one of them was caught failing in only one of two
+  otherwise identical full runs, i.e. demonstrably flaky. The other parses a CPU
+  model string.
+- **Mutation check.** The suite was proven to bite rather than pass vacuously: a
+  one-bit change to the reduction polynomial in `mulAlpha` (`0b100101` →
+  `0b101001`) turns **21 of the 37 tests red**. The 16 that stay green are exactly
+  the ones asserting A.1's transcribed algebra, which correctly does not depend on
+  the module. The mutation was reverted and the revert verified with `git diff`.
+
+**Still open.** Q1′ (annex custody) could **not** be discharged: the ratified PDF is
+not in the working tree and is not reachable from it, so it must be supplied as a
+file before it can be committed. Q3–Q10 remain unratified, and no Phase 1 work has
+begun.
