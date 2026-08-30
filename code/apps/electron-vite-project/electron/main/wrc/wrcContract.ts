@@ -151,6 +151,21 @@ export interface WrcEntryDesignation {
     /** Unix seconds. After this the SE is EXPIRED (P11: never reissued). */
     expires_at: number
   } | null
+  /**
+   * §XVI.5.10 Pairing Slot (Run 4): "an entry the tenant creates in its own
+   * namespace meaning 'one device of this principal may pair here',
+   * optionally with an expected Device Class and an expiry". Marks an I
+   * entry as a device-onboarding slot; the receiving party stays the
+   * principal (the device does not exist yet, so the code carries no device
+   * constituent). Slot state, not identity — never in the designator.
+   */
+  pairing: {
+    slot: true
+    /** Expected Device Class; null = any class may pair. */
+    expected_device_class: string | null
+    /** Slot's own expiry (unix seconds); null = bounded by entry state only. */
+    expires_at: number | null
+  } | null
 }
 
 function decodeEntryDesignation(value: unknown): WrcEntryDesignation | null {
@@ -207,6 +222,23 @@ function decodeEntryDesignation(value: unknown): WrcEntryDesignation | null {
     }
   }
 
+  let pairing: WrcEntryDesignation['pairing'] = null
+  if (o.pairing !== null && o.pairing !== undefined) {
+    const p = asRecord(o.pairing)
+    if (!p || p.slot !== true) return null
+    const cls = p.expected_device_class
+    if (cls !== null && cls !== undefined && !isNonEmptyString(cls)) return null
+    const exp = p.expires_at
+    if (exp !== null && exp !== undefined && (typeof exp !== 'number' || !Number.isInteger(exp))) {
+      return null
+    }
+    pairing = {
+      slot: true,
+      expected_device_class: (cls as string | null) ?? null,
+      expires_at: (exp as number | null) ?? null,
+    }
+  }
+
   return {
     cls: o.cls,
     combination,
@@ -215,6 +247,7 @@ function decodeEntryDesignation(value: unknown): WrcEntryDesignation | null {
     receiving_party: receivingParty,
     parent,
     session,
+    pairing,
   }
 }
 
