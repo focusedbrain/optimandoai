@@ -1,15 +1,22 @@
 # WR Code Implementation State vs. Annex XVI v1.93 — Analysis v1.0
 
-**Status: DELIVERED WITH A RATIFICATION HOLD.** The annex body was located and is
-verifiably v1.93 in content, but it did **not** arrive as the input the mission
-specifies (`Annex_XVI_WR_Code_v1.93.md` in the working tree, sha256 matched
-against an author-drop commit message). The formal STOP condition of §2.1 is
-therefore **triggered on provenance**, not on substance. Because the substance is
-verifiable and self-consistent, this report is delivered in full and every annex
-claim is section-cited — but **no Order may be cut from it until Q1 is answered**
-(§7). Analysis only. No code, test, fixture, or dependency was changed.
+**Status: DELIVERED — INPUT RATIFIED BY THE AUTHOR.** The annex did not arrive as
+the input the mission specifies (`Annex_XVI_WR_Code_v1.93.md` in the working tree,
+sha256 matched against an author-drop commit message), so the §2.1 STOP condition
+was raised on **provenance**, not substance. **Author ruling, 2026-08-30: the
+supplied file is the correct v1.93; no further identity checking.** Q1 and Q2 are
+closed on that ruling (§7). The report stands as written; every annex claim is
+section-cited. Analysis only. No code, test, fixture, or dependency was changed.
 
 Date 2026-08-30. Branch `integration/consolidated-current`.
+
+**Recorded author rulings** (kept here so they are not lost, per the PSL
+precedent):
+
+| # | Date | Ruling |
+|---|---|---|
+| AR-1 | 2026-08-30 | The annex file supplied for this analysis — sha256 `BC108E02…8D19` — **is** the correct Annex XVI v1.93. Its identity is not to be re-checked. The §2.1 STOP condition is discharged; Orders may be cut from this report. |
+| AR-2 | 2026-08-30 | Follows from AR-1: the "Version 1.3 — 19 August 2026" running page header is not the document's identity and is not a blocker. |
 
 ---
 
@@ -51,11 +58,18 @@ one string: `Version 1.3 — 19 August 2026`.
 
 **Disposition.** Two independent in-document attestations (title block, §XVI.18)
 say v1.93; the third (running header) is a stale template artifact that was not
-re-stamped. The body content decides it: the document contains the final class set
+re-stamped. The body content agrees: the document contains the final class set
 P/I/C/SP/SI/SC/SE (§XVI.5.1), the six-gate boundary (§XVI.7.6), `use_limit`
 (§XVI.8.4), `display_origin` (§XVI.9.4), Device Pass (§XVI.13.7), and §XVI.5.12 —
-every one a v1.93 marker named in the mission brief. I treat the body as v1.93 and
-the header as a defect (**Q2**).
+every one a v1.93 marker named in the mission brief.
+
+**Settled by AR-1/AR-2 (2026-08-30):** the Author has ruled the supplied file
+correct and directed that its identity not be re-checked. The provenance table
+above is retained as the record of *how* the input arrived — it is no longer a
+finding requiring action, and the only residual item is the housekeeping one: the
+annex is still not committed to the repository, so a future pass has nothing in the
+working tree to read. Raised as **Q1′** below, at housekeeping priority, not as a
+gate.
 
 ---
 
@@ -383,26 +397,22 @@ guard will block the migration it is supposed to protect.
 Questions are verbatim to the Author. Each carries a recommendation and the
 consequence of adopting it.
 
-**Q1 — Input ratification.** *"The annex did not arrive as `Annex_XVI_WR_Code_v1.93.md`
-in the working tree with a sha256 in a drop commit message; it arrived as a PDF
-outside the repository. Do you ratify the file with sha256
-`BC108E028CA35AFC1543787576BF4017378AE5F98C0717F3D8E4DBF7961E8D19` as the
-authoritative v1.93 input for this analysis and for the Orders that follow, or do
-you want the author-drop performed first and the analysis re-verified against the
-committed artifact?"*
-**Recommendation:** ratify this sha256 now **and** commit the annex to the repo
-before Phase 1 opens. **Consequence:** the state matrix stands as delivered; if
-instead the committed artifact ever differs from this hash, every verdict must be
-re-verified, because §2.1 forbids analysis against a non-identified input.
+**Q1 — Input ratification. — CLOSED (AR-1, 2026-08-30).** *"Do you ratify the file
+with sha256 `BC108E028CA35AFC1543787576BF4017378AE5F98C0717F3D8E4DBF7961E8D19` as
+the authoritative v1.93 input?"* **Answered: yes, and do not check it.** The §2.1
+STOP condition is discharged and Orders may be cut from this report.
 
-**Q2 — Header/title version conflict.** *"The title block and §XVI.18 say v1.93 /
-24 August 2026; the running header on all 74 pages says Version 1.3 / 19 August
-2026. Which string is the document's identity, and is the header a defect to be
-corrected in the next revision?"*
-**Recommendation:** treat the title block and §XVI.18 as identity, the header as a
-stale artifact, and re-stamp it. **Consequence:** if the header is authoritative
-instead, this entire report is void — it would mean the supplied body is not
-v1.93, and §2.1's prohibition on analysing older versions applies.
+**Q1′ — Annex custody (housekeeping, not a gate).** *"The ratified annex is still
+only on the Desktop, outside the repository. Should it be committed so a later pass
+has an in-tree artifact to read, or does it deliberately stay out of the repo?"*
+**Recommendation:** commit it once, alongside the phase plan, purely so future
+passes are not dependent on a local path. **Consequence:** if it stays out of tree,
+every future analysis must be handed the file again and cannot self-verify which
+revision it read — the situation that produced §1.1. This does not block Phase 0.
+
+**Q2 — Header/title version conflict. — CLOSED (AR-2, 2026-08-30).** The running
+header is not the document's identity. Retained only as a suggested correction for
+the next revision of the annex; no runtime or planning consequence.
 
 **Q3 — Does the prefix enter the check stem as a parsed class value or as a folded
 string symbol?** *"§XVI.5.4 defines the input as `[class values] ‖ [body values]`,
@@ -490,12 +500,12 @@ because Appendix A.2 gives an externally checkable oracle for it; leave anything
 touching stored consent until Q7 is ratified; keep fail-closed defaults so that no
 intermediate state can surface an unverified reference.
 
-**Phase 0 — Input and doc custody (blocked on Q1, Q2).** Commit the annex as an
-author-drop with its sha256 in the message. Re-point the `profileTranscription`
-guard from Registry Material v1.4 §5 to Annex XVI Appendix A.1, asserting the
-arithmetic that F1 proves is unchanged. No behaviour change. *Rationale:* the guard
-currently makes a superseded document authoritative over the core module, so it
-will block every later phase until it is re-pointed.
+**Phase 0 — Doc custody (unblocked; AR-1/AR-2 close Q1 and Q2).** Re-point the
+`profileTranscription` guard from Registry Material v1.4 §5 to Annex XVI
+Appendix A.1, asserting the arithmetic that F1 proves is unchanged. Optionally
+commit the annex (Q1′). No behaviour change. *Rationale:* the guard currently makes
+a superseded document authoritative over the core module, so it will block every
+later phase until it is re-pointed. This is now the true first action.
 
 **Phase 1 — Prefix grammar as a pure, additive module (blocked on Q3).** A Prefix
 Grammar Registry (TERMINAL / NON_TERMINAL / INVALID, grammar version 2, §XVI.5.2),
