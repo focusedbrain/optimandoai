@@ -35,7 +35,9 @@ function db(): any {
 }
 
 const RESOLUTION: WrCodeOfferResolution = {
-  wr_code_canonical: 'WR7X4K9B2M3PC',
+  // Annex XVI v1.95 A.2 P-class reference, stored canonical form.
+  wr_code_canonical: 'PWR7X4K9B2M3C',
+  wr_code_class: 'P',
   publisher_part: 'WR7X4K',
   entry_local_part: '9B2M3',
   umbrella_handshake_id: 'hs-umbrella',
@@ -72,6 +74,7 @@ function baseOfferRow(over: Partial<ConnectOfferRow> = {}): ConnectOfferRow {
     consumed_action: null,
     consent_id: null,
     wr_code_canonical: RESOLUTION.wr_code_canonical,
+    wr_code_class: RESOLUTION.wr_code_class,
     publisher_part: RESOLUTION.publisher_part,
     entry_local_part: RESOLUTION.entry_local_part,
     umbrella_handshake_id: RESOLUTION.umbrella_handshake_id,
@@ -104,6 +107,7 @@ describe.skipIf(!Database)('4B — offer schema carries resolution output', () =
         .prepare('SELECT * FROM wr_connect_offers WHERE handshake_id = ?')
         .get('hs-1') as ConnectOfferRow
       expect(row.wr_code_canonical).toBe(RESOLUTION.wr_code_canonical)
+      expect(row.wr_code_class).toBe('P')
       expect(row.publisher_part).toBe('WR7X4K')
       expect(row.entry_local_part).toBe('9B2M3')
       expect(row.umbrella_handshake_id).toBe('hs-umbrella')
@@ -153,12 +157,62 @@ describe.skipIf(!Database)('4B — offer schema carries resolution output', () =
       const cols = (d.prepare('PRAGMA table_info(wr_connect_offers)').all() as Array<{ name: string }>).map(
         (c) => c.name,
       )
-      for (const c of ['wr_code_canonical', 'publisher_part', 'resolution_mode', 'evp_ref', 'value_statement', 'catalog_epoch', 'audit_url']) {
+      for (const c of ['wr_code_canonical', 'wr_code_class', 'publisher_part', 'resolution_mode', 'evp_ref', 'value_statement', 'catalog_epoch', 'audit_url']) {
         expect(cols, c).toContain(c)
       }
     } finally {
       d.close()
     }
+  })
+})
+
+describe.skipIf(!Database)('grammar v2 — staging is fail-closed on the WR-code fields', () => {
+  function attempt(over: Partial<WrCodeOfferResolution>) {
+    const d = db()
+    try {
+      return stageConnectOffer(d, {
+        handshake_id: 'hs-fc',
+        capsule: {},
+        capsule_hash: 'cap-fc',
+        profile_id: 'p-1',
+        ingress_path: 'assisted_email',
+        verification: { ok: true },
+        wr_code: { ...RESOLUTION, ...over },
+      })
+    } finally {
+      d.close()
+    }
+  }
+
+  it('an old prefix-less canonical never stages', () => {
+    const r = attempt({ wr_code_canonical: 'WR7X4K9B2M3PC' })
+    expect(r.staged).toBe(false)
+    if (!r.staged) expect(r.reason).toBe('invalid_wr_code')
+  })
+
+  it('a class that contradicts the canonical prefix never stages', () => {
+    const r = attempt({ wr_code_class: 'I' })
+    expect(r.staged).toBe(false)
+    if (!r.staged) expect(r.reason).toBe('invalid_wr_code')
+  })
+
+  it('a publisher or entry block that contradicts the canonical never stages', () => {
+    for (const over of [{ publisher_part: 'OTHER1' }, { entry_local_part: 'OTHER' }] as const) {
+      const r = attempt(over)
+      expect(r.staged).toBe(false)
+      if (!r.staged) expect(r.reason).toBe('invalid_wr_code')
+    }
+  })
+
+  it('a grouped (non-stored-form) canonical never stages', () => {
+    const r = attempt({ wr_code_canonical: 'P-WR7X4K-9B2M3C' })
+    expect(r.staged).toBe(false)
+    if (!r.staged) expect(r.reason).toBe('invalid_wr_code')
+  })
+
+  it('the untampered A.2 resolution stages', () => {
+    const r = attempt({})
+    expect(r.staged).toBe(true)
   })
 })
 

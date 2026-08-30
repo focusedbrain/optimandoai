@@ -28,7 +28,13 @@
  */
 
 import { createHash, randomUUID } from 'node:crypto'
-import { canonicalJsonString, domainTag, type CanonicalJsonValue } from '@repo/ingestion-core'
+import {
+  canonicalJsonString,
+  captureWrCodeReference,
+  domainTag,
+  type CanonicalJsonValue,
+  type WrCodeClass,
+} from '@repo/ingestion-core'
 import { INPUT_LIMITS } from './types'
 
 // ── Schema ────────────────────────────────────────────────────────────────────
@@ -61,7 +67,12 @@ export function ensureConnectOfferSchema(db: any): void {
       -- Phase 4 (4B): WR-code resolution output. Every one of these is sourced
       -- from the resolved, dual-channel-validated material, NEVER from carrier
       -- bytes -- the carrier may say anything and is not a party to the offer.
+      -- Grammar v2 (Annex XVI v1.95): wr_code_canonical is the prefixed
+      -- canonical (class + body + check); wr_code_class is its parsed class;
+      -- entry_local_part carries the third-block symbols (local for P,
+      -- combination code or counterparty for the addressed classes).
       wr_code_canonical TEXT,
+      wr_code_class TEXT,
       publisher_part TEXT,
       entry_local_part TEXT,
       umbrella_handshake_id TEXT,
@@ -106,6 +117,7 @@ export function ensureConnectOfferSchema(db: any): void {
   // the table, so Phase-4 columns are added explicitly and idempotently.
   addMissingColumns(db, 'wr_connect_offers', [
     ['wr_code_canonical', 'TEXT'],
+    ['wr_code_class', 'TEXT'],
     ['publisher_part', 'TEXT'],
     ['entry_local_part', 'TEXT'],
     ['umbrella_handshake_id', 'TEXT'],
@@ -168,8 +180,10 @@ export interface ConnectOfferRow {
   consumed_action: 'consented' | 'declined' | 'expired' | null
   consent_id: string | null
   // Phase 4 (4B) — resolution output. Null on offers staged before Phase 4 and
-  // on any offer that did not come from a WR code.
+  // on any offer that did not come from a WR code. `wr_code_class` is null on
+  // rows staged before grammar v2 (legacy rows; see classifyStoredWrCodeValue).
   wr_code_canonical?: string | null
+  wr_code_class?: string | null
   publisher_part?: string | null
   entry_local_part?: string | null
   umbrella_handshake_id?: string | null
@@ -191,8 +205,12 @@ export type WrResolutionMode = 'public' | 'session_bound'
  * verified head, and the verified EVP. None of it may be read off the carrier.
  */
 export interface WrCodeOfferResolution {
+  /** Grammar-v2 canonical: class prefix + normalized body + check, ungrouped. */
   wr_code_canonical: string
+  /** Parsed reference class. Staging re-captures the canonical and refuses a mismatch. */
+  wr_code_class: WrCodeClass
   publisher_part: string
+  /** Third-block symbols: local (P), combination code (I/S*), or counterparty (C). */
   entry_local_part: string
   umbrella_handshake_id?: string | null
   entry_status: string
@@ -246,6 +264,32 @@ export interface ConsentRecordRow {
 export type StageConnectOfferResult =
   | { staged: true; offerId: string; suppressed: boolean }
   | { staged: false; reason: 'duplicate'; offerId: string }
+  | { staged: false; reason: 'invalid_wr_code'; offerId?: undefined; detail: string }
+
+/**
+ * Fail-closed WR-code admission for staging [XVI.5.4]: the canonical must
+ * re-capture under grammar v2 and its parsed framing must MATCH the fields the
+ * resolution chain claims. A canonical that no longer captures — including
+ * every old prefix-less code — never becomes a staged offer.
+ */
+function wrCodeResolutionMismatch(wr: WrCodeOfferResolution): string | null {
+  const captured = captureWrCodeReference(wr.wr_code_canonical)
+  if (!captured.ok) return `canonical does not capture: ${captured.reason}`
+  if (captured.canonical !== wr.wr_code_canonical) {
+    return 'canonical is not in stored form (must be the ungrouped normalized capture output)'
+  }
+  if (captured.cls !== wr.wr_code_class) {
+    return `class mismatch: canonical is ${captured.cls}, resolution says ${wr.wr_code_class}`
+  }
+  if (captured.publisher !== wr.publisher_part) {
+    return `publisher mismatch: canonical carries ${captured.publisher}`
+  }
+  const thirdBlock = captured.local ?? captured.combination ?? captured.counterparty ?? ''
+  if (thirdBlock !== wr.entry_local_part) {
+    return `entry block mismatch: canonical carries ${thirdBlock}`
+  }
+  return null
+}
 
 /**
  * Stage an inbound invitation. Failed verification stores a SUPPRESSED row
@@ -253,6 +297,16 @@ export type StageConnectOfferResult =
  */
 export function stageConnectOffer(db: any, input: StageConnectOfferInput): StageConnectOfferResult {
   ensureConnectOfferSchema(db)
+  if (input.wr_code) {
+    const mismatch = wrCodeResolutionMismatch(input.wr_code)
+    if (mismatch !== null) {
+      console.warn('[CONNECT_OFFER] WR-code offer refused (fail-closed):', {
+        handshake_id: input.handshake_id,
+        detail: mismatch,
+      })
+      return { staged: false, reason: 'invalid_wr_code', detail: mismatch }
+    }
+  }
   const existing = db
     .prepare(`SELECT offer_id FROM wr_connect_offers WHERE handshake_id = ? AND capsule_hash = ?`)
     .get(input.handshake_id, input.capsule_hash) as { offer_id: string } | undefined
@@ -269,10 +323,10 @@ export function stageConnectOffer(db: any, input: StageConnectOfferInput): Stage
        profile_id, ingress_path, invitation_class,
        verification_status, verification_reason, suppressed,
        staged_at, expires_at,
-       wr_code_canonical, publisher_part, entry_local_part, umbrella_handshake_id,
+       wr_code_canonical, wr_code_class, publisher_part, entry_local_part, umbrella_handshake_id,
        entry_status, resolution_mode, session_bound_expires_at,
        evp_ref, value_statement, catalog_epoch, audit_url
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     offerId,
     input.handshake_id,
@@ -292,6 +346,7 @@ export function stageConnectOffer(db: any, input: StageConnectOfferInput): Stage
     new Date(now).toISOString(),
     new Date(now + INPUT_LIMITS.PENDING_TIMEOUT_MS).toISOString(),
     input.wr_code?.wr_code_canonical ?? null,
+    input.wr_code?.wr_code_class ?? null,
     input.wr_code?.publisher_part ?? null,
     input.wr_code?.entry_local_part ?? null,
     input.wr_code?.umbrella_handshake_id ?? null,
@@ -436,6 +491,11 @@ export function buildConnectOfferPreview(offer: ConnectOfferRow): ConnectOfferPr
   // a value promise the publisher signed means the hash has to cover that
   // promise; otherwise two offers showing different value statements would be
   // indistinguishable at consent time.
+  // Grammar v2 note: `wr_code_class` is deliberately NOT a separate hashed
+  // field. The class is the canonical's prefix, so `wr_code_canonical` already
+  // covers it — and adding a key here would silently invalidate every consent
+  // pin recorded against pre-v2 rows. Recompute-and-compare stays possible for
+  // both generations.
   const entryContext: Record<string, CanonicalJsonValue> = {
     wr_code_canonical: offer.wr_code_canonical ?? '',
     publisher_part: offer.publisher_part ?? '',
