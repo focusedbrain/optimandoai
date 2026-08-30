@@ -140,6 +140,8 @@ const initiatorFx = buildPublisherFixture({
         combination: SE_UNDER_P,
         receiving_party: { kind: 'principal', id: 'party-1' },
         parent: { cls: 'P', publisher_part: INITIATOR, entry_id: '9B2M3' },
+        // §XVI.5.7 (Run 4): SE resolves only inside a live session window.
+        session: { id: 'sess-dup-p', not_before: null, expires_at: NOW + 3_600 },
       },
     },
     {
@@ -151,6 +153,7 @@ const initiatorFx = buildPublisherFixture({
         combination: SE_UNDER_C,
         receiving_party: { kind: 'principal', id: 'party-1' },
         parent: { cls: 'C', publisher_part: INITIATOR, counterparty_part: RESPONDER },
+        session: { id: 'sess-dup-c', not_before: null, expires_at: NOW + 3_600 },
       },
     },
   ],

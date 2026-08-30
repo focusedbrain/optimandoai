@@ -117,6 +117,10 @@ export type WrCodeGateReason =
   // derivation reasons plus the network-leg parent resolution failure.
   | WrCodeDesignationFailureReason
   | 'unresolved_parent'
+  // Gate 3 — §XVI.5.7 SE session window (Run 4). An SE past expiry is the
+  // existing `entry_expired` (the annex's own word: "afterwards it is
+  // EXPIRED"); a session that has not started is its own state.
+  | 'session_not_yet_valid'
   // Gate 4 — self-match.
   | 'NOT_FOR_YOU'
   | 'NOT_FOR_THIS_DEVICE'
@@ -205,6 +209,14 @@ export interface WrCodeEntryMaterial {
   use_limit: WrCodeUseLimitPosture | null
   /** Superseded entries surface their successor explicitly (§XVI.8.1). */
   successor_entry_id: string | null
+  /**
+   * §XVI.5.7 SE session binding (Run 4): the resolver-declared session
+   * identity and time window. MANDATORY for SE — the pipeline refuses an SE
+   * without one — and meaningless (null) for durable classes. Session state
+   * is distinct from entry lifecycle AND from §XVI.8.4 use states; nothing
+   * merges them.
+   */
+  session: { id: string; not_before: number | null; expires_at: number } | null
   /**
    * §XVI.5.10 designation CLAIM as the resolver stated it (Run 3): the
    * registered pair for C, the combination expansion for I/S*. The pipeline —
@@ -326,6 +338,12 @@ export interface WrCodeGateDeps {
   verifyActingPrincipal?(
     receiver: WrCodeReceiverIdentity,
   ): Promise<{ ok: true } | { ok: false; detail?: string }>
+  /**
+   * Clock for the pipeline's own time checks (§XVI.5.7 SE session window).
+   * Optional; wall clock by default. Injected by the adapter so gate and
+   * store time never disagree in tests.
+   */
+  now?(): number
   /**
    * Called when a gate AFTER a successful Gate-5 claim fails, so the §XVI.8.4
    * reservation reverts to ACTIVE — a failed verification never consumes a
@@ -621,6 +639,32 @@ export async function runWrCodeGatePipeline(
     return refuse(3, derived.reason, { detail: derived.detail })
   }
   const designator = derived.designator
+
+  // §XVI.5.7 (Run 4) — SE resolves ONLY while its session and expiry are
+  // valid. The window is evaluated HERE, inside the pipeline, so no deps
+  // implementation can wave an expired session through. Session state stays
+  // distinct from entry lifecycle and §XVI.8.4 use states; the annex merges
+  // nothing, so neither do we.
+  if (reference.cls === 'SE') {
+    if (!material.session) {
+      return refuse(3, 'designation_mismatch', {
+        detail: 'SE requires a session or bounded time window (§XVI.5.7); the resolver declared none',
+      })
+    }
+    const nowS = deps.now?.() ?? Math.floor(Date.now() / 1000)
+    if (material.session.not_before !== null && nowS < material.session.not_before) {
+      return refuse(3, 'session_not_yet_valid', {
+        detail: `session ${material.session.id} starts at ${material.session.not_before}`,
+      })
+    }
+    if (nowS >= material.session.expires_at) {
+      // The annex's own word for this state: EXPIRED, identifier never
+      // reissued (P11). Not inactive, not revoked, not a use state.
+      return refuse(3, 'entry_expired', {
+        detail: `SE session ${material.session.id} expired at ${material.session.expires_at}`,
+      })
+    }
+  }
 
   // §XVI.8.4 posture, keyed by the canonical designator when the deps keep
   // state; a fixture-declared posture on the material is the local fallback.

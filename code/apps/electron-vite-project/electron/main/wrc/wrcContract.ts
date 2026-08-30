@@ -136,6 +136,21 @@ export interface WrcEntryDesignation {
     counterparty_part: string | null
     entry_id: string | null
   } | null
+  /**
+   * §XVI.5.7 (Run 4): the SE session/time window the entry is bound to. SE
+   * "exists only under an established parent handshake, is bound to a session
+   * or a bounded time window, is not durable, and resolves only while its
+   * session and expiry are valid". State, not identity — it never enters the
+   * canonical designator. Mandatory for SE (an SE without one refuses at
+   * Gate 3); null for every durable class.
+   */
+  session: {
+    id: string
+    /** Unix seconds; null = valid from issuance. */
+    not_before: number | null
+    /** Unix seconds. After this the SE is EXPIRED (P11: never reissued). */
+    expires_at: number
+  } | null
 }
 
 function decodeEntryDesignation(value: unknown): WrcEntryDesignation | null {
@@ -173,6 +188,25 @@ function decodeEntryDesignation(value: unknown): WrcEntryDesignation | null {
     }
   }
 
+  let session: WrcEntryDesignation['session'] = null
+  if (o.session !== null && o.session !== undefined) {
+    const s = asRecord(o.session)
+    if (!s || !isNonEmptyString(s.id)) return null
+    if (typeof s.expires_at !== 'number' || !Number.isInteger(s.expires_at)) return null
+    if (
+      s.not_before !== null &&
+      s.not_before !== undefined &&
+      (typeof s.not_before !== 'number' || !Number.isInteger(s.not_before))
+    ) {
+      return null
+    }
+    session = {
+      id: s.id,
+      not_before: (s.not_before as number | null) ?? null,
+      expires_at: s.expires_at,
+    }
+  }
+
   return {
     cls: o.cls,
     combination,
@@ -180,6 +214,7 @@ function decodeEntryDesignation(value: unknown): WrcEntryDesignation | null {
     counterparty_part: counterparty,
     receiving_party: receivingParty,
     parent,
+    session,
   }
 }
 

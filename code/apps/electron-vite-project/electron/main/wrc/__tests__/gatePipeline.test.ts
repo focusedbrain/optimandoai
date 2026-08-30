@@ -80,6 +80,7 @@ function publishedMaterial(overrides: Partial<WrCodeEntryMaterial> = {}): WrCode
     recipient_binding: null,
     use_limit: null,
     successor_entry_id: null,
+    session: null,
     designation: null,
     entry: FX.entry,
     evp: FX.evp,

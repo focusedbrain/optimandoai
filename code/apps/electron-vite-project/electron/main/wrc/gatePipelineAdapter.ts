@@ -304,12 +304,18 @@ export function createWrcGateDeps(
         // canonical designator — never precomputed here.
         use_limit: null,
         successor_entry_id: null,
+        // §XVI.5.7 (Run 4): the resolver-declared session window rides the
+        // signed designation; the PIPELINE evaluates it — this adapter only
+        // carries it, so no adapter can wave an expired session through.
+        session: res.entry.designation?.session ?? null,
         designation,
         entry: res.entry,
         evp: res.evp ?? null,
       }
       return { ok: true, material }
     },
+
+    now,
 
     useLimitPosture(designator) {
       if (!options.useLimits) return null
