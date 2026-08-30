@@ -2,9 +2,14 @@
  * WR Code check core — conformance against Annex XVI v1.95 Appendix A.
  *
  * Authority: `docs/spec/Annex_XVI_WR_Code_v1.95.pdf`, sha256
- * D0BDA9E7…6A00, "Version 1.95 — Consolidated Technical Disclosure —
+ * 064AAD6D…829F, "Version 1.95 — Consolidated Technical Disclosure —
  * 30 August 2026". (The per-page running header still reads "Version 1.3";
  * that is a stale artifact, not the document's identity.)
+ *
+ * NOTE ON IDENTITY: two byte-different documents have carried the string
+ * "Version 1.95" — `D0BDA9E7…6A00` and this one, which corrects A.2's SE
+ * interim. The version string alone does not identify the input, so the hash
+ * above is the authority for what this suite was written against.
  *
  * This suite asserts nothing about the v1.95 *grammar*: the module still
  * implements the v1.4 prefix-less framing, and every structural contradiction
@@ -101,9 +106,11 @@ const A1_TABLE = [
 
 /**
  * The seven published positives, one per class, with A.2's own "Check input v"
- * and "Interim after v" columns. `interimIsStale` marks the one row whose
- * interim was not regenerated when v1.95 corrected the convention — see
- * section 3.
+ * and "Interim after v" columns.
+ *
+ * All seven interims are now correct. The SE row briefly carried the stale
+ * pre-correction value 22 (see the report's Q11); it was corrected to 11 on
+ * 2026-08-30, and this suite asserts the corrected column with no exceptions.
  */
 const A2_POSITIVES = [
   { cls: 'P',  reference: 'P-WR7X4K-9B2M3C',    v: [22, 28, 24, 7, 29, 4, 19, 9, 11, 2, 20, 3],           publishedInterim: 6,  check: 'C' },
@@ -112,7 +119,7 @@ const A2_POSITIVES = [
   { cls: 'SP', reference: 'SP-WR7X4K-H2N5V8-7', v: [25, 22, 28, 24, 7, 29, 4, 19, 17, 2, 21, 5, 27, 8],   publishedInterim: 17, check: '7' },
   { cls: 'SI', reference: 'SI-K4T9M2-3ZDQ7E-H', v: [25, 1, 19, 4, 26, 9, 20, 2, 3, 31, 13, 23, 7, 14],    publishedInterim: 26, check: 'H' },
   { cls: 'SC', reference: 'SC-ABC123-M8W2R4-0', v: [25, 12, 10, 11, 12, 1, 2, 3, 20, 8, 28, 2, 24, 4],    publishedInterim: 0,  check: '0' },
-  { cls: 'SE', reference: 'SE-WR7X4K-6TCJ9F-P', v: [25, 14, 28, 24, 7, 29, 4, 19, 6, 26, 12, 18, 9, 15],  publishedInterim: 22, check: 'P', interimIsStale: 11 },
+  { cls: 'SE', reference: 'SE-WR7X4K-6TCJ9F-P', v: [25, 14, 28, 24, 7, 29, 4, 19, 6, 26, 12, 18, 9, 15],  publishedInterim: 11, check: 'P' },
 ] as const
 
 /** A.2 negatives, verbatim. Each must fail local verification. */
@@ -212,26 +219,25 @@ describe('3. published positives reproduce under the module [A.2]', () => {
   })
 
   /**
-   * A.2's "Interim after v" column, asserted separately from the check because
-   * one row of it is stale. v1.95's changelog says the column was updated when
-   * the convention changed; six rows were, the SE row was not. The published
-   * check symbol is still correct, and verification is unaffected — only the
-   * intermediate number is wrong — but an implementer cross-checking their fold
-   * against that column will be misled, so the discrepancy is pinned rather
-   * than smoothed over. Tracked as Q11 in the analysis report.
+   * A.2's "Interim after v" column. Asserted separately from the check because
+   * the two can disagree independently: the interim is one alpha step short of
+   * the check, so a wrong interim can still print a right check symbol. That is
+   * exactly how the Q11 error hid in the SE row.
    */
-  test.each(A2_POSITIVES)('$cls interim after v', ({ publishedInterim, v, check, interimIsStale }) => {
-    const actual = interim(v)
-    if (interimIsStale === undefined) {
-      expect(actual).toBe(publishedInterim)
-      return
+  test.each(A2_POSITIVES)('$cls interim after v is $publishedInterim', ({ publishedInterim, v }) => {
+    expect(interim(v)).toBe(publishedInterim)
+  })
+
+  test('an interim is one alpha step short of its check, so the columns are independent', () => {
+    // Guards the assertion above against being weakened back into a check test.
+    for (const { v, publishedInterim, check } of A2_POSITIVES) {
+      expect(sym(A[publishedInterim])).toBe(check)
+      expect(interim(v)).toBe(publishedInterim)
     }
-    expect(actual).toBe(interimIsStale)
-    expect(actual).not.toBe(publishedInterim)
-    // The stale value is the old convention's interim, which coincides with
-    // the check value — which is why the check column still reads correctly.
-    expect(sym(A[actual])).toBe(check)
-    expect(VALUE.get(check)).toBe(publishedInterim)
+    // The SE row is the witness: its old stale interim 22 is the value of its
+    // own check symbol P, which is why the row looked self-consistent.
+    expect(VALUE.get('P')).toBe(22)
+    expect(A[11]).toBe(22)
   })
 })
 

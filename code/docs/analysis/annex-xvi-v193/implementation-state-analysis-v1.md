@@ -24,8 +24,10 @@ diagnosed. Consequences, all verified in §11:
 - **F1b is closed as an annex defect** — corrected upstream, not by us.
 - **F1a is closed** — A.1 and the code now agree in all 1024 cells.
 - **Q9 and Q10 are moot** — the question they posed no longer exists.
-- **One residual error survives the correction** in A.2's interim column, raised
-  as **Q11**.
+- **One residual error survived the correction** in A.2's interim column, raised as
+  **Q11** and **fixed by the Author the same evening**; Appendix A is now clean.
+- **Q11's fix arrived without a version bump**, so two byte-different documents now
+  both declare "Version 1.95" — raised as **Q12**.
 - Everything this report says about the **grammar** (CR-1…CR-13, F2, F3, F4) is
   unaffected: v1.95's changelog touches only the check quasigroup.
 
@@ -795,8 +797,10 @@ this report analyses.
 | sha256 | `BC108E02…8D19` | `D0BDA9E7…6A00` |
 | Modified | — | 2026-08-30 18:27 UTC, i.e. **after** the analysis run at 16:51 UTC |
 
-Committed as `docs/spec/Annex_XVI_WR_Code_v1.95.pdf`, 76 pages, 3,691,860 bytes,
-hash verified identical after copy. **Q1′ is discharged.**
+Committed as `docs/spec/Annex_XVI_WR_Code_v1.95.pdf`, 76 pages, hash verified
+identical after copy. **Q1′ is discharged.** The committed copy was subsequently
+replaced with the 18:50 UTC revision, sha256 `064AAD6D…829F` — see Q12 (§11.6),
+which is about the fact that both revisions call themselves v1.95.
 
 The string "1.93" does not occur anywhere in the file. "Version 1.95" occurs once,
 in the title block; "Version 1.3" occurs 76 times, once per page — confirming AR-2's
@@ -849,9 +853,16 @@ Should A.2's SE interim be corrected to 11?"*
 deployed is affected. The SE reference verifies, its check symbol `P` is right, and
 `verifyCheck` accepts it. The only harm is to an implementer cross-checking their
 fold against that column, who will conclude their own arithmetic is broken when it
-is not — which is precisely the failure mode that produced this report's F1a. Pinned
-by assertion in the conformance suite so it cannot be silently "corrected" in the
-wrong direction.
+is not — which is precisely the failure mode that produced this report's F1a.
+
+**CLOSED, 2026-08-30 18:50 UTC.** The Author corrected the SE interim to **11**.
+Re-verified against the corrected document: **all 7 interims, all 7 check symbols,
+all 7 check-input arrays, and all 1024 A.1 table cells are now correct**, both
+anti-symmetry conditions hold with 0 violations, and all 5 negative vectors fail as
+required. Appendix A is mathematically clean. The conformance suite now asserts the
+interim column with no exceptions, plus a guard that keeps the interim and check
+assertions independent — because a wrong interim can still print a right check
+symbol, which is exactly how this error hid.
 
 ### 11.5 What was re-landed
 
@@ -876,7 +887,35 @@ a document that no longer exists, so they were rewritten rather than left standi
   needs a grammar-version-2 registry-material document carrying the transcribed
   block, which does not exist yet.
 
-### 11.6 What this section does not establish
+### 11.6 Q12 — "Version 1.95" now identifies two different documents
+
+Raised because it has already cost this analysis real time, twice.
+
+**Q12.** *"Three byte-different files have been supplied as the annex. Two of them
+declare the same version string:*
+
+| Declared | sha256 | Modified | Distinguishing content |
+|---|---|---|---|
+| Version 1.93 | `BC108E02…8D19` | — | A.1 as `α · (x ⊕ y)`, zero diagonal |
+| Version 1.95 | `D0BDA9E7…6A00` | 18:27 UTC | A.1 corrected; A.2 SE interim stale at 22 |
+| Version 1.95 | `064AAD6D…829F` | 18:50 UTC | A.2 SE interim corrected to 11 |
+
+*The 18:50 edit changed normative content — a published test-vector value — without
+a version bump and without a changelog entry; the changelog's newest row is still
+`v1.95 — 30 August 2026`, unchanged. Should content edits after a version is
+published carry a version increment (e.g. v1.96) or at minimum a changelog line, so
+that a version string identifies exactly one document?"*
+
+**Recommendation:** yes, and treat the sha256 as the identity in the interim.
+**Consequence:** without it, "conformant to Annex XVI v1.95" is not a checkable
+statement — two implementations can both claim it and disagree on a published
+vector. It also breaks this report's own audit trail: AR-1 ratified a **hash**, and
+that hash no longer corresponds to any supplied file. Every artifact this pass
+produced now cites a hash rather than a version string, which is a workaround, not a
+fix. **Nit, same edit:** the corrected SE row reads `[[25, 14, …` — a doubled
+opening bracket in the check-input array. Cosmetic only; the values parse correctly.
+
+### 11.7 What this section does not establish
 
 - The report was **not** re-based to v1.95. Only Appendix A and the changelog were
   read. v1.95's changelog says the correction touches the check quasigroup only, so
