@@ -344,6 +344,27 @@ describe.skipIf(!Database)('O6 — consent-time re-validation', () => {
     }
   })
 
+  it('legacy shim: a pre-v2 row survives but can never be consented', () => {
+    const d = db()
+    try {
+      const id = stage(d)
+      // Simulate a row staged under the retired prefix-less grammar (such a
+      // row can no longer be created through stageConnectOffer).
+      d.prepare('UPDATE wr_connect_offers SET wr_code_canonical = ?, wr_code_class = NULL WHERE offer_id = ?')
+        .run('WR7X4K9B2M3PC', id)
+      const r = revalidateOfferStatusForConsent(d, id)
+      expect(r.ok).toBe(false)
+      if (!r.ok) expect(r.reason).toBe('WR_CODE_LEGACY_FORMAT')
+      // Non-destructive: the row is intact, only consent is closed.
+      const row = d
+        .prepare('SELECT wr_code_canonical FROM wr_connect_offers WHERE offer_id = ?')
+        .get(id) as { wr_code_canonical: string }
+      expect(row.wr_code_canonical).toBe('WR7X4K9B2M3PC')
+    } finally {
+      d.close()
+    }
+  })
+
   it('non-WR-code offers are unaffected', () => {
     const d = db()
     try {

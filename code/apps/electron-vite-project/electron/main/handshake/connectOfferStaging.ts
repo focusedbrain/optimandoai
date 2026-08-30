@@ -642,12 +642,17 @@ export function revalidateOfferStatusForConsent(
   offerId: string,
 ): { ok: true } | { ok: false; reason: string; error?: string } {
   let row:
-    | { publisher_part?: string | null; entry_status?: string | null; session_bound_expires_at?: string | null }
+    | {
+        wr_code_canonical?: string | null
+        publisher_part?: string | null
+        entry_status?: string | null
+        session_bound_expires_at?: string | null
+      }
     | undefined
   try {
     row = db
       .prepare(
-        `SELECT publisher_part, entry_status, session_bound_expires_at
+        `SELECT wr_code_canonical, publisher_part, entry_status, session_bound_expires_at
            FROM wr_connect_offers WHERE offer_id = ?`,
       )
       .get(offerId) as typeof row
@@ -656,6 +661,19 @@ export function revalidateOfferStatusForConsent(
     return { ok: true }
   }
   if (!row?.publisher_part) return { ok: true }
+
+  // Grammar v2 legacy shim (non-destructive): a WR-code offer staged under the
+  // retired prefix-less grammar keeps its row — history is never rewritten or
+  // deleted — but it can no longer be consented to. Old-format codes are not
+  // references anymore; the operator captures a current code instead.
+  if (row.wr_code_canonical && !captureWrCodeReference(row.wr_code_canonical).ok) {
+    return {
+      ok: false,
+      reason: 'WR_CODE_LEGACY_FORMAT',
+      error:
+        'This offer was staged from a retired WR Code format. Capture the current code (with its class prefix) again.',
+    }
+  }
 
   if (row.session_bound_expires_at) {
     const expires = Date.parse(row.session_bound_expires_at)
