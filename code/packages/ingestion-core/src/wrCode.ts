@@ -23,27 +23,26 @@
  * `wrCode.profileTranscription.guard.test.ts` fails if the two ever diverge,
  * so edit the registry material first and re-transcribe — never patch here.
  *
- * SUPERSESSION (Annex XVI v1.93). The ratified upstream is now Annex XVI
- * Appendix A, and v1.4 above is superseded IN PART. What survives untouched is
- * the check itself: every Appendix A.2 vector reproduces under the functions
- * below, pinned by `wrCode.annexXVI.appendixA.conformance.test.ts`. What does
- * NOT survive is the framing — this module has no notion of the class prefix
- * (P/I/C/SP/SI/SC/SE), so `parseStructure`, the 6-symbol publisher, and the
- * 12-symbol floor all mis-slice every v1.93 reference. Do not build v1.93
- * grammar on top of them; see the CR register in
- * `docs/analysis/annex-xvi-v193/implementation-state-analysis-v1.md`.
+ * SUPERSESSION (Annex XVI v1.95, `docs/spec/Annex_XVI_WR_Code_v1.95.pdf`).
+ * The ratified upstream is now Annex XVI Appendix A, and v1.4 above is
+ * superseded IN PART.
  *
- * TWO TRAPS, both measured and pinned by that suite:
- *  1. Appendix A.1 publishes a DIFFERENT quasigroup from the one below —
- *     `α·(x ⊕ y)` against this module's `α·x ⊕ y`, differing in 992 of 1024
- *     cells. They compute the same check (proven: both fold to Σ α^(n-k+1)·d_k)
- *     but ONLY end to end. Mixing A.1's interim with this module's final α
- *     step, or the reverse, silently yields wrong check characters.
- *  2. A.1's claim of total anti-symmetry is false for the operation A.1
- *     defines: `α·(x ⊕ y)` is commutative. The operation below IS totally
- *     anti-symmetric. Do not "align" this module with A.1's table on the
- *     strength of its stated properties — that trades the stronger algebra for
- *     a weaker one. Disposition is an open Author question (Q9/Q10).
+ * The check survives untouched, and A.1 now agrees with this module exactly:
+ * the published operation is `(α · x) ⊕ y`, the diagonal is `(α ⊕ 1) · x`
+ * rather than zero, the check is `α · interim`, and all 1024 published table
+ * cells match. `wrCode.annexXVI.appendixA.conformance.test.ts` asserts that
+ * cell for cell, along with every A.2 vector.
+ *
+ * (v1.93 briefly printed A.1 as `α · (x ⊕ y)` with a zero diagonal, which is
+ * commutative and therefore not totally anti-symmetric. v1.95 withdrew it. The
+ * two forms yield identical checks, so nothing deployed was ever affected, and
+ * the suite keeps a regression guard so the withdrawn form cannot return.)
+ *
+ * What does NOT survive is the framing. This module has no notion of the class
+ * prefix (P/I/C/SP/SI/SC/SE), so `parseStructure`, the 6-symbol publisher, and
+ * the 12-symbol floor all mis-slice every v1.95 reference. Do not build the
+ * prefix grammar on top of them; see the CR register in
+ * `docs/analysis/annex-xvi-v193/implementation-state-analysis-v1.md`.
  */
 
 /* eslint-disable */

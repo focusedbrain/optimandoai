@@ -7,21 +7,23 @@
  * local edit to the transcribed region is exactly the failure this guard
  * exists to catch, so it compares bytes rather than behaviour.
  *
- * SCOPE UNDER ANNEX XVI v1.93. The ratified upstream is now Annex XVI
- * Appendix A, so the document this guard pins is superseded in part and this
- * guard's pointer will eventually move. It has deliberately NOT moved yet.
- * Appendix A.1 publishes a different presentation of the quasigroup — one that
- * computes the same check but is commutative, and therefore not totally
- * anti-symmetric — so re-pointing these byte assertions at A.1 would require
- * rewriting `wrCode.ts` to weaker algebra, not merely redirecting a citation.
- * That is an open Author question (Q9/Q10 in
- * `docs/analysis/annex-xvi-v193/implementation-state-analysis-v1.md`).
+ * SCOPE UNDER ANNEX XVI v1.95. The ratified upstream is now Annex XVI
+ * Appendix A (`docs/spec/Annex_XVI_WR_Code_v1.95.pdf`), so the document this
+ * guard pins is superseded in part. A.1 and this module now agree on the
+ * algebra exactly — A.1's reference implementation is `op(x, y) = mul2(x) ^ y`,
+ * which is `star` below — so re-pointing is no longer blocked on any question
+ * of substance.
  *
- * Until it is dispositioned, this guard keeps doing its original job over the
- * v1.4 text, and conformance to what v1.93 actually requires of the check is
- * asserted separately, behaviourally, by
- * `wrCode.annexXVI.appendixA.conformance.test.ts`. Neither suite subsumes the
- * other: this one pins the bytes, that one pins the result.
+ * It has still not moved, for one mechanical reason: this guard is a BYTE
+ * comparison against a `typescript` fence, and Appendix A publishes its
+ * reference implementation as illustrative Python. Re-pointing therefore needs
+ * a registry-material document at grammar version 2 carrying the same
+ * transcribed block, which does not exist yet. Until it does, this guard keeps
+ * doing its original job over the v1.4 text, and conformance to what v1.95
+ * requires of the check is asserted separately, behaviourally, by
+ * `wrCode.annexXVI.appendixA.conformance.test.ts` — including all 1024 cells of
+ * A.1's published table. Neither suite subsumes the other: this one pins the
+ * bytes, that one pins the result.
  */
 import { describe, test, expect } from 'vitest'
 import { readFileSync } from 'node:fs'

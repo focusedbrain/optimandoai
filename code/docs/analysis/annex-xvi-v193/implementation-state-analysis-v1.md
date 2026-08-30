@@ -11,10 +11,27 @@ section-cited.
 **Revision v1.1 — Phase 0 executed on author instruction (2026-08-30).** The
 analysis pass itself changed nothing. Phase 0 has since been authorised and run,
 and two new findings surfaced while doing so — **F1a** and **F1b** — which correct
-this report's original verdict on the quasigroup and reverse the recommendation on
-**Q9**. See §10 for what was landed. Phase 0 changed **no runtime code**: two
-comment-only annotations and one new test file, 0 regressions across 155 baseline
-failing identities. Everything from Phase 1 on remains unratified.
+this report's original verdict on the quasigroup. See §10. Phase 0 changed **no
+runtime code**: two comment-only annotations and one new test file, 0 regressions
+across 155 baseline failing identities.
+
+**Revision v1.2 — THE ANNEX HAS MOVED TO v1.95, WHICH FIXES F1b (2026-08-30).**
+The Author supplied the annex for in-tree custody; it is **Version 1.95 of 30
+August 2026**, not the v1.93 this report analyses (§11). v1.95 **independently
+found and corrected the F1b defect**, attributing it to the same cause this report
+diagnosed. Consequences, all verified in §11:
+
+- **F1b is closed as an annex defect** — corrected upstream, not by us.
+- **F1a is closed** — A.1 and the code now agree in all 1024 cells.
+- **Q9 and Q10 are moot** — the question they posed no longer exists.
+- **One residual error survives the correction** in A.2's interim column, raised
+  as **Q11**.
+- Everything this report says about the **grammar** (CR-1…CR-13, F2, F3, F4) is
+  unaffected: v1.95's changelog touches only the check quasigroup.
+
+Section citations below are to **v1.93** unless marked. Re-basing the full report
+to v1.95 has not been done and is not assumed. Everything from Phase 1 on remains
+unratified.
 
 Date 2026-08-30. Branch `integration/consolidated-current`.
 
@@ -759,7 +776,113 @@ a redirection but a rewrite to weaker algebra — so the pointer was deliberatel
   the ones asserting A.1's transcribed algebra, which correctly does not depend on
   the module. The mutation was reverted and the revert verified with `git diff`.
 
-**Still open.** Q1′ (annex custody) could **not** be discharged: the ratified PDF is
-not in the working tree and is not reachable from it, so it must be supplied as a
-file before it can be committed. Q3–Q10 remain unratified, and no Phase 1 work has
-begun.
+**Still open at the time of §10.** Q1′ (annex custody) could not be discharged: the
+ratified PDF was not in the working tree. That was resolved immediately afterwards
+and is the subject of §11.
+
+---
+
+## 11. Annex v1.95 — custody discharged, F1b closed upstream (revision v1.2)
+
+### 11.1 What arrived
+
+The Author supplied the annex by path for in-tree custody. It is **not** the file
+this report analyses.
+
+| | Analysed (AR-1) | Supplied for custody |
+|---|---|---|
+| Declared version | 1.93 | **1.95 — 30 August 2026** |
+| sha256 | `BC108E02…8D19` | `D0BDA9E7…6A00` |
+| Modified | — | 2026-08-30 18:27 UTC, i.e. **after** the analysis run at 16:51 UTC |
+
+Committed as `docs/spec/Annex_XVI_WR_Code_v1.95.pdf`, 76 pages, 3,691,860 bytes,
+hash verified identical after copy. **Q1′ is discharged.**
+
+The string "1.93" does not occur anywhere in the file. "Version 1.95" occurs once,
+in the title block; "Version 1.3" occurs 76 times, once per page — confirming AR-2's
+judgement that the running header is a stale artifact and not the identity.
+
+### 11.2 v1.95 fixes F1b, independently and with the same diagnosis
+
+v1.95's changelog entry, verbatim:
+
+> Check-quasigroup definition in §XVI.5.4 and Appendix A.1 corrected to
+> `x ∗ y = (α · x) ⊕ y` (Registry Material v1.4 operation). The previously printed
+> operation `α · (x ⊕ y)` is commutative and therefore not totally anti-symmetric
+> (the second condition `x ∗ y ≠ y ∗ x` fails for all `x ≠ y`; a sweep over 32³
+> triples exercises only the first condition, which is why the error passed
+> verification). Both operations produce identical check symbols and identical
+> accept/reject decisions for every input, so all published references, test
+> vectors, and deployed verifiers are unaffected. Zero-diagonal claim removed;
+> check-symbol extraction restated as `k = α · interim`; A.1 table regenerated;
+> A.2 interim column updated.
+
+This is F1b, reached independently, including the mechanism — that a 32³ sweep
+exercises only the triple condition — and the disposition is exactly Q10's
+recommended option (b). **F1b is therefore closed as an annex defect, corrected
+upstream.** F1a is closed with it: there is no longer a divergent table.
+
+### 11.3 Verified against the code
+
+| Claim in v1.95 A.1/A.2/A.3 | Result |
+|---|---|
+| Operation `(α · x) ⊕ y` | Matches `star` (`wrCode.ts:42`) |
+| Published 32×32 table | **All 1024 cells match**, parsed from the PDF |
+| Reference implementation `op(x, y) = mul2(x) ^ y`, `check = ALPHABET[mul2(interim(v))]` | Matches `star` and `computeCheck` |
+| Quasigroup over all 32² pairs | Holds |
+| Total anti-symmetry, **both** conditions (32² pairs and 32³ triples) | Holds — **0 violations each** |
+| Diagonal is `(α ⊕ 1) · x`, not zero | Holds |
+| A.2: 7 check symbols | **7 of 7 correct** |
+| A.2: check-input arrays `v` vs the alias-normalized references | **7 of 7 match** |
+| A.2: "Interim after v" column | **6 of 7 correct** — see Q11 |
+
+### 11.4 Q11 — one residual error in A.2's interim column
+
+**Q11.** *"v1.95's changelog states 'A.2 interim column updated'. Six of the seven
+rows were. The **SE** row still reads `Interim after v = 22`; under the corrected
+convention it is **11**. 22 is the value the old v1.93 convention produced for that
+row, and it coincides with the check symbol's value (`α · 11 = 22 = P`), which is
+why the check column still reads correctly and why the stale cell is easy to miss.
+Should A.2's SE interim be corrected to 11?"*
+
+**Recommendation:** yes — a one-cell documentation fix. **Consequence:** nothing
+deployed is affected. The SE reference verifies, its check symbol `P` is right, and
+`verifyCheck` accepts it. The only harm is to an implementer cross-checking their
+fold against that column, who will conclude their own arithmetic is broken when it
+is not — which is precisely the failure mode that produced this report's F1a. Pinned
+by assertion in the conformance suite so it cannot be silently "corrected" in the
+wrong direction.
+
+### 11.5 What was re-landed
+
+The Phase 0 artifacts of §10 were written against v1.93 and asserted properties of
+a document that no longer exists, so they were rewritten rather than left standing:
+
+- **Conformance suite: 37 → 59 tests.** Now asserts all 1024 published A.1 cells
+  cell-for-cell, both TA conditions, the non-zero diagonal formula, A.3's class
+  values *and* class value sequences, all 7 A.2 positives (check input, check
+  symbol, whole-reference verification, and interim), all 5 published A.2
+  negatives verbatim, the alias row, and the §XVI.5.4 detection claim in full over
+  every positive. The F1a equivalence theorem and F1b defect assertions are
+  replaced by a single **regression guard** proving the withdrawn v1.93 operation
+  is not what the module implements — and demonstrating why it went unnoticed, by
+  showing it yields identical checks while failing the pair condition for all 992
+  unequal pairs.
+- **`wrCode.ts` and the guard docstring** rewritten: the "two traps" warning is
+  withdrawn, since neither trap exists in v1.95.
+- **The guard pointer still has not moved,** but the reason is now purely
+  mechanical rather than substantive: the guard is a byte comparison against a
+  `typescript` fence, and Appendix A publishes illustrative Python. Re-pointing
+  needs a grammar-version-2 registry-material document carrying the transcribed
+  block, which does not exist yet.
+
+### 11.6 What this section does not establish
+
+- The report was **not** re-based to v1.95. Only Appendix A and the changelog were
+  read. v1.95's changelog says the correction touches the check quasigroup only, so
+  the grammar findings should carry over, but §XVI.5.1–5.10 were not re-read
+  against v1.95 and **CR-1…CR-13 are not re-verified**.
+- The v1.93 file itself is **not** in the tree, so AR-1's `BC108E02…8D19` cannot be
+  re-checked and the two documents cannot be diffed. The comparison above rests on
+  v1.95's own changelog.
+- Q3–Q8 are untouched by v1.95 and remain unratified. No Phase 1 work has begun.
