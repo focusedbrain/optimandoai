@@ -125,6 +125,11 @@ export type WrCodeGateReason =
   | 'NOT_FOR_YOU'
   | 'NOT_FOR_THIS_DEVICE'
   | 'self_match_unavailable'
+  // Gate 4 — §XVI.13.7 device trust (Run 4): a device-bound reference whose
+  // registration chain (tenant Device Record / Device Pass) does not verify.
+  // The precise leg (wrong establishment, stale generation, expired pass, …)
+  // rides in `detail` from the deviceRegistry vocabulary.
+  | 'device_binding_unverified'
   // Gate 5 — recipient-bound release.
   | 'release_refused'
   | 'relay_unavailable'
@@ -344,6 +349,21 @@ export interface WrCodeGateDeps {
    * store time never disagree in tests.
    */
   now?(): number
+  /**
+   * Gate 4, Run 4 (§XVI.13.7): the authoritative device-registration
+   * substrate behind a DEVICE-granularity receiving party. Consulted only
+   * after the local self-match already succeeded — i.e. this IS the bound
+   * device — to prove the binding chain itself: the tenant Device Record for
+   * an SI device selection, the Device Pass (Registered Counterpart Device)
+   * for a device-bound SC. A device-bound reference with NO substrate fails
+   * closed: per the annex, a Device Pass is the ONLY route by which an
+   * organization's device becomes addressable outside its own tenant.
+   */
+  verifyDeviceBinding?(input: {
+    reference: WrCodeReference
+    designator: WrCodeEntryDesignator
+    receiver: WrCodeReceiverIdentity
+  }): Promise<{ ok: true } | { ok: false; detail?: string }>
   /**
    * Called when a gate AFTER a successful Gate-5 claim fails, so the §XVI.8.4
    * reservation reverts to ACTIVE — a failed verification never consumes a
@@ -684,6 +704,27 @@ export async function runWrCodeGatePipeline(
   const selfMatch = evaluateSelfMatch(reference, material, receiver, designator)
   if (!selfMatch.ok) {
     return refuse(4, selfMatch.reason, { detail: selfMatch.detail })
+  }
+
+  // Run 4 (§XVI.13.7) — the identifier matched; now the REGISTRATION must.
+  // Device-granularity addressing exists only where a tenant Device Record
+  // (SI) or a Device Pass (SC) stands behind it, so a device-bound reference
+  // is verified against that substrate or refused — no substrate, no pass.
+  if (designator.receiving_party?.kind === 'device') {
+    if (!deps.verifyDeviceBinding) {
+      return refuse(4, 'device_binding_unverified', {
+        detail: 'no device-registration substrate is available to prove the binding',
+      })
+    }
+    let bound: { ok: true } | { ok: false; detail?: string }
+    try {
+      bound = await deps.verifyDeviceBinding({ reference, designator, receiver })
+    } catch (e) {
+      bound = { ok: false, detail: e instanceof Error ? e.message : String(e) }
+    }
+    if (!bound.ok) {
+      return refuse(4, 'device_binding_unverified', { detail: bound.detail })
+    }
   }
   gatesPassed.push('self_match')
 

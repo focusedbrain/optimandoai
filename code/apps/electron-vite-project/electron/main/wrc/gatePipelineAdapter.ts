@@ -43,6 +43,7 @@ import {
   type WrCodeDesignationClaim,
 } from './entryDesignator'
 import { WrcDirectoryClient, type WrcDirectoryRecord } from './namespaceDirectory'
+import { verifyDevicePass, verifyDeviceRecord, type WrcDeviceRegistry } from './deviceRegistry'
 import type { WrcResolutionClient } from './resolutionClient'
 import type { WrcEntryDesignation } from './wrcContract'
 import type { WrcUseLimitStore } from './useLimitStore'
@@ -63,6 +64,12 @@ export interface WrcGateAdapterOptions {
    * verification fails closed with `directory_not_configured`. No fallback.
    */
   directory?: WrcDirectoryClient
+  /**
+   * §XVI.13.7 device-registration substrate (Run 4): the tenant device list
+   * and held Registered Counterpart Device passes. Absent means no
+   * device-bound reference can verify — fail closed at Gate 4.
+   */
+  devices?: WrcDeviceRegistry
 }
 
 /**
@@ -316,6 +323,69 @@ export function createWrcGateDeps(
     },
 
     now,
+
+    async verifyDeviceBinding({ reference, designator, receiver }) {
+      // §XVI.13.7: SI device selection binds a record the TENANT holds; a
+      // device-bound SC binds a Registered Counterpart Device the INITIATOR
+      // holds. Every other class has no resolution-time device addressing —
+      // receiving-side device binding happens at acceptance, not here.
+      const rp = designator.receiving_party
+      if (!rp || rp.kind !== 'device') return { ok: true }
+      if (!options.devices) {
+        return { ok: false, detail: 'no device registry configured' }
+      }
+
+      if (reference.cls === 'SI') {
+        // Tenant = the reference's own namespace; its record list is the
+        // authority, its directory keys verify the record signature.
+        const record = options.devices.tenantDevice(designator.publisher_part, rp.id)
+        if (!record) {
+          return { ok: false, detail: `record_missing: ${rp.id} is not in the tenant device list` }
+        }
+        const dir = await verifiedDirectoryRecord(designator.publisher_part)
+        if (!dir.ok) return { ok: false, detail: `tenant directory: ${dir.detail ?? dir.reason}` }
+        const verdict = verifyDeviceRecord(record, dir.record.keys)
+        return verdict.ok
+          ? { ok: true }
+          : { ok: false, detail: verdict.detail ? `${verdict.leg}: ${verdict.detail}` : verdict.leg }
+      }
+
+      if (reference.cls === 'SC' && designator.parent?.cls === 'C' && designator.parent.counterparty_part) {
+        const initiator = designator.parent.publisher_part
+        const responder = designator.parent.counterparty_part
+        const pass = options.devices.counterpartPass(initiator, responder, rp.id)
+        if (!pass) {
+          return {
+            ok: false,
+            detail: `pass_missing: ${rp.id} is not a Registered Counterpart Device of ${initiator}↔${responder}`,
+          }
+        }
+        // The record is the RESPONDER tenant's statement: verify against the
+        // responder's directory-registered keys (Gate-2 assurance), plus the
+        // tenant's current record for the generation check when held.
+        const dir = await verifiedDirectoryRecord(responder)
+        if (!dir.ok) return { ok: false, detail: `responder directory: ${dir.detail ?? dir.reason}` }
+        const verdict = verifyDevicePass({
+          pass,
+          cInitiatorPart: initiator,
+          cResponderPart: responder,
+          expectedDevicePartyId: rp.id,
+          tenantKeys: dir.record.keys,
+          currentTenantRecord: options.devices.tenantDevice(responder, rp.id),
+          nowS: now(),
+        })
+        return verdict.ok
+          ? { ok: true }
+          : { ok: false, detail: verdict.detail ? `${verdict.leg}: ${verdict.detail}` : verdict.leg }
+      }
+
+      // Device-granularity constituent on a class with no annex-defined
+      // resolution-time device addressing: fail closed.
+      return {
+        ok: false,
+        detail: `unsupported_device_addressing: class ${reference.cls} has no device addressing substrate`,
+      }
+    },
 
     useLimitPosture(designator) {
       if (!options.useLimits) return null

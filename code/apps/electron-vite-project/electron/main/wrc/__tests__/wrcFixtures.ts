@@ -23,6 +23,7 @@ import type {
   WrcPublisherManifest,
 } from '../wrcContract'
 import type { WrcDirectoryRecord, WrcOperatorRollover } from '../namespaceDirectory'
+import type { WrcDevicePass, WrcDeviceRecord } from '../deviceRegistry'
 import type { WrcTransport, WrcTransportResult, WrcTxtResult } from '../wrcTransport'
 
 // ── keys ──────────────────────────────────────────────────────────────────────
@@ -103,6 +104,64 @@ export function buildOperatorRollover(
     sig_outgoing: b64url(cryptoSign(null, bytes, outgoing.privateKey)),
     sig_incoming: b64url(cryptoSign(null, bytes, incoming.privateKey)),
   } as WrcOperatorRollover
+}
+
+/**
+ * §XVI.13.7 tenant-signed Device Record (Run 4). Signed with the tenant
+ * fixture's ROOT key — the directory-registered verification key.
+ */
+export function signDeviceRecord(
+  tenant: WrcPublisherFixture,
+  spec: {
+    principalPartyId: string
+    devicePartyId: string
+    deviceName: string
+    deviceClass: string
+    keyFingerprint?: string
+    generation?: number
+    status?: 'active' | 'revoked'
+  },
+  signer?: WrcTestKeyPair,
+): WrcDeviceRecord {
+  const key = signer ?? tenant.root
+  return signObject(
+    {
+      type: 'wrc/device-record',
+      tenant_part: tenant.publisherPart,
+      principal_party_id: spec.principalPartyId,
+      device_party_id: spec.devicePartyId,
+      device_name: spec.deviceName,
+      device_class: spec.deviceClass,
+      key_fingerprint: spec.keyFingerprint ?? fingerprintOf(makeKeyPair('device-key').pub),
+      generation: spec.generation ?? 1,
+      status: spec.status ?? 'active',
+      kid: key.kid,
+      sig: '',
+    } as unknown as Record<string, unknown>,
+    key,
+  ) as unknown as WrcDeviceRecord
+}
+
+/** §XVI.13.7 Device Pass held by the C initiator (Run 4). */
+export function buildDevicePass(
+  record: WrcDeviceRecord,
+  spec: {
+    cInitiatorPart: string
+    cResponderPart: string
+    registeredAt?: number
+    expiresAt?: number
+    status?: 'active' | 'withdrawn'
+  },
+): WrcDevicePass {
+  return {
+    type: 'wrc/device-pass',
+    c_initiator_part: spec.cInitiatorPart,
+    c_responder_part: spec.cResponderPart,
+    record,
+    registered_at: spec.registeredAt ?? 1_754_650_000,
+    expires_at: spec.expiresAt ?? 4_000_000_000,
+    status: spec.status ?? 'active',
+  }
 }
 
 export function hashObject(obj: unknown): string {

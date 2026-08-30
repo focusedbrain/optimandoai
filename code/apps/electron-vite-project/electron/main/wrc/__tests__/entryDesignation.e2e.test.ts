@@ -24,10 +24,12 @@ import { deriveEntryDesignator, designatorKey, useLimitEntryKey } from '../entry
 import { WrcResolutionClient } from '../resolutionClient'
 import { WrcResolvedRecordStore, createMemoryPersistence } from '../resolvedRecordStore'
 import { createMemoryUseLimitStore, defaultUseLimitProfile } from '../useLimitStore'
+import { createMemoryDeviceRegistry } from '../deviceRegistry'
 import {
   buildPublisherFixture,
   createMultiFixtureTransport,
   makeKeyPair,
+  signDeviceRecord,
 } from './wrcFixtures'
 
 // ── The relationship: WR7X4K (initiator) ↔ RCVPBX (responder) ─────────────────
@@ -219,6 +221,18 @@ beforeEach(() => {
     now: () => NOW,
   })
   useLimits = createMemoryUseLimitStore()
+  // Run 4 (§XVI.13.7): the SI device selection binds a record the tenant
+  // holds — Gate 4 verifies the registration chain, so the tenant list
+  // carries the device the SI_COMB expansion is bound to.
+  const devices = createMemoryDeviceRegistry()
+  devices.registerTenantDevice(
+    signDeviceRecord(initiatorFx, {
+      principalPartyId: 'party-1',
+      devicePartyId: 'party-1:device-A',
+      deviceName: 'device-A',
+      deviceClass: 'workstation',
+    }),
+  )
   deps = createWrcGateDeps(client, {
     useLimits,
     now: () => NOW,
@@ -227,6 +241,7 @@ beforeEach(() => {
       operator: { kid: OPERATOR.kid, pub: OPERATOR.pub },
       now: () => NOW,
     }),
+    devices,
   })
 })
 
