@@ -126,6 +126,9 @@ export function createWrcGateDeps(
         // Interim entries are offerings; C-class invitations arrive with the
         // ordered-pair designation above.
         kind: 'offering',
+        // The Phase-3 resolver declares no §XVI.8.1 lifecycle of its own; the
+        // catalog status and the use-limit posture carry the state.
+        lifecycle: null,
         // Phase-3 entries carry no recipient binding: public offerings.
         // TODO(§XVI.7.6 Gate 4): read the issuer-bound recipient granularity.
         recipient_binding: null,

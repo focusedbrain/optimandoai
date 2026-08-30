@@ -36,6 +36,10 @@ import {
   type WrCodeCaptureFailureReason,
   type WrCodeReference,
 } from '@repo/ingestion-core'
+import {
+  evaluateEntryLifecycleForRequest,
+  type WrEntryLifecycleStatus,
+} from './entryLifecycle'
 import type { WrcEntry, WrcEntryStatus, WrcEvp, WrcPublisherStatus, WrcSuspension } from './wrcContract'
 
 // ── Gate identity ─────────────────────────────────────────────────────────────
@@ -78,7 +82,10 @@ export type WrCodeGateReason =
   | 'namespace_revoked'
   | 'namespace_superseded'
   | 'namespace_compromised'
-  // Gate 3 — entry verification (lifecycle vocabulary lands with §XVI.8.1/8.4).
+  // Gate 3 — entry verification. The lifecycle vocabulary is the §XVI.8.1/8.3
+  // model in `entryLifecycle.ts`; the catalog-precise pair (suspended/retired)
+  // stays distinct because the status surface renders the publisher's own
+  // §XVII.3.2 statement, not the model's normalization of it.
   | 'entry_unknown'
   | 'entry_unverified'
   | 'entry_verification_unavailable'
@@ -89,7 +96,10 @@ export type WrCodeGateReason =
   | 'entry_revoked'
   | 'entry_superseded'
   | 'entry_compromised'
-  | 'entry_not_pending'
+  | 'entry_declined'
+  | 'entry_withdrawn'
+  | 'entry_expired'
+  | 'entry_not_admitting'
   | 'CONSUMED'
   | 'CLAIMED_BY_OTHER'
   | 'CONTEXT_EXHAUSTED'
@@ -161,6 +171,12 @@ export interface WrCodeEntryMaterial {
   suspension: WrcSuspension | null
   /** Whether this entry is an invitation (admits PENDING) or an offering (admits ACTIVE). */
   kind: 'offering' | 'invitation'
+  /**
+   * §XVI.8.1/8.3 lifecycle state as declared by the resolver or the local
+   * lifecycle store, when one is declared. Null means the catalog status and
+   * the §XVI.8.4 posture below are the only state carriers (interim default).
+   */
+  lifecycle: WrEntryLifecycleStatus | null
   /**
    * Recipient binding, when the entry is not a public offering: who the entry
    * is addressed to and at which granularity (§XVI.7.6 Gate 4). Null for
@@ -582,7 +598,10 @@ export function claimantIdOf(receiver: WrCodeReceiverIdentity): string | null {
  * §XVI.7.6 Gate 3 — "in a state that admits a request (PENDING for an
  * invitation; ACTIVE for an offering)", layered exactly as the status model
  * keeps them: platform suspension first (closest to the object), then the
- * publisher-signed catalog status, then the §XVI.8.4 use-limit posture.
+ * publisher-signed catalog status IN ITS OWN VOCABULARY, then the §XVI.8.1/8.4
+ * lifecycle model of `entryLifecycle.ts` — which is where CLAIMED / CONSUMED /
+ * EXHAUSTED, the invitation states, and the successor of a superseded entry
+ * are decided.
  */
 function evaluateEntryStateForGate3(
   material: WrCodeEntryMaterial,
@@ -594,26 +613,30 @@ function evaluateEntryStateForGate3(
       detail: material.suspension.reason_code,
     }
   }
+  // The catalog-precise pair keeps the publisher's own statement distinct
+  // (`entryLifecycleFromCatalogStatus` maps them to inactive/revoked for
+  // model-level consumers).
   if (material.catalog_status === 'suspended') return { reason: 'entry_suspended' }
   if (material.catalog_status === 'retired') return { reason: 'entry_retired' }
 
-  // §XVI.8.4 posture — read here, acted on (claimed) at Gate 5.
+  // Effective lifecycle: an explicit resolver/store declaration wins; a
+  // §XVI.8.4 posture overlays the catalog's implicit ACTIVE; default active.
   const posture = material.use_limit
-  if (posture) {
-    if (posture.state === 'consumed') {
-      // Trusted UI shows this as a warning: the code has already been used,
-      // and if the user did not use it, someone else did (§XVI.8.4).
-      return { reason: 'CONSUMED', unsuppressibleWarning: true }
-    }
-    if (posture.state === 'exhausted') return { reason: 'CONTEXT_EXHAUSTED' }
-    if (posture.state === 'claimed') {
-      // Only OTHER parties are refused (§XVI.8.4): the claim holder's own
-      // retry proceeds and stays idempotent at the Gate-5 compare-and-set.
-      const self = claimantIdOf(receiver)
-      if (!self || posture.claimed_by !== self) {
-        return { reason: 'CLAIMED_BY_OTHER', detail: posture.claimed_by ?? undefined }
-      }
-    }
+  const lifecycle: WrEntryLifecycleStatus =
+    material.lifecycle ?? (posture && posture.state !== 'active' ? posture.state : 'active')
+
+  const admission = evaluateEntryLifecycleForRequest({
+    lifecycle,
+    kind: material.kind,
+    claimedBy: posture?.claimed_by ?? null,
+    selfClaimant: claimantIdOf(receiver),
+    successorEntryId: material.successor_entry_id,
+  })
+  if (admission.admits) return null
+  return {
+    reason: admission.reason,
+    detail: admission.detail,
+    successorEntryId: admission.successorEntryId,
+    unsuppressibleWarning: admission.unsuppressibleWarning,
   }
-  return null
 }

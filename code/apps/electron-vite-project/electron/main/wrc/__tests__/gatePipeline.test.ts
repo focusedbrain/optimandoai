@@ -71,6 +71,7 @@ function publishedMaterial(overrides: Partial<WrCodeEntryMaterial> = {}): WrCode
     catalog_status: 'published',
     suspension: null,
     kind: 'offering',
+    lifecycle: null,
     recipient_binding: null,
     use_limit: null,
     successor_entry_id: null,
@@ -336,7 +337,8 @@ describe('Gate 4 — self-match [XVI.7.6]', () => {
     const { deps, log } = stubDeps({
       verifyEntry: async () => ({
         ok: true,
-        material: publishedMaterial({ kind: 'invitation' }),
+        // An invitation admits a request in PENDING (§XVI.7.6 Gate 3).
+        material: publishedMaterial({ kind: 'invitation', lifecycle: 'pending' }),
       }),
     })
     const r = await runWrCodeGatePipeline(
