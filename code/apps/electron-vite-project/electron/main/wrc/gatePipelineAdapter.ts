@@ -46,6 +46,12 @@ import { WrcDirectoryClient, type WrcDirectoryRecord } from './namespaceDirector
 import { verifyDevicePass, verifyDeviceRecord, type WrcDeviceRegistry } from './deviceRegistry'
 import { wrcCanonicalBytes } from './wrcCrypto'
 import type { WrcPrincipalDelegation, WrcRelayClient, WrcReleaseClaim } from './relayRelease'
+import {
+  createMemoryAdmissionReplayStore,
+  verifyCapsuleAdmission,
+  type WrcAdmissionReplayStore,
+} from './capsuleAdmission'
+import type { KeyObject } from 'node:crypto'
 import type { WrcResolutionClient } from './resolutionClient'
 import type { WrcEntryDesignation } from './wrcContract'
 import type { WrcUseLimitStore } from './useLimitStore'
@@ -92,6 +98,19 @@ export interface WrcGateAdapterOptions {
     /** Detached Ed25519 over the canonical claim minus `sig`, base64url. */
     sign(bytes: Buffer): string
   }
+  /**
+   * §XVI.7.6 Gate 6 (Run 4): the receiver-side admission material — the
+   * recipient publisher's X25519 decryption key ("held by the responder
+   * Orchestrator's key service", §XVI.7.5.7), the request_instance_id replay
+   * ledger, and the receiver/tenant scope policy. Absent decrypt key means a
+   * relay capsule can never admit (nonce leg fails closed); the replay store
+   * defaults to a process-local ledger.
+   */
+  admission?: {
+    decryptKey?: KeyObject | null
+    replay?: WrcAdmissionReplayStore
+    scopeAdmissible?: (scope: readonly string[]) => boolean
+  }
 }
 
 /**
@@ -125,6 +144,7 @@ export function createWrcGateDeps(
 ): WrCodeGateDeps {
   const now = options.now ?? (() => Math.floor(Date.now() / 1000))
   const directory = options.directory ?? null
+  const admissionReplay = options.admission?.replay ?? createMemoryAdmissionReplayStore()
 
   /** Verified Directory Record lookup, shared by gates 2/3/6 legs. */
   const verifiedDirectoryRecord = async (
@@ -513,13 +533,41 @@ export function createWrcGateDeps(
       return { ok: true, released: { evp: material.evp, capsule: relayCapsule } }
     },
 
-    async admitCapsule() {
-      // The pipeline already ran the non-delegable P15 link scan. Capsule-
-      // level admission (initiator signature, nonce_I, party bindings,
-      // request_instance_id replay) needs the BEAP capsule chain, which does
-      // not flow through this path yet.
-      // TODO(§XVI.7.6 Gate 6): attach capsule verification when the capsule
-      // path lands; wire request_instance_id to the Handshake State Index.
+    async admitCapsule({ reference, released, receiver }) {
+      // §XVI.7.6 Gate 6 (Run 4). The pipeline already ran the non-delegable
+      // P15 link scan; this leg runs the full ordered capsule chain over the
+      // RELAY-RELEASED bytes (never caller-provided): signature via the
+      // initiator's Delegation Certificate chaining to a directory-registered
+      // key, initiator status re-verified AT ADMISSION TIME, SSO domain
+      // agreement, both Party Bindings, request_instance_id idempotency,
+      // freshness/expiry, sealed nonce_I opening to H(nonce_I), and scope
+      // policy. A released material with no capsule (public offering) has
+      // nothing to admit — the verified EVP from Gate 3 is the material.
+      if (!released.capsule) return { ok: true }
+
+      // "the initiator's account-holder and DNS status again at admission
+      // time" — a fresh directory verification, not the Gate-2 result.
+      const dir = await verifiedDirectoryRecord(reference.publisher)
+      const verdict = verifyCapsuleAdmission({
+        capsule: released.capsule,
+        expectedInitiatorPart: reference.publisher,
+        initiatorRecord: dir.ok ? dir.record : null,
+        receiver: {
+          party_id: receiver.party_id ?? null,
+          email: receiver.sso_email ?? null,
+        },
+        decryptKey: options.admission?.decryptKey ?? null,
+        replay: admissionReplay,
+        scopeAdmissible: options.admission?.scopeAdmissible,
+        nowS: now(),
+      })
+      if (!verdict.ok) {
+        return {
+          ok: false,
+          reason: 'admission_refused',
+          detail: verdict.detail ? `${verdict.leg}: ${verdict.detail}` : verdict.leg,
+        }
+      }
       return { ok: true }
     },
 

@@ -30,6 +30,7 @@ import {
 import { WrcResolutionClient } from '../resolutionClient'
 import { WrcResolvedRecordStore, createMemoryPersistence } from '../resolvedRecordStore'
 import {
+  buildPendingCapsule,
   buildPublisherFixture,
   createMultiFixtureTransport,
   makeClaimKey,
@@ -100,7 +101,17 @@ const DELEGATION = signPrincipalDelegation(responderFx, {
   principalPub: claimKey.principal_pub,
 })
 
-const CAPSULE = { type: 'wrc/pending-capsule', body: 'sealed-opaque-bytes' }
+// A REAL signed capsule: Gate 5's output flows into the (now real) Gate 6,
+// so the valid-release vector must carry material Gate 6 can admit.
+const initiatorPrincipal = makeKeyPair('initiator-principal-key')
+const CAPSULE = buildPendingCapsule({
+  initiator: initiatorFx,
+  initiatorPrincipal: { partyId: 'party-1', email: 'sales@publisher.test', key: initiatorPrincipal },
+  recipient: { partyId: RESPONDER_PARTY, email: 'ceo@responder.test', encryptionPub: responderFx.encryption.pub },
+  capsuleId: 'cap-001',
+  requestInstanceId: 'req-1',
+  expiresAt: NOW + 3600,
+}).capsule as unknown as Record<string, unknown>
 
 function envelope(overrides: Partial<WrcRelayEnvelope> = {}): WrcRelayEnvelope {
   return {
@@ -157,6 +168,7 @@ function buildDeps(claimIdentity?: {
       delegation: DELEGATION,
       sign: claimKey.sign,
     },
+    admission: { decryptKey: responderFx.encryption.privateKey },
   })
 }
 

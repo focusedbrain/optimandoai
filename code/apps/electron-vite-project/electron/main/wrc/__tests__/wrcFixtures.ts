@@ -25,6 +25,7 @@ import type {
 import type { WrcDirectoryRecord, WrcOperatorRollover } from '../namespaceDirectory'
 import type { WrcDevicePass, WrcDeviceRecord } from '../deviceRegistry'
 import type { WrcPrincipalDelegation } from '../relayRelease'
+import { nonceHash, sealToRecipient, type WrcPendingCapsule } from '../capsuleAdmission'
 import type { WrcTransport, WrcTransportResult, WrcTxtResult } from '../wrcTransport'
 
 // ── keys ──────────────────────────────────────────────────────────────────────
@@ -210,6 +211,57 @@ export function makeClaimKey(seed: string): {
     principal_pub: key.pub,
     sign: (bytes: Buffer) => b64url(cryptoSign(null, bytes, key.privateKey)),
   }
+}
+
+/**
+ * §XVI.7.5.2 Pending Handshake-Request Capsule (Run 4): nonce_I sealed to
+ * the recipient's directory-registered encryption key, H(nonce_I) clear,
+ * both Party Bindings, and the initiator principal's signature under its
+ * Delegation Certificate.
+ */
+export function buildPendingCapsule(spec: {
+  initiator: WrcPublisherFixture
+  initiatorPrincipal: { partyId: string; email: string; key: WrcTestKeyPair }
+  recipient: { partyId: string; email: string; encryptionPub: string }
+  capsuleId: string
+  requestInstanceId: string
+  scope?: string[]
+  issuedAt?: number
+  expiresAt?: number
+  nonce?: Buffer
+  /** Delegation override (wrong scope / expired / rogue-signed vectors). */
+  delegation?: WrcPrincipalDelegation
+}): { capsule: WrcPendingCapsule; nonce: Buffer } {
+  const nonce = spec.nonce ?? Buffer.from(`nonce-${spec.capsuleId}`, 'utf8')
+  const delegation =
+    spec.delegation ??
+    signPrincipalDelegation(spec.initiator, {
+      principalPartyId: spec.initiatorPrincipal.partyId,
+      ssoEmail: spec.initiatorPrincipal.email,
+      principalPub: spec.initiatorPrincipal.key.pub,
+      scope: ['initiate'],
+    })
+  const capsule = signObject(
+    {
+      type: 'wrc/pending-capsule',
+      capsule_id: spec.capsuleId,
+      request_instance_id: spec.requestInstanceId,
+      initiator_part: spec.initiator.publisherPart,
+      party_bindings: {
+        initiator: { party_id: spec.initiatorPrincipal.partyId, email: spec.initiatorPrincipal.email },
+        recipient: { party_id: spec.recipient.partyId, email: spec.recipient.email },
+      },
+      scope: spec.scope ?? ['handshake'],
+      nonce_i_sealed: sealToRecipient(spec.recipient.encryptionPub, nonce, spec.capsuleId),
+      nonce_i_hash: nonceHash(nonce),
+      issued_at: spec.issuedAt ?? 1_754_650_000,
+      expires_at: spec.expiresAt ?? 4_000_000_000,
+      delegation,
+      sig: '',
+    } as unknown as Record<string, unknown>,
+    spec.initiatorPrincipal.key,
+  ) as unknown as WrcPendingCapsule
+  return { capsule, nonce }
 }
 
 export function hashObject(obj: unknown): string {
