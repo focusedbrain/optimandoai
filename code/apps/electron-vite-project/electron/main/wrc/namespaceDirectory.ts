@@ -347,31 +347,63 @@ export type WrcDirectoryLookup =
       detail?: string
     }
 
+/**
+ * §XVI.6.4 generation floor state — read / raise, never lower. The DB-backed
+ * production implementation lives in `wrcSecurityDb.ts`
+ * (`createDbDirectoryGenerationFloorStore`); the memory default below serves
+ * tests and stays semantically identical.
+ */
+export interface WrcGenerationFloorStore {
+  /** Highest generation ever accepted for this part, or null if never seen. */
+  get(publisherPart: string): number | null
+  /** Raise the floor. Lower or equal is a no-op — monotonic by statement. */
+  raise(publisherPart: string, generation: number): void
+}
+
+function createMemoryGenerationFloorStore(): WrcGenerationFloorStore {
+  const m = new Map<string, number>()
+  return {
+    get: (p) => m.get(p) ?? null,
+    raise: (p, g) => {
+      if (!Number.isSafeInteger(g) || g < 0) return
+      const cur = m.get(p)
+      if (cur === undefined || g > cur) m.set(p, g)
+    },
+  }
+}
+
 export interface WrcDirectoryClientOptions {
   transport: WrcTransport
   operator: WrcOperatorAnchor
   rollovers?: readonly WrcOperatorRollover[]
   now?: () => number
+  /**
+   * Run 5: the durable generation floor. Absent = process-local memory floor
+   * (tests). Production passes the security-DB store so a restart can never
+   * lower the effective floor.
+   */
+  generationFloors?: WrcGenerationFloorStore
 }
 
 /**
  * The Gate-2 verification client. Every lookup is live (a use-limited entry
  * FORCES live resolution per §XVI.8.4, and Gate 2 re-runs per submission);
  * the only state kept is the monotonic generation floor per part, so a
- * rolled-back record can never be served as current within this process.
- * Floor persistence across restarts is an operational hardening seam — the
- * conservative default here is memory + always-live fetch.
+ * rolled-back record can never be served as current — within this process
+ * always, and across restarts when the durable floor store is injected
+ * (Run 5 production composition).
  */
 export class WrcDirectoryClient {
   private readonly transport: WrcTransport
   private readonly operatorKeys: Map<string, string>
   private readonly now: () => number
-  private readonly generationFloors = new Map<string, number>()
+  private readonly generationFloors: WrcGenerationFloorStore
 
   constructor(options: WrcDirectoryClientOptions) {
     this.transport = options.transport
     this.operatorKeys = resolveOperatorKeys(options.operator, options.rollovers ?? [])
     this.now = options.now ?? (() => Math.floor(Date.now() / 1000))
+    this.generationFloors = options.generationFloors ?? createMemoryGenerationFloorStore()
   }
 
   async getVerifiedRecord(publisherPart: string): Promise<WrcDirectoryLookup> {
@@ -389,21 +421,56 @@ export class WrcDirectoryClient {
       }
     }
 
+    // The floor is REQUIRED to make the trust decision: a store that cannot
+    // answer (unavailable, transaction failure, malformed persisted row)
+    // refuses the lookup — fail closed, never "no floor, proceed".
+    let floor: number | null
+    try {
+      floor = this.generationFloors.get(publisherPart)
+    } catch (e) {
+      return {
+        ok: false,
+        reason: 'unverified',
+        leg: 'directory_unavailable',
+        detail: `generation floor unavailable: ${e instanceof Error ? e.message : e}`,
+      }
+    }
+
     const verdict = verifyDirectoryRecord({
       value: res.value,
       expectedPart: publisherPart,
       operatorKeys: this.operatorKeys,
       nowS: this.now(),
-      generationFloor: this.generationFloors.get(publisherPart) ?? null,
+      generationFloor: floor,
     })
     if (!verdict.ok) {
       return { ok: false, reason: 'unverified', leg: verdict.leg, detail: verdict.detail }
     }
     const record = verdict.record
-    this.generationFloors.set(
-      publisherPart,
-      Math.max(this.generationFloors.get(publisherPart) ?? 0, record.generation),
-    )
+    // Accept-only-at-or-above-floor, atomically: `raise` is a monotonic
+    // conditional upsert (never lowers), and the re-read closes the
+    // read-verify race — if a concurrent resolution advanced the floor past
+    // this record between our read and now, this record is already stale and
+    // must not be served as current.
+    try {
+      this.generationFloors.raise(publisherPart, record.generation)
+      const settled = this.generationFloors.get(publisherPart)
+      if (settled !== null && record.generation < settled) {
+        return {
+          ok: false,
+          reason: 'unverified',
+          leg: 'generation_stale',
+          detail: `generation ${record.generation} < seen ${settled}`,
+        }
+      }
+    } catch (e) {
+      return {
+        ok: false,
+        reason: 'unverified',
+        leg: 'directory_unavailable',
+        detail: `generation floor unavailable: ${e instanceof Error ? e.message : e}`,
+      }
+    }
 
     // §XVI.6.5 — DNS proof is required for an ACTIVE namespace to be treated
     // as verified. A non-active record is still surfaced (status handling —

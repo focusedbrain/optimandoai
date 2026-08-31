@@ -40,26 +40,19 @@ import {
   createFilePersistence,
   defaultResolvedRecordPath,
 } from './resolvedRecordStore'
-import {
-  createDbEpochFloorStore,
-  createMemoryEpochFloorStore,
-  epochFloorTablePresent,
-  type EpochFloorDb,
-  type WrcEpochFloorStore,
-} from './epochFloorStore'
+import { createDbEpochFloorStore } from './epochFloorStore'
 import {
   createUnconfiguredWrcTransport,
   createWrcHttpTransport,
   type WrcTransport,
 } from './wrcTransport'
 import { WrcDirectoryClient } from './namespaceDirectory'
+import { createDbUseLimitStore, type WrcUseLimitStore } from './useLimitStore'
 import {
-  createDbUseLimitStore,
-  createMemoryUseLimitStore,
-  useLimitTablePresent,
-  type UseLimitDb,
-  type WrcUseLimitStore,
-} from './useLimitStore'
+  createDbDirectoryGenerationFloorStore,
+  openWrcSecurityDb,
+  type WrcSecurityDb,
+} from './wrcSecurityDb'
 import { createMemoryAdmissionReplayStore, type WrcAdmissionReplayStore } from './capsuleAdmission'
 import { readRuntimeIdentityFromEnvironment, type WrcRuntimeIdentity } from './wrcIdentity'
 import type { WrcDeviceRegistry } from './deviceRegistry'
@@ -128,59 +121,38 @@ function userDataDir(): string {
 }
 
 /**
- * The anti-rollback floor lives in the native DB, never in the cache file.
- *
- * When the DB is unavailable we fall back to an in-process floor. That is
- * strictly SAFER than the state this replaces: it starts empty for this
- * process, but it cannot be lowered and it is never written anywhere a file
- * deletion could reset. It is not a substitute for the real store — resolution
- * simply has no accepted history to compare against until the DB is up.
+ * Run 5 — the WRC security DB is THE durable substrate for trust floors,
+ * one-time-use state, and (from the later slices) device, relay-replay, and
+ * admission-idempotency state. There is NO in-memory production fallback:
+ * `openWrcSecurityDb` throws when persistence is unavailable, and everything
+ * downstream fails closed with a visible error. The Slice-0 inventory
+ * documents why the previous handshake-ledger discovery could never find the
+ * v77/v78 tables in production (frozen handle) and silently degraded to
+ * memory — that path is deliberately gone.
  */
-async function resolveEpochFloorStore(): Promise<WrcEpochFloorStore> {
-  try {
-    const { getHandshakeDbForInternalInference } = await import('../internalInference/dbAccess')
-    const db = (await getHandshakeDbForInternalInference()) as EpochFloorDb | null
-    if (db && epochFloorTablePresent(db)) return createDbEpochFloorStore(db)
-    if (db) {
-      console.warn(
-        '[WRC] wrc_publisher_epoch_floor missing — using an in-process floor. ' +
-          'Accepted-epoch history is unavailable until migrations run.',
-      )
-    }
-  } catch (e) {
-    console.warn('[WRC] epoch floor store unavailable:', e instanceof Error ? e.message : e)
-  }
-  return createMemoryEpochFloorStore()
+let _securityDb: WrcSecurityDb | null = null
+
+function resolveSecurityDb(): WrcSecurityDb {
+  if (_securityDb) return _securityDb
+  _securityDb = openWrcSecurityDb()
+  return _securityDb
+}
+
+/** Test seam: inject a security DB handle (null restores the default path). */
+export function setWrcSecurityDbForTests(db: WrcSecurityDb | null): void {
+  _securityDb = db
+  _useLimits = null
 }
 
 /**
- * §XVI.8.4 one-time-use state — native-DB protection class, like the epoch
- * floor: claim/consume state must survive a deleted cache file. The in-process
- * fallback is fail-closed in the same sense as the memory floor: it starts
- * with no declarations (unbounded default), and a claim taken in this process
- * still races atomically within it.
+ * §XVI.8.4 one-time-use state — durable, CAS-by-statement, no fallback:
+ * a missing DB is a thrown error, never an empty memory store.
  */
 let _useLimits: WrcUseLimitStore | null = null
 
 async function resolveUseLimitStore(): Promise<WrcUseLimitStore> {
   if (_useLimits) return _useLimits
-  try {
-    const { getHandshakeDbForInternalInference } = await import('../internalInference/dbAccess')
-    const db = (await getHandshakeDbForInternalInference()) as UseLimitDb | null
-    if (db && useLimitTablePresent(db)) {
-      _useLimits = createDbUseLimitStore(db)
-      return _useLimits
-    }
-    if (db) {
-      console.warn(
-        '[WRC] wrc_entry_use_state missing — using an in-process use-limit store. ' +
-          'One-time-use state is not durable until migrations run.',
-      )
-    }
-  } catch (e) {
-    console.warn('[WRC] use-limit store unavailable:', e instanceof Error ? e.message : e)
-  }
-  _useLimits = createMemoryUseLimitStore()
+  _useLimits = createDbUseLimitStore(resolveSecurityDb())
   return _useLimits
 }
 
@@ -197,21 +169,27 @@ export async function initWrcClient(config?: WrcRuntimeConfig): Promise<WrcResol
       ? createWrcHttpTransport({ registryBaseUrl: cfg.registryBaseUrl })
       : createUnconfiguredWrcTransport()
   _configured = Boolean(cfg.registryBaseUrl && cfg.ingestPublicKey)
+  // Run 5 — durable trust state, fail-closed: a security DB that cannot open
+  // throws HERE, and the runtime is visibly unavailable. No memory fallback.
+  const securityDb = resolveSecurityDb()
   _client = new WrcResolutionClient({
     transport,
     store: new WrcResolvedRecordStore(
       createFilePersistence(defaultResolvedRecordPath(userDataDir())),
-      await resolveEpochFloorStore(),
+      createDbEpochFloorStore(securityDb),
     ),
     ingestPublicKey: cfg.ingestPublicKey ?? '',
   })
   // Run 4 (§XVI.6.4): the Gate-2 trust path exists only when the operator
   // anchor is pinned. No anchor ⇒ no directory client ⇒ Gate 2 fails closed.
+  // Run 5: the generation floor is the durable security-DB store, so a
+  // restart can never lower the accepted-record floor.
   _directory =
     cfg.directoryOperatorKid && cfg.directoryOperatorPub
       ? new WrcDirectoryClient({
           transport,
           operator: { kid: cfg.directoryOperatorKid, pub: cfg.directoryOperatorPub },
+          generationFloors: createDbDirectoryGenerationFloorStore(securityDb),
         })
       : null
 
