@@ -53,6 +53,7 @@ import { WrcDirectoryClient } from './namespaceDirectory'
 import { createDbUseLimitStore, type WrcUseLimitStore } from './useLimitStore'
 import {
   createDbDirectoryGenerationFloorStore,
+  maintainWrcSecurityDb,
   openWrcSecurityDb,
   type WrcSecurityDb,
 } from './wrcSecurityDb'
@@ -141,6 +142,15 @@ let _securityDb: WrcSecurityDb | null = null
 function resolveSecurityDb(): WrcSecurityDb {
   if (_securityDb) return _securityDb
   _securityDb = openWrcSecurityDb()
+  // Slice 13 — bounded lazy maintenance, once per process at first use. Only
+  // prunes rows past their security relevance (see maintainWrcSecurityDb);
+  // a maintenance failure never blocks resolution — pruning less is safe,
+  // pruning wrong would not be.
+  try {
+    maintainWrcSecurityDb(_securityDb)
+  } catch (e) {
+    console.warn('[WRC] security-DB maintenance skipped:', e instanceof Error ? e.message : e)
+  }
   return _securityDb
 }
 

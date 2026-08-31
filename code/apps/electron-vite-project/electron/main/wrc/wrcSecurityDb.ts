@@ -205,6 +205,22 @@ export const WRC_SECURITY_MIGRATIONS: readonly WrcSecurityMigration[] = [
       )`,
     ],
   },
+  {
+    version: 4,
+    description:
+      'WRC security schema v4 (Run 5, Slice 13): pruning indexes for bounded maintenance. ' +
+      'Expiry/created-at indexes so maintainWrcSecurityDb can find prunable replay rows without ' +
+      'a table scan. Indexes only — no row is modified, and nothing about the trust semantics ' +
+      'of any store changes.',
+    sql: [
+      `CREATE INDEX IF NOT EXISTS idx_wrc_relay_envelope_expiry
+         ON wrc_relay_envelope (expires_at)`,
+      `CREATE INDEX IF NOT EXISTS idx_wrc_relay_request_ledger_created
+         ON wrc_relay_request_ledger (created_at)`,
+      `CREATE INDEX IF NOT EXISTS idx_wrc_admission_request_ledger_created
+         ON wrc_admission_request_ledger (created_at)`,
+    ],
+  },
 ]
 
 /** Apply the WRC security chain — additive, versioned, idempotent. */
@@ -265,6 +281,99 @@ export function openWrcSecurityDb(path?: string): WrcSecurityDb {
     throw e
   }
   return db
+}
+
+// ── Maintenance (Run 5, Slice 13) ─────────────────────────────────────────────
+
+export interface WrcMaintenanceOptions {
+  /** Wall-clock seconds; injectable for tests. */
+  nowS?: number
+  /**
+   * How long a replay/idempotency row outlives its security relevance before
+   * pruning (seconds). Conservative default: 30 days — orders of magnitude
+   * beyond any capsule validity window, so a pruned request id can only ever
+   * belong to a capsule whose freshness check already refuses it. Override:
+   * `WRDESK_WRC_REPLAY_RETENTION_S`.
+   */
+  retentionS?: number
+  /** Per-table batch cap so resolution can never trigger an unbounded scan. */
+  maxRowsPerTable?: number
+}
+
+export interface WrcMaintenanceResult {
+  relayEnvelopesPruned: number
+  relayLedgerRowsPruned: number
+  admissionLedgerRowsPruned: number
+}
+
+function defaultRetentionS(): number {
+  const env = Number(process.env.WRDESK_WRC_REPLAY_RETENTION_S)
+  return Number.isFinite(env) && env > 0 ? env : 30 * 24 * 3600
+}
+
+/**
+ * Bounded, lazy maintenance — the ONLY pruning path for the security DB.
+ *
+ * What it prunes, and why each cut cannot weaken security:
+ *
+ *  - `wrc_relay_envelope` rows whose `expires_at` passed more than the
+ *    retention window ago. An expired envelope already refuses release
+ *    (`capsule_expired`); retention keeps even that reason code stable for a
+ *    generous window before the sealed bytes are finally dropped.
+ *  - `wrc_relay_request_ledger` rows older than retention AND whose capsule
+ *    envelope is gone or expired. A row whose envelope is still live is NEVER
+ *    pruned regardless of age — pruning it would reopen a usable claim.
+ *  - `wrc_admission_request_ledger` rows older than retention. A replayed
+ *    request id after that point references a capsule far past every
+ *    freshness window, so Gate 6 refuses it on its own predicates.
+ *
+ * What it deliberately RETAINS forever: generation floors and epoch floors
+ * (rollback resistance), `wrc_entry_use_state` (consumption is permanent),
+ * `wrc_device_record` and `wrc_counterpart_pass` (forgetting a revocation or
+ * withdrawal could re-authorize stale material).
+ *
+ * Every DELETE is bounded via `rowid IN (SELECT … LIMIT ?)` — no unbounded
+ * table scan can ride a resolution. No scheduler: the composition root calls
+ * this once at startup.
+ */
+export function maintainWrcSecurityDb(
+  db: WrcSecurityDb,
+  options: WrcMaintenanceOptions = {},
+): WrcMaintenanceResult {
+  const nowS = options.nowS ?? Math.floor(Date.now() / 1000)
+  const retentionS = options.retentionS ?? defaultRetentionS()
+  const limit = options.maxRowsPerTable ?? 1000
+  const expiryCutoffS = nowS - retentionS
+  const createdCutoffIso = new Date(expiryCutoffS * 1000).toISOString()
+
+  const relayEnvelopesPruned = db
+    .prepare(
+      `DELETE FROM wrc_relay_envelope WHERE rowid IN (
+         SELECT rowid FROM wrc_relay_envelope WHERE expires_at < ? LIMIT ?
+       )`,
+    )
+    .run(expiryCutoffS, limit).changes
+
+  const relayLedgerRowsPruned = db
+    .prepare(
+      `DELETE FROM wrc_relay_request_ledger WHERE rowid IN (
+         SELECT l.rowid FROM wrc_relay_request_ledger l
+         LEFT JOIN wrc_relay_envelope e ON e.capsule_id = l.capsule_id
+         WHERE l.created_at < ? AND (e.capsule_id IS NULL OR e.expires_at < ?)
+         LIMIT ?
+       )`,
+    )
+    .run(createdCutoffIso, nowS, limit).changes
+
+  const admissionLedgerRowsPruned = db
+    .prepare(
+      `DELETE FROM wrc_admission_request_ledger WHERE rowid IN (
+         SELECT rowid FROM wrc_admission_request_ledger WHERE created_at < ? LIMIT ?
+       )`,
+    )
+    .run(createdCutoffIso, limit).changes
+
+  return { relayEnvelopesPruned, relayLedgerRowsPruned, admissionLedgerRowsPruned }
 }
 
 // ── Store: §XVI.6.4 Directory Record generation floor ─────────────────────────
