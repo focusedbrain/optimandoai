@@ -1,5 +1,14 @@
 /**
- * Process-wide WRC client wiring.
+ * Process-wide WRC client wiring — the PRODUCTION COMPOSITION ROOT (Run 5).
+ *
+ * One dependency graph. Every trust-bearing dependency of the six gates —
+ * directory client, generation floors, use-limit store, device registry,
+ * relay, claim identity, admission material, replay/idempotency ledgers —
+ * is instantiated and owned HERE, once per process. Capture surfaces provide
+ * untrusted input and request context only; no caller can hand the runtime a
+ * preverified directory state, a canonical designator, an accepted device,
+ * a successful release, an admitted capsule, or a replay approval. Those are
+ * derived inside this trust boundary or not at all.
  *
  * Deployment reality in Phase 3: there is no WRC service yet. An unconfigured
  * deployment therefore gets {@link createUnconfiguredWrcTransport}, which
@@ -13,13 +22,14 @@
  */
 
 import { app } from 'electron'
+import { getCachedUserInfo } from '../../../src/auth/sessionCache'
 import { captureWrCodeReference, type WrCodeCaptureResult } from '@repo/ingestion-core'
 import {
   runWrCodeGatePipeline,
   type WrCodeGateOutcome,
   type WrCodeReceiverIdentity,
 } from './gatePipeline'
-import { createWrcGateDeps } from './gatePipelineAdapter'
+import { createWrcGateDeps, type WrcGateAdapterOptions } from './gatePipelineAdapter'
 import {
   WrcResolutionClient,
   type WrcResolutionResult,
@@ -50,6 +60,10 @@ import {
   type UseLimitDb,
   type WrcUseLimitStore,
 } from './useLimitStore'
+import { createMemoryAdmissionReplayStore, type WrcAdmissionReplayStore } from './capsuleAdmission'
+import { readRuntimeIdentityFromEnvironment, type WrcRuntimeIdentity } from './wrcIdentity'
+import type { WrcDeviceRegistry } from './deviceRegistry'
+import type { WrcRelayClient } from './relayRelease'
 
 export interface WrcRuntimeConfig {
   /** Registry origin, e.g. `https://wrc.example.com`. Absent ⇒ unconfigured. */
@@ -67,6 +81,32 @@ export interface WrcRuntimeConfig {
 let _client: WrcResolutionClient | null = null
 let _directory: WrcDirectoryClient | null = null
 let _configured = false
+/**
+ * Run 5 — process-lifetime security singletons. The admission replay ledger
+ * in particular must NEVER be constructed per submission (a per-call ledger
+ * forgets every request id the moment it answered, which is no replay
+ * protection at all). Built once by {@link initWrcClient}; durable backing
+ * arrives with the security-DB slices.
+ */
+let _identity: WrcRuntimeIdentity | null = null
+let _identityInjected = false
+let _admissionReplay: WrcAdmissionReplayStore | null = null
+/**
+ * Device registry and relay: owned by the composition root, null until their
+ * production (durable) constructors land in the persistence slices. Null is
+ * fail-closed at Gate 4 (device-bound refuses) and Gate 5 (public-offering
+ * path only) — never permissive.
+ */
+let _devices: WrcDeviceRegistry | null = null
+let _relay: WrcRelayClient | null = null
+
+function cachedSsoEmail(): string | null {
+  try {
+    return getCachedUserInfo()?.email ?? null
+  } catch {
+    return null
+  }
+}
 
 function readConfigFromEnvironment(): WrcRuntimeConfig {
   // Env only for now: the settings surface for the registry endpoint arrives
@@ -174,7 +214,34 @@ export async function initWrcClient(config?: WrcRuntimeConfig): Promise<WrcResol
           operator: { kid: cfg.directoryOperatorKid, pub: cfg.directoryOperatorPub },
         })
       : null
+
+  // Run 5 — the identity is resolved from the sanctioned sources (SSO session
+  // + deployment config), never from a caller. A test-injected identity is
+  // left in place: tests own the seam, callers own nothing.
+  if (!_identityInjected) _identity = readRuntimeIdentityFromEnvironment(cachedSsoEmail())
   return _client
+}
+
+/**
+ * Run 5 — the ONE production dependency graph. Every store here is a
+ * process-lifetime singleton; the option OBJECT is assembled per submission
+ * (cheap), but the security state behind it never is. The admission replay
+ * ledger in particular must not be constructed per submission — a per-call
+ * ledger forgets every request id the moment it answered.
+ */
+async function currentGateOptions(): Promise<WrcGateAdapterOptions> {
+  _admissionReplay = _admissionReplay ?? createMemoryAdmissionReplayStore()
+  return {
+    useLimits: await resolveUseLimitStore(),
+    directory: _directory ?? undefined,
+    devices: _devices ?? undefined,
+    relay: _relay ?? undefined,
+    claimIdentity: _identity?.claimIdentity ?? undefined,
+    admission: {
+      decryptKey: _identity?.decryptKey ?? null,
+      replay: _admissionReplay,
+    },
+  }
 }
 
 export async function getWrcClient(): Promise<WrcResolutionClient> {
@@ -196,6 +263,31 @@ export function setWrcClientForTests(client: WrcResolutionClient | null, configu
 /** Test seam: inject a directory client (null restores the env-configured one). */
 export function setWrcDirectoryForTests(directory: WrcDirectoryClient | null): void {
   _directory = directory
+}
+
+/**
+ * Test seam: inject the FULL runtime identity (null restores the sanctioned
+ * environment/session source). This is the only way to control who the
+ * receiver is — deliberately not reachable through any RPC parameter.
+ */
+export function setWrcIdentityForTests(identity: WrcRuntimeIdentity | null): void {
+  _identity = identity
+  _identityInjected = identity !== null
+}
+
+/** Test seam: inject the admission replay ledger (null restores discovery). */
+export function setWrcAdmissionReplayForTests(store: WrcAdmissionReplayStore | null): void {
+  _admissionReplay = store
+}
+
+/** Test seam: inject the device registry (null restores the production one). */
+export function setWrcDevicesForTests(devices: WrcDeviceRegistry | null): void {
+  _devices = devices
+}
+
+/** Test seam: inject the relay client (null restores the production one). */
+export function setWrcRelayForTests(relay: WrcRelayClient | null): void {
+  _relay = relay
 }
 
 /**
@@ -222,25 +314,29 @@ export function handleWrcCaptureReference(params: {
  * into this call when the user's explicit submission act occurs; nothing may
  * present a reference as resolvable without the admission returned here, and
  * no caller can reorder or skip a gate — the pipeline owns the order.
+ *
+ * Run 5 structural rule: the caller provides the RAW REFERENCE and a request
+ * instance id — nothing else. Receiver identity (party, publisher, current
+ * device, SSO email) is the RUNTIME's, from the sanctioned identity source.
+ * A caller-supplied `receiver` object is ignored: accepting it would let any
+ * capture surface declare itself `trusted-device-X` and walk through Gate 4.
  */
 export async function handleWrcSubmitReference(params: {
   raw?: unknown
-  receiver?: unknown
   requestInstanceId?: unknown
 }): Promise<{ success: true; result: WrCodeGateOutcome } | { success: false; error: string }> {
   if (typeof params?.raw !== 'string' || !params.raw.trim()) {
     return { success: false, error: 'raw is required' }
   }
-  const receiver: WrCodeReceiverIdentity = {}
-  if (params?.receiver && typeof params.receiver === 'object') {
-    const r = params.receiver as Record<string, unknown>
-    if (typeof r.publisher_part === 'string') receiver.publisher_part = r.publisher_part
-    if (typeof r.party_id === 'string') receiver.party_id = r.party_id
-    if (typeof r.device_party_id === 'string') receiver.device_party_id = r.device_party_id
-    if (typeof r.sso_email === 'string') receiver.sso_email = r.sso_email
-  }
   try {
     const client = await getWrcClient()
+    const receiver: WrCodeReceiverIdentity = { ..._identity?.receiver }
+    if (!_identityInjected) {
+      // The SSO session may have appeared or changed since init — the
+      // identity stays live against the session, never cached beyond it.
+      const email = cachedSsoEmail()
+      if (email) receiver.sso_email = email
+    }
     const outcome = await runWrCodeGatePipeline(
       {
         raw: params.raw,
@@ -248,10 +344,7 @@ export async function handleWrcSubmitReference(params: {
         requestInstanceId:
           typeof params?.requestInstanceId === 'string' ? params.requestInstanceId : null,
       },
-      createWrcGateDeps(client, {
-        useLimits: await resolveUseLimitStore(),
-        directory: _directory ?? undefined,
-      }),
+      createWrcGateDeps(client, await currentGateOptions()),
     )
     return { success: true, result: outcome }
   } catch (e) {
