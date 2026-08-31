@@ -249,10 +249,21 @@ export function defaultWrcSecurityDbPath(): string {
 export function openWrcSecurityDb(path?: string): WrcSecurityDb {
   const Database = loadSQLite()
   const db = new Database(path ?? defaultWrcSecurityDbPath())
-  db.pragma('journal_mode = WAL')
-  db.pragma('busy_timeout = 5000')
-  db.pragma('foreign_keys = ON')
-  migrateWrcSecuritySchema(db)
+  try {
+    db.pragma('journal_mode = WAL')
+    db.pragma('busy_timeout = 5000')
+    db.pragma('foreign_keys = ON')
+    migrateWrcSecuritySchema(db)
+  } catch (e) {
+    // Fail closed WITHOUT leaking the native handle (an open handle keeps the
+    // file locked on Windows, blocking any operator remediation).
+    try {
+      db.close()
+    } catch {
+      /* the throw below is the story */
+    }
+    throw e
+  }
   return db
 }
 
