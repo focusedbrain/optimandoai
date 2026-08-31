@@ -22,13 +22,16 @@
  */
 
 import { app } from 'electron'
+import { randomBytes } from 'node:crypto'
 import { getCachedUserInfo } from '../../../src/auth/sessionCache'
 import { captureWrCodeReference, type WrCodeCaptureResult } from '@repo/ingestion-core'
 import {
+  claimantIdOf,
   runWrCodeGatePipeline,
   type WrCodeGateOutcome,
   type WrCodeReceiverIdentity,
 } from './gatePipeline'
+import { useLimitEntryKey } from './entryDesignator'
 import { createWrcGateDeps, type WrcGateAdapterOptions } from './gatePipelineAdapter'
 import {
   WrcResolutionClient,
@@ -330,7 +333,10 @@ export function handleWrcCaptureReference(params: {
 export async function handleWrcSubmitReference(params: {
   raw?: unknown
   requestInstanceId?: unknown
-}): Promise<{ success: true; result: WrCodeGateOutcome } | { success: false; error: string }> {
+}): Promise<
+  | { success: true; result: WrCodeGateOutcome; acceptanceToken?: string }
+  | { success: false; error: string }
+> {
   if (typeof params?.raw !== 'string' || !params.raw.trim()) {
     return { success: false, error: 'raw is required' }
   }
@@ -343,19 +349,175 @@ export async function handleWrcSubmitReference(params: {
       const email = cachedSsoEmail()
       if (email) receiver.sso_email = email
     }
+    const requestInstanceId =
+      typeof params?.requestInstanceId === 'string' ? params.requestInstanceId : null
     const outcome = await runWrCodeGatePipeline(
-      {
-        raw: params.raw,
-        receiver,
-        requestInstanceId:
-          typeof params?.requestInstanceId === 'string' ? params.requestInstanceId : null,
-      },
+      { raw: params.raw, receiver, requestInstanceId },
       createWrcGateDeps(client, await currentGateOptions()),
     )
-    return { success: true, result: outcome }
+    if (!outcome.ok) return { success: true, result: outcome }
+    // Run 5 Slice 9 — mint the acceptance binding INSIDE the trust boundary:
+    // the token is the only path to consumption, and it references what THIS
+    // admission established (entry, claimant, request, capsule), never what a
+    // later caller asserts.
+    const acceptanceToken = mintAcceptance(outcome, receiver, requestInstanceId)
+    return { success: true, result: outcome, acceptanceToken }
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : String(e) }
   }
+}
+
+// ── Explicit acceptance (Run 5, Slice 9) ─────────────────────────────────────
+//
+// Run 4 established: ADMISSION does not consume; EXPLICIT ACCEPTANCE consumes
+// once (§XVI.8.4 consume_at = acceptance). The runtime boundary between the
+// two is this token protocol:
+//
+//  - a successful `wrc.submitReference` mints an opaque, unguessable token
+//    bound to the admission's canonical entry key, claimant identity, request
+//    instance id, and admitted capsule id;
+//  - `wrc.acceptReference` is the ONLY consumption surface, and it accepts
+//    nothing but such a token — a caller can never name an arbitrary entry
+//    and mark it consumed;
+//  - consumption itself is the Run-2 durable CAS (`WrcUseLimitStore.consume`),
+//    conditional on the claimant still holding the §XVI.8.4 claim — so a
+//    forged or stale acceptance cannot take a use, racing acceptances have
+//    exactly one winner decided in the DB statement, and a crash AFTER the
+//    CAS leaves the use durably taken (restart does not restore it) while a
+//    crash BEFORE it leaves the claim to its normal timeout release.
+//
+// The pending map is deliberately process-memory: it holds no security
+// authority (the durable use state does), and losing it on crash simply means
+// the admission was never accepted — the claim times out, §XVI.8.4 intact.
+
+interface WrcPendingAcceptance {
+  publisherPart: string
+  entryKey: string
+  claimant: string | null
+  requestInstanceId: string | null
+  capsuleId: string | null
+  mintedAtMs: number
+}
+
+/**
+ * Conservative operational default (the Annex leaves the acceptance window
+ * unspecified): tokens outlive the default §XVI.8.4 claim timeout slightly,
+ * configurable via `WRDESK_WRC_ACCEPTANCE_TOKEN_TTL_S`.
+ */
+const ACCEPTANCE_TOKEN_TTL_S = (() => {
+  const env = Number(process.env.WRDESK_WRC_ACCEPTANCE_TOKEN_TTL_S)
+  return Number.isFinite(env) && env > 0 ? env : 900
+})()
+const ACCEPTANCE_MAX_PENDING = 1000
+
+const _pendingAcceptances = new Map<string, WrcPendingAcceptance>()
+
+function prunePendingAcceptances(nowMs: number): void {
+  for (const [token, p] of _pendingAcceptances) {
+    if (nowMs - p.mintedAtMs > ACCEPTANCE_TOKEN_TTL_S * 1000) _pendingAcceptances.delete(token)
+  }
+  // Bounded regardless of clock behavior: drop oldest beyond the cap.
+  while (_pendingAcceptances.size > ACCEPTANCE_MAX_PENDING) {
+    const oldest = _pendingAcceptances.keys().next().value
+    if (oldest === undefined) break
+    _pendingAcceptances.delete(oldest)
+  }
+}
+
+function mintAcceptance(
+  outcome: Extract<WrCodeGateOutcome, { ok: true }>,
+  receiver: WrCodeReceiverIdentity,
+  requestInstanceId: string | null,
+): string {
+  const nowMs = Date.now()
+  prunePendingAcceptances(nowMs)
+  const token = randomBytes(24).toString('base64url')
+  const capsule = outcome.released.capsule as { capsule_id?: unknown } | null
+  _pendingAcceptances.set(token, {
+    publisherPart: outcome.designator.publisher_part,
+    entryKey: useLimitEntryKey(outcome.designator),
+    claimant: claimantIdOf(receiver),
+    requestInstanceId,
+    capsuleId: typeof capsule?.capsule_id === 'string' ? capsule.capsule_id : null,
+    mintedAtMs: nowMs,
+  })
+  return token
+}
+
+export interface WrcAcceptanceResult {
+  accepted: true
+  /** True when a §XVI.8.4 use was durably taken; false = no declared limit. */
+  consumed: boolean
+  usesTaken?: number
+  capsuleId: string | null
+}
+
+/**
+ * `wrc.acceptReference` — THE consumption boundary (§XVI.8.4 consume_at =
+ * acceptance). Single-shot per token: the token leaves the pending map before
+ * the durable CAS runs (run-to-completion makes that atomic against racing
+ * calls), and is restored only if the store THREW (infrastructure failure,
+ * not a protocol refusal — a refused acceptance is spent).
+ */
+export async function handleWrcAcceptReference(params: {
+  acceptanceToken?: unknown
+}): Promise<{ success: true; result: WrcAcceptanceResult } | { success: false; error: string }> {
+  const token = typeof params?.acceptanceToken === 'string' ? params.acceptanceToken : ''
+  if (!token) return { success: false, error: 'acceptanceToken is required' }
+  prunePendingAcceptances(Date.now())
+  const pending = _pendingAcceptances.get(token)
+  if (!pending) {
+    // Unknown, expired, or already spent — deliberately one indistinct answer.
+    return { success: false, error: 'acceptance_unknown' }
+  }
+  _pendingAcceptances.delete(token)
+  try {
+    const useLimits = await resolveUseLimitStore()
+    const nowS = Math.floor(Date.now() / 1000)
+    const row = useLimits.read(pending.publisherPart, pending.entryKey)
+    if (!row) {
+      // No declared §XVI.8.4 profile: acceptance succeeds, nothing to consume.
+      return {
+        success: true,
+        result: { accepted: true, consumed: false, capsuleId: pending.capsuleId },
+      }
+    }
+    if (!pending.claimant) {
+      return { success: false, error: 'acceptance_refused: no claimant identity' }
+    }
+    const consumed = useLimits.consume(
+      pending.publisherPart,
+      pending.entryKey,
+      pending.claimant,
+      pending.requestInstanceId,
+      nowS,
+    )
+    if (!consumed.ok) {
+      // Protocol refusal (lost claim, consumed elsewhere, exhausted): the
+      // token is spent — a failed acceptance never consumes, and retrying
+      // with the same token cannot become a second chance at the state.
+      return { success: false, error: `acceptance_refused: ${consumed.reason}` }
+    }
+    return {
+      success: true,
+      result: {
+        accepted: true,
+        consumed: true,
+        usesTaken: consumed.usesTaken,
+        capsuleId: pending.capsuleId,
+      },
+    }
+  } catch (e) {
+    // Infrastructure failure (DB unavailable): fail closed, but the decision
+    // was never made — restore the token so a recovered store can decide.
+    _pendingAcceptances.set(token, pending)
+    return { success: false, error: e instanceof Error ? e.message : String(e) }
+  }
+}
+
+/** Test seam: drop all pending acceptances (models a process restart). */
+export function clearWrcPendingAcceptancesForTests(): void {
+  _pendingAcceptances.clear()
 }
 
 /**

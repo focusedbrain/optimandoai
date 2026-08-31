@@ -3596,6 +3596,15 @@ export async function handleHandshakeRPC(
       return handleWrcSubmitReference((params ?? {}) as Record<string, unknown>)
     }
 
+    // WR Code explicit acceptance [XVI.8.4 consume_at = acceptance]: THE
+    // consumption boundary. Accepts only a runtime-minted acceptance token
+    // from a successful `wrc.submitReference` — no caller can name an entry
+    // and mark it consumed. Single-shot; consumption is the durable CAS.
+    case 'wrc.acceptReference': {
+      const { handleWrcAcceptReference } = await import('../wrc/wrcRuntime')
+      return handleWrcAcceptReference((params ?? {}) as Record<string, unknown>)
+    }
+
     // ── Phase B, PR B-8: Extension BEAP Inbox — sealed read + operational mutations ──
     // ── Phase B, PR B-8.1: cursor-based pagination helpers ──
 
