@@ -200,7 +200,7 @@ function depsWithLifecycle(patch: Partial<WrCodeEntryMaterial>): WrCodeGateDeps 
       },
     }),
     verifyEntry: async () => ({ ok: true, material }),
-    releaseMaterial: async ({ material: m }) => ({ ok: true, released: { evp: m.evp } }),
+    releaseMaterial: async ({ material: m }) => ({ ok: true, released: { evp: m.evp, capsule: null } }),
     admitCapsule: async () => ({ ok: true }),
   }
 }

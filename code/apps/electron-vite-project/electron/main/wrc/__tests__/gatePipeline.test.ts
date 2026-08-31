@@ -122,7 +122,7 @@ function stubDeps(
       overrides.releaseMaterial ??
       (async ({ material: m }) => {
         log.calls.push('release')
-        return { ok: true, released: { evp: m.evp } }
+        return { ok: true, released: { evp: m.evp, capsule: null } }
       }),
     admitCapsule:
       overrides.admitCapsule ??

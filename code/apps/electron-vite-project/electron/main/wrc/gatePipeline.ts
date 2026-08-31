@@ -266,8 +266,19 @@ export interface WrCodeReceiverIdentity {
   sso_email?: string | null
 }
 
+/**
+ * What Gate 5 hands to Gate 6: the verified pre-consent material for public
+ * offerings, and/or the relay-released capsule ("ciphertext plus signed
+ * envelope", §XVI.7.6 Gate 5) for recipient-bound entries. Sealed fields in
+ * the capsule stay sealed until Gate 6 opens them.
+ */
+export interface WrCodeReleasedMaterial {
+  evp: WrcEvp | null
+  capsule: Record<string, unknown> | null
+}
+
 export type WrCodeReleaseVerdict =
-  | { ok: true; released: { evp: WrcEvp | null } }
+  | { ok: true; released: WrCodeReleasedMaterial }
   | {
       ok: false
       reason:
@@ -323,7 +334,8 @@ export interface WrCodeGateDeps {
   admitCapsule(input: {
     reference: WrCodeReference
     material: WrCodeEntryMaterial
-    released: { evp: WrcEvp | null }
+    released: WrCodeReleasedMaterial
+    receiver: WrCodeReceiverIdentity
     requestInstanceId: string | null
   }): Promise<WrCodeAdmissionVerdict>
   /**
@@ -416,7 +428,7 @@ export interface WrCodeGateAdmission {
   material: WrCodeEntryMaterial
   /** Canonical entry designator, derived inside Gate 3 (Run 3, §XVI.5.10). */
   designator: WrCodeEntryDesignator
-  released: { evp: WrcEvp | null }
+  released: WrCodeReleasedMaterial
   /** Always all six, in normative order — pinned by fixtures. */
   gatesPassed: WrCodeGateName[]
 }
@@ -769,6 +781,7 @@ export async function runWrCodeGatePipeline(
       reference,
       material,
       released: release.released,
+      receiver,
       requestInstanceId,
     })
   } catch (e) {

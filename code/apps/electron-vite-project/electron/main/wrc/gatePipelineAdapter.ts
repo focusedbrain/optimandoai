@@ -44,6 +44,8 @@ import {
 } from './entryDesignator'
 import { WrcDirectoryClient, type WrcDirectoryRecord } from './namespaceDirectory'
 import { verifyDevicePass, verifyDeviceRecord, type WrcDeviceRegistry } from './deviceRegistry'
+import { wrcCanonicalBytes } from './wrcCrypto'
+import type { WrcPrincipalDelegation, WrcRelayClient, WrcReleaseClaim } from './relayRelease'
 import type { WrcResolutionClient } from './resolutionClient'
 import type { WrcEntryDesignation } from './wrcContract'
 import type { WrcUseLimitStore } from './useLimitStore'
@@ -70,6 +72,26 @@ export interface WrcGateAdapterOptions {
    * device-bound reference can verify — fail closed at Gate 4.
    */
   devices?: WrcDeviceRegistry
+  /**
+   * §XVI.7.6 Gate 5 Relay (Run 4). When the relay holds a recipient-bound
+   * capsule for the designated entry, the FULL ordered release chain runs —
+   * signed claim, delegation with accept scope, capsule state, rate/replay —
+   * and only its ciphertext output enters the released material. Absent
+   * relay = public-offering release path only.
+   */
+  relay?: WrcRelayClient
+  /**
+   * The receiver's own claim identity: the Principal Key that signs release
+   * claims, plus the Delegation Certificate when acting for a publisher.
+   * The CLAIM itself is assembled inside this adapter — a caller can neither
+   * submit a foreign claim nor mark the release successful.
+   */
+  claimIdentity?: {
+    principal_pub: string
+    delegation: WrcPrincipalDelegation | null
+    /** Detached Ed25519 over the canonical claim minus `sig`, base64url. */
+    sign(bytes: Buffer): string
+  }
 }
 
 /**
@@ -397,12 +419,58 @@ export function createWrcGateDeps(
     },
 
     async releaseMaterial({ material, designator, receiver, requestInstanceId }) {
-      // Interim release: there is no Relay in Phase 3. For a public offering
-      // the pre-consent material was verified at Gate 3; "release" hands it
-      // over. Recipient-bound capsule release (signed claim, delegation with
-      // accept scope, rate/replay limits) attaches here.
-      // TODO(§XVI.7.6 Gate 5): relay-backed recipient-bound release.
-      if (!material.evp) {
+      // §XVI.7.6 Gate 5 (Run 4). Two release families, both fail-closed:
+      //
+      //  - RECIPIENT-BOUND: the relay holds a sealed capsule for this entry.
+      //    The receiver's claim is assembled and signed HERE, the relay runs
+      //    the ordered chain (claim signature → delegation/party binding →
+      //    capsule state → rate/replay), and only its ciphertext output
+      //    enters the released material.
+      //  - PUBLIC OFFERING: the pre-consent material verified at Gate 3 is
+      //    handed over; no relay involvement is normative for it.
+      const entryKeyForRelay = useLimitEntryKey(designator)
+      let relayCapsule: Record<string, unknown> | null = null
+      const capsuleId = options.relay?.capsuleIdFor(designator.publisher_part, entryKeyForRelay) ?? null
+      if (options.relay && capsuleId !== null) {
+        const identity = options.claimIdentity
+        const party = receiver.party_id ?? null
+        if (!identity || !party) {
+          return {
+            ok: false,
+            reason: 'release_refused',
+            detail: 'recipient-bound capsule requires a claim identity (Principal Key) and party id',
+          }
+        }
+        // The claim is assembled and signed INSIDE the trusted boundary —
+        // per-capsule (§XVI.7.5.5), naming the claiming party and, when
+        // acting for a publisher, the publisher the delegation must chain to.
+        const body: Omit<WrcReleaseClaim, 'sig'> = {
+          type: 'wrc/release-claim',
+          capsule_id: capsuleId,
+          party_id: party,
+          publisher_part: receiver.publisher_part ?? null,
+          request_instance_id: requestInstanceId ?? `auto:${party}:${now()}`,
+          issued_at: now(),
+          principal_pub: identity.principal_pub,
+        }
+        const claim: WrcReleaseClaim = { ...body, sig: identity.sign(wrcCanonicalBytes(body)) }
+        const released = await options.relay.release({
+          publisherPart: designator.publisher_part,
+          entryKey: entryKeyForRelay,
+          claim,
+          delegation: identity.delegation,
+        })
+        if (!released.ok) {
+          return {
+            ok: false,
+            reason: released.leg === 'directory_unavailable' ? 'relay_unavailable' : 'release_refused',
+            detail: released.detail ? `${released.leg}: ${released.detail}` : released.leg,
+          }
+        }
+        relayCapsule = released.capsule
+      }
+
+      if (!material.evp && !relayCapsule) {
         return {
           ok: false,
           reason: 'release_refused',
@@ -442,7 +510,7 @@ export function createWrcGateDeps(
           }
         }
       }
-      return { ok: true, released: { evp: material.evp } }
+      return { ok: true, released: { evp: material.evp, capsule: relayCapsule } }
     },
 
     async admitCapsule() {

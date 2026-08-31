@@ -24,6 +24,7 @@ import type {
 } from '../wrcContract'
 import type { WrcDirectoryRecord, WrcOperatorRollover } from '../namespaceDirectory'
 import type { WrcDevicePass, WrcDeviceRecord } from '../deviceRegistry'
+import type { WrcPrincipalDelegation } from '../relayRelease'
 import type { WrcTransport, WrcTransportResult, WrcTxtResult } from '../wrcTransport'
 
 // ── keys ──────────────────────────────────────────────────────────────────────
@@ -161,6 +162,53 @@ export function buildDevicePass(
     registered_at: spec.registeredAt ?? 1_754_650_000,
     expires_at: spec.expiresAt ?? 4_000_000_000,
     status: spec.status ?? 'active',
+  }
+}
+
+/**
+ * §XVI.6.5 Delegation Certificate (Run 4): the publisher's directory-
+ * registered ROOT key signs the principal's party id, SSO email, scope set,
+ * and the principal's own verification key.
+ */
+export function signPrincipalDelegation(
+  publisher: WrcPublisherFixture,
+  spec: {
+    principalPartyId: string
+    ssoEmail: string
+    principalPub: string
+    scope?: string[]
+    expiresAt?: number
+  },
+  signer?: WrcTestKeyPair,
+): WrcPrincipalDelegation {
+  const key = signer ?? publisher.root
+  return signObject(
+    {
+      type: 'wrc/delegation-cert',
+      publisher_part: publisher.publisherPart,
+      principal_party_id: spec.principalPartyId,
+      sso_email: spec.ssoEmail,
+      scope: spec.scope ?? ['accept'],
+      principal_pub: spec.principalPub,
+      expires_at: spec.expiresAt ?? 4_000_000_000,
+      kid: key.kid,
+      sig: '',
+    } as unknown as Record<string, unknown>,
+    key,
+  ) as unknown as WrcPrincipalDelegation
+}
+
+/** A receiver-side Principal Key with a detached-signature closure (Gate 5 claims). */
+export function makeClaimKey(seed: string): {
+  key: WrcTestKeyPair
+  principal_pub: string
+  sign(bytes: Buffer): string
+} {
+  const key = makeKeyPair(seed)
+  return {
+    key,
+    principal_pub: key.pub,
+    sign: (bytes: Buffer) => b64url(cryptoSign(null, bytes, key.privateKey)),
   }
 }
 
