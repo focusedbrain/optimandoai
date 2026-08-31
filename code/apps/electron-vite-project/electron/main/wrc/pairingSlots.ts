@@ -124,6 +124,15 @@ export interface WrcPairingDeps {
   ): Promise<WrcDeviceRecord> | WrcDeviceRecord
   /** Unix seconds; injected for deterministic expiry tests. */
   now?(): number
+  /**
+   * Run 5 — the durable-commit boundary: slot consumption and Device-Record
+   * registration must land TOGETHER. The production composition passes the
+   * security DB's transaction (`db.transaction(fn)()`), so
+   * `slot consumed → crash → record lost` cannot leave a contradictory
+   * durable state. Default = plain invocation (in-process stores are already
+   * atomic under run-to-completion).
+   */
+  atomically?<T>(fn: () => T): T
 }
 
 // ── Acceptance ────────────────────────────────────────────────────────────────
@@ -270,23 +279,36 @@ export async function acceptDevicePairing(
     return failAcceptance('record_registration_failed', 'signed record does not match the pairing payload')
   }
 
-  // 6. §XVI.8.4 consume_at = acceptance: THE single-consumer transition. We
-  //    hold the Gate-5 claim, so the only way this fails is a lost/expired
-  //    reservation — refuse without registering anything.
-  const consumed = deps.useLimits.consume(
-    designator.publisher_part,
-    useLimitEntryKey(designator),
-    party,
-    presentation.requestInstanceId ?? null,
-    nowS,
-  )
+  // 6 + 7. §XVI.8.4 consume_at = acceptance (THE single-consumer transition)
+  //    and the registration that supersedes the slot (§XVI.5.10) — ONE
+  //    durable commit (Run 5): either the slot is consumed AND its successor
+  //    Device Record exists, or neither happened. We hold the Gate-5 claim,
+  //    so the only way the consume fails is a lost/expired reservation —
+  //    refuse without registering anything; a throwing durable write rolls
+  //    the consume back and never produces a successful pairing.
+  const commit = deps.atomically ?? (<T,>(fn: () => T): T => fn())
+  let consumed: ReturnType<WrcUseLimitStore['consume']>
+  try {
+    consumed = commit(() => {
+      const c = deps.useLimits.consume(
+        designator.publisher_part,
+        useLimitEntryKey(designator),
+        party,
+        presentation.requestInstanceId ?? null,
+        nowS,
+      )
+      if (c.ok) deps.devices.registerTenantDevice(record)
+      return c
+    })
+  } catch (e) {
+    return failAcceptance(
+      'slot_not_consumable',
+      `durable commit failed: ${e instanceof Error ? e.message : String(e)}`,
+    )
+  }
   if (!consumed.ok) {
     return failAcceptance('slot_not_consumable', consumed.reason)
   }
-
-  // 7. Registration: the Device Record supersedes the slot (§XVI.5.10) — the
-  //    consumed slot stays terminal (P11), and the record IS its successor.
-  deps.devices.registerTenantDevice(record)
 
   return { ok: true, record, devicePartyId, slot: designator }
 }

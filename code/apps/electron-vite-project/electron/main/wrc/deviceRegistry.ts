@@ -30,6 +30,7 @@
  */
 
 import { wrcVerifyObjectSignature } from './wrcCrypto'
+import type { WrcSecurityDb } from './wrcSecurityDb'
 
 // ── Wire shapes ───────────────────────────────────────────────────────────────
 
@@ -82,6 +83,27 @@ export function decodeDeviceRecord(value: unknown): WrcDeviceRecord | null {
   if (o.status !== 'active' && o.status !== 'revoked') return null
   if (!isStr(o.kid) || !isStr(o.sig)) return null
   return o as unknown as WrcDeviceRecord
+}
+
+/** Strict decode of a persisted/wire Device Pass — null on ANY malformation. */
+export function decodeDevicePass(value: unknown): WrcDevicePass | null {
+  if (typeof value !== 'object' || value === null) return null
+  const o = value as Record<string, unknown>
+  if (o.type !== 'wrc/device-pass') return null
+  if (!isStr(o.c_initiator_part) || !isStr(o.c_responder_part)) return null
+  if (!isInt(o.registered_at) || !isInt(o.expires_at)) return null
+  if (o.status !== 'active' && o.status !== 'withdrawn') return null
+  const record = decodeDeviceRecord(o.record)
+  if (!record) return null
+  return {
+    type: 'wrc/device-pass',
+    c_initiator_part: o.c_initiator_part,
+    c_responder_part: o.c_responder_part,
+    record,
+    registered_at: o.registered_at,
+    expires_at: o.expires_at,
+    status: o.status,
+  }
 }
 
 // ── Verification legs (deterministic, machine-readable) ───────────────────────
@@ -258,6 +280,148 @@ export function createMemoryDeviceRegistry(): WrcDeviceRegistry {
     withdrawCounterpartPass(i, r, d) {
       const cur = passes.get(pKey(i, r, d))
       if (cur) passes.set(pKey(i, r, d), { ...cur, status: 'withdrawn' })
+    },
+  }
+}
+
+// ── Durable registry (Run 5, Slice 3) ─────────────────────────────────────────
+
+/**
+ * Native-DB device registry over the WRC security DB (`wrc_device_record`,
+ * `wrc_counterpart_pass`).
+ *
+ * The SIGNED JSON is the authority — the columns exist to key and gate it.
+ * Three properties are enforced in the statements themselves, not by caller
+ * discipline:
+ *
+ *  - GENERATION MONOTONICITY: an upsert only replaces a row when the incoming
+ *    generation is strictly higher, so a stale record cannot overwrite a
+ *    newer one and a revocation (which bumps the generation) cannot be undone
+ *    by re-inserting the old signed record.
+ *  - ESTABLISHMENT ISOLATION: rows are keyed by the full identity triple; the
+ *    same device id under a different tenant or C pair is a different row.
+ *  - FAIL-CLOSED READS: a persisted row that does not strictly decode reads
+ *    as absent (`record_missing` downstream) — and a decodable but tampered
+ *    record still fails Ed25519 verification at the existing verify legs.
+ */
+export function createDbDeviceRegistry(db: WrcSecurityDb): WrcDeviceRegistry {
+  const readTenantRow = (t: string, d: string): WrcDeviceRecord | null => {
+    const row = db
+      .prepare(
+        'SELECT record_json FROM wrc_device_record WHERE tenant_part = ? AND device_party_id = ?',
+      )
+      .get(t, d) as { record_json?: unknown } | undefined
+    if (!row || typeof row.record_json !== 'string') return null
+    try {
+      return decodeDeviceRecord(JSON.parse(row.record_json))
+    } catch {
+      return null
+    }
+  }
+
+  return {
+    tenantDevice: readTenantRow,
+
+    counterpartPass(i, r, d) {
+      const row = db
+        .prepare(
+          `SELECT pass_json FROM wrc_counterpart_pass
+            WHERE c_initiator_part = ? AND c_responder_part = ? AND device_party_id = ?`,
+        )
+        .get(i, r, d) as { pass_json?: unknown } | undefined
+      if (!row || typeof row.pass_json !== 'string') return null
+      try {
+        return decodeDevicePass(JSON.parse(row.pass_json))
+      } catch {
+        return null
+      }
+    },
+
+    registerTenantDevice(record) {
+      db.prepare(
+        `INSERT INTO wrc_device_record
+           (tenant_part, device_party_id, principal_party_id, device_class,
+            generation, status, record_json, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(tenant_part, device_party_id) DO UPDATE SET
+           principal_party_id = excluded.principal_party_id,
+           device_class       = excluded.device_class,
+           generation         = excluded.generation,
+           status             = excluded.status,
+           record_json        = excluded.record_json,
+           updated_at         = excluded.updated_at
+         WHERE excluded.generation > wrc_device_record.generation`,
+      ).run(
+        record.tenant_part,
+        record.device_party_id,
+        record.principal_party_id,
+        record.device_class,
+        record.generation,
+        record.status,
+        JSON.stringify(record),
+        new Date().toISOString(),
+      )
+    },
+
+    registerCounterpartPass(pass) {
+      db.prepare(
+        `INSERT OR REPLACE INTO wrc_counterpart_pass
+           (c_initiator_part, c_responder_part, device_party_id, status,
+            expires_at, pass_json, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        pass.c_initiator_part,
+        pass.c_responder_part,
+        pass.record.device_party_id,
+        pass.status,
+        pass.expires_at,
+        JSON.stringify(pass),
+        new Date().toISOString(),
+      )
+    },
+
+    revokeTenantDevice(t, d) {
+      // Read-modify-write under a DB transaction, generation-CAS'd so a
+      // concurrent re-registration cannot interleave: the revocation lands on
+      // the exact generation that was read, or the transaction re-runs on the
+      // caller's next attempt.
+      const tx = db.transaction(() => {
+        const cur = readTenantRow(t, d)
+        if (!cur) return
+        const revoked: WrcDeviceRecord = { ...cur, status: 'revoked', generation: cur.generation + 1 }
+        db.prepare(
+          `UPDATE wrc_device_record
+              SET status = 'revoked', generation = ?, record_json = ?, updated_at = ?
+            WHERE tenant_part = ? AND device_party_id = ? AND generation = ?`,
+        ).run(revoked.generation, JSON.stringify(revoked), new Date().toISOString(), t, d, cur.generation)
+      })
+      tx()
+    },
+
+    withdrawCounterpartPass(i, r, d) {
+      const tx = db.transaction(() => {
+        const row = db
+          .prepare(
+            `SELECT pass_json FROM wrc_counterpart_pass
+              WHERE c_initiator_part = ? AND c_responder_part = ? AND device_party_id = ?`,
+          )
+          .get(i, r, d) as { pass_json?: unknown } | undefined
+        if (!row || typeof row.pass_json !== 'string') return
+        let pass: WrcDevicePass | null
+        try {
+          pass = decodeDevicePass(JSON.parse(row.pass_json))
+        } catch {
+          pass = null
+        }
+        if (!pass) return
+        const withdrawn: WrcDevicePass = { ...pass, status: 'withdrawn' }
+        db.prepare(
+          `UPDATE wrc_counterpart_pass
+              SET status = 'withdrawn', pass_json = ?, updated_at = ?
+            WHERE c_initiator_part = ? AND c_responder_part = ? AND device_party_id = ?`,
+        ).run(JSON.stringify(withdrawn), new Date().toISOString(), i, r, d)
+      })
+      tx()
     },
   }
 }

@@ -132,6 +132,42 @@ export const WRC_SECURITY_MIGRATIONS: readonly WrcSecurityMigration[] = [
       )`,
     ],
   },
+  {
+    version: 2,
+    description:
+      'WRC security schema v2 (Run 5, Slice 3): durable §XVI.13.7 device registry. ' +
+      'wrc_device_record — tenant-signed Device Records, keyed (tenant_part, device_party_id) ' +
+      'so a device registered beneath one tenant confers nothing beneath another; the signed ' +
+      'JSON is authoritative, the columns are its index. Updates are generation-gated in the ' +
+      'statement (only a HIGHER generation replaces a row), so revocations cannot be rolled ' +
+      'back and a stale record cannot overwrite a newer one. wrc_counterpart_pass — Device ' +
+      'Passes held by the C initiator, keyed by the FULL establishment triple ' +
+      '(initiator, responder, device): a pass under C-parent A is a different row, and ' +
+      'therefore a different trust decision, than the same device under C-parent B.',
+    sql: [
+      `CREATE TABLE IF NOT EXISTS wrc_device_record (
+        tenant_part TEXT NOT NULL,
+        device_party_id TEXT NOT NULL,
+        principal_party_id TEXT NOT NULL,
+        device_class TEXT NOT NULL,
+        generation INTEGER NOT NULL,
+        status TEXT NOT NULL,
+        record_json TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (tenant_part, device_party_id)
+      )`,
+      `CREATE TABLE IF NOT EXISTS wrc_counterpart_pass (
+        c_initiator_part TEXT NOT NULL,
+        c_responder_part TEXT NOT NULL,
+        device_party_id TEXT NOT NULL,
+        status TEXT NOT NULL,
+        expires_at INTEGER NOT NULL,
+        pass_json TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (c_initiator_part, c_responder_part, device_party_id)
+      )`,
+    ],
+  },
 ]
 
 /** Apply the WRC security chain — additive, versioned, idempotent. */

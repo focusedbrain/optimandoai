@@ -55,7 +55,7 @@ import {
 } from './wrcSecurityDb'
 import { createMemoryAdmissionReplayStore, type WrcAdmissionReplayStore } from './capsuleAdmission'
 import { readRuntimeIdentityFromEnvironment, type WrcRuntimeIdentity } from './wrcIdentity'
-import type { WrcDeviceRegistry } from './deviceRegistry'
+import { createDbDeviceRegistry, type WrcDeviceRegistry } from './deviceRegistry'
 import type { WrcRelayClient } from './relayRelease'
 
 export interface WrcRuntimeConfig {
@@ -85,12 +85,13 @@ let _identity: WrcRuntimeIdentity | null = null
 let _identityInjected = false
 let _admissionReplay: WrcAdmissionReplayStore | null = null
 /**
- * Device registry and relay: owned by the composition root, null until their
- * production (durable) constructors land in the persistence slices. Null is
- * fail-closed at Gate 4 (device-bound refuses) and Gate 5 (public-offering
- * path only) — never permissive.
+ * Device registry and relay: owned by the composition root. The registry is
+ * the durable security-DB store (Slice 3); the relay arrives with its
+ * persistence slice. Null is fail-closed at Gate 4 (device-bound refuses)
+ * and Gate 5 (public-offering path only) — never permissive.
  */
 let _devices: WrcDeviceRegistry | null = null
+let _devicesInjected = false
 let _relay: WrcRelayClient | null = null
 
 function cachedSsoEmail(): string | null {
@@ -197,6 +198,10 @@ export async function initWrcClient(config?: WrcRuntimeConfig): Promise<WrcResol
   // + deployment config), never from a caller. A test-injected identity is
   // left in place: tests own the seam, callers own nothing.
   if (!_identityInjected) _identity = readRuntimeIdentityFromEnvironment(cachedSsoEmail())
+
+  // Run 5 Slice 3 — the device registry is the durable security-DB store:
+  // Device Records, counterpart passes, and revocations survive restart.
+  if (!_devicesInjected) _devices = createDbDeviceRegistry(securityDb)
   return _client
 }
 
@@ -261,6 +266,7 @@ export function setWrcAdmissionReplayForTests(store: WrcAdmissionReplayStore | n
 /** Test seam: inject the device registry (null restores the production one). */
 export function setWrcDevicesForTests(devices: WrcDeviceRegistry | null): void {
   _devices = devices
+  _devicesInjected = devices !== null
 }
 
 /** Test seam: inject the relay client (null restores the production one). */
