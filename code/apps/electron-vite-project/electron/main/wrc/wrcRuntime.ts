@@ -53,10 +53,10 @@ import {
   openWrcSecurityDb,
   type WrcSecurityDb,
 } from './wrcSecurityDb'
-import { createMemoryAdmissionReplayStore, type WrcAdmissionReplayStore } from './capsuleAdmission'
+import { createDbAdmissionReplayStore, type WrcAdmissionReplayStore } from './capsuleAdmission'
 import { readRuntimeIdentityFromEnvironment, type WrcRuntimeIdentity } from './wrcIdentity'
 import { createDbDeviceRegistry, type WrcDeviceRegistry } from './deviceRegistry'
-import type { WrcRelayClient } from './relayRelease'
+import { createDbRelay, type WrcRelayClient } from './relayRelease'
 
 export interface WrcRuntimeConfig {
   /** Registry origin, e.g. `https://wrc.example.com`. Absent ⇒ unconfigured. */
@@ -84,15 +84,17 @@ let _configured = false
 let _identity: WrcRuntimeIdentity | null = null
 let _identityInjected = false
 let _admissionReplay: WrcAdmissionReplayStore | null = null
+let _admissionReplayInjected = false
 /**
- * Device registry and relay: owned by the composition root. The registry is
- * the durable security-DB store (Slice 3); the relay arrives with its
- * persistence slice. Null is fail-closed at Gate 4 (device-bound refuses)
- * and Gate 5 (public-offering path only) — never permissive.
+ * Device registry and relay: owned by the composition root, both durable on
+ * the WRC security DB (Slices 3 and 4). Null (only reachable via test seams)
+ * is fail-closed at Gate 4 (device-bound refuses) and Gate 5
+ * (public-offering path only) — never permissive.
  */
 let _devices: WrcDeviceRegistry | null = null
 let _devicesInjected = false
 let _relay: WrcRelayClient | null = null
+let _relayInjected = false
 
 function cachedSsoEmail(): string | null {
   try {
@@ -202,6 +204,22 @@ export async function initWrcClient(config?: WrcRuntimeConfig): Promise<WrcResol
   // Run 5 Slice 3 — the device registry is the durable security-DB store:
   // Device Records, counterpart passes, and revocations survive restart.
   if (!_devicesInjected) _devices = createDbDeviceRegistry(securityDb)
+
+  // Run 5 Slices 4+5 — Gate-5 relay custody/replay and Gate-6 request-id
+  // idempotency on the same durable substrate: a used claim or admitted
+  // request id stays used across restart. The relay verifies delegations
+  // against DIRECTORY state (§XVI.6.5), through the same verified-record path
+  // Gate 2 uses — never against caller-carried keys.
+  if (!_relayInjected) {
+    _relay = createDbRelay(securityDb, {
+      directoryKeys: async (publisherPart) => {
+        if (!_directory) return null
+        const lookup = await _directory.getVerifiedRecord(publisherPart)
+        return lookup.ok ? lookup.record.keys : null
+      },
+    })
+  }
+  if (!_admissionReplayInjected) _admissionReplay = createDbAdmissionReplayStore(securityDb)
   return _client
 }
 
@@ -213,7 +231,9 @@ export async function initWrcClient(config?: WrcRuntimeConfig): Promise<WrcResol
  * ledger forgets every request id the moment it answered.
  */
 async function currentGateOptions(): Promise<WrcGateAdapterOptions> {
-  _admissionReplay = _admissionReplay ?? createMemoryAdmissionReplayStore()
+  // Durable, fail-closed: no security DB ⇒ resolveSecurityDb throws ⇒ the
+  // submission errors visibly. Never an empty memory ledger in production.
+  _admissionReplay = _admissionReplay ?? createDbAdmissionReplayStore(resolveSecurityDb())
   return {
     useLimits: await resolveUseLimitStore(),
     directory: _directory ?? undefined,
@@ -261,6 +281,7 @@ export function setWrcIdentityForTests(identity: WrcRuntimeIdentity | null): voi
 /** Test seam: inject the admission replay ledger (null restores discovery). */
 export function setWrcAdmissionReplayForTests(store: WrcAdmissionReplayStore | null): void {
   _admissionReplay = store
+  _admissionReplayInjected = store !== null
 }
 
 /** Test seam: inject the device registry (null restores the production one). */
@@ -272,6 +293,7 @@ export function setWrcDevicesForTests(devices: WrcDeviceRegistry | null): void {
 /** Test seam: inject the relay client (null restores the production one). */
 export function setWrcRelayForTests(relay: WrcRelayClient | null): void {
   _relay = relay
+  _relayInjected = relay !== null
 }
 
 /**

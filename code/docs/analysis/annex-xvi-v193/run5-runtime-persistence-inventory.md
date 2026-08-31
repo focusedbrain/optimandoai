@@ -152,3 +152,23 @@ record store (file cache in userData), and the RPC surfaces
    use-limit) and prohibit new ones: persistence unavailable ⇒ fail closed.
 8. **Slices 11–13** — restart/crash/concurrency matrix, production full-path
    + anti-bypass suites, bounded maintenance.
+
+## Slice-4 predetermination: which Run-4 replay/idempotency keys require durability
+
+Surveyed against the Run-4 implementation (not against hypothetical protocol
+state). Only these keys exist, and their durability classification is:
+
+| Run-4 key | Where | Durable? | Rationale |
+| --- | --- | --- | --- |
+| `(capsule_id, request_instance_id) → first claimant party` | Gate 5 relay ledger (`seenRequests` in `createMemoryRelay`) | **YES** — `wrc_relay_request_ledger` | §XVI.7.5.9: a request id is bound to its first claimant; restart must not let another party re-bind a used id. Scoped per capsule (same id under a different capsule is a different binding — normative per-capsule claims). |
+| Relay capsule custody (`byEntry`/`byId` envelopes incl. `status`) | Gate 5 relay store | **YES** — `wrc_relay_envelope` | Not itself a replay key, but the substrate the ledger judgments attach to: withdrawal/terminal status and expiry must survive restart or a withdrawn capsule could be re-released from a fresh deposit-less state. |
+| Rate-attempt timestamps (`attempts`, 60 s window) | Gate 5 relay store | **NO** — process memory, documented | Operational throttle (pre-authorized default), not a replay property. A restart resetting a seconds-scale window reopens no replay window; persisting per-attempt history is exactly the "arbitrary request history" the order prohibits. |
+| `request_instance_id → admitted capsule_id` | Gate 6 admission ledger (`WrcAdmissionReplayStore`) | **YES** — `wrc_admission_request_ledger` | §XVI.7.6 "request_instance_id is new (or maps to existing state)": a successful admission must not become a second logically distinct admission after restart, and an id reused against a different capsule must stay refused. Written only after every other admission leg passes — failures persist nothing. |
+| Sealed `nonce_I` observation state | — | **N/A** | Run 4 holds no separate nonce ledger: nonce verification is per-admission cryptography (open + hash-match), and one-time-use semantics live in the Run-2 `wrc_entry_use_state` CAS (already durable, Slice 2 re-home). No new key invented. |
+
+Idempotency vs replay stays distinct in behavior (idempotent repeat returns
+the defined equivalent result; replay is a refusal) while sharing the same
+durable substrate (`wrc-security.db`) — explicitly permitted by Slice 5. Both
+ledgers bind by INSERT-if-absent + read-back of the settled row, so
+concurrent first uses settle on exactly one owner, and both fail CLOSED
+(throw → visible refusal) on unavailable or malformed persisted state.

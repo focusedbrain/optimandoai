@@ -168,6 +168,43 @@ export const WRC_SECURITY_MIGRATIONS: readonly WrcSecurityMigration[] = [
       )`,
     ],
   },
+  {
+    version: 3,
+    description:
+      'WRC security schema v3 (Run 5, Slices 4+5): durable Gate-5/Gate-6 replay and idempotency. ' +
+      'wrc_relay_envelope — recipient-bound capsule custody (§XVI.7.5.2); envelope JSON authoritative, ' +
+      'slot lookups take the latest deposit. wrc_relay_request_ledger — §XVI.7.5.9 relay replay ledger: ' +
+      '(capsule_id, request_instance_id) → first claimant, INSERT-if-absent semantics in the store, so ' +
+      'a used claim stays used across restart and concurrent first uses settle on one claimant. ' +
+      'wrc_admission_request_ledger — Gate-6 request-id idempotency (§XVI.7.6): request_instance_id → ' +
+      'admitted capsule, written only after every other admission leg passed; distinct from the relay ' +
+      'ledger (idempotency is not replay) but sharing the same durable substrate.',
+    sql: [
+      `CREATE TABLE IF NOT EXISTS wrc_relay_envelope (
+        capsule_id TEXT PRIMARY KEY,
+        publisher_part TEXT NOT NULL,
+        entry_key TEXT NOT NULL,
+        status TEXT NOT NULL,
+        expires_at INTEGER NOT NULL,
+        envelope_json TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_wrc_relay_envelope_slot
+         ON wrc_relay_envelope (publisher_part, entry_key)`,
+      `CREATE TABLE IF NOT EXISTS wrc_relay_request_ledger (
+        capsule_id TEXT NOT NULL,
+        request_instance_id TEXT NOT NULL,
+        party_id TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (capsule_id, request_instance_id)
+      )`,
+      `CREATE TABLE IF NOT EXISTS wrc_admission_request_ledger (
+        request_instance_id TEXT PRIMARY KEY,
+        capsule_id TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      )`,
+    ],
+  },
 ]
 
 /** Apply the WRC security chain — additive, versioned, idempotent. */

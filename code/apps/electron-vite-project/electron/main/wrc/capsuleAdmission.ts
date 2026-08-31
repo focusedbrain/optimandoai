@@ -214,14 +214,71 @@ export type WrcAdmissionResult =
 export interface WrcAdmissionReplayStore {
   /** The capsule id previously admitted under this request id, if any. */
   seen(requestInstanceId: string): string | null
-  record(requestInstanceId: string, capsuleId: string): void
+  /**
+   * ATOMICALLY bind the request id to this capsule (first writer wins) and
+   * return the SETTLED capsule id. Settled ≠ recorded means a concurrent
+   * admission bound the id to a DIFFERENT capsule first — the caller must
+   * refuse as replay rather than admit under an aliased id.
+   */
+  record(requestInstanceId: string, capsuleId: string): string
 }
 
 export function createMemoryAdmissionReplayStore(): WrcAdmissionReplayStore {
   const seen = new Map<string, string>()
   return {
     seen: (id) => seen.get(id) ?? null,
-    record: (id, capsuleId) => void seen.set(id, capsuleId),
+    record: (id, capsuleId) => {
+      const prior = seen.get(id)
+      if (prior !== undefined) return prior
+      seen.set(id, capsuleId)
+      return capsuleId
+    },
+  }
+}
+
+/** Structural view of the WRC security DB — avoids a value-import cycle. */
+interface WrcAdmissionDb {
+  prepare(sql: string): {
+    get: (...args: unknown[]) => unknown
+    run: (...args: unknown[]) => { changes: number }
+  }
+}
+
+/**
+ * Durable Gate-6 request-id ledger (Run 5, Slice 5) on the WRC security DB
+ * (`wrc_admission_request_ledger`). One row per request_instance_id; the
+ * binding is INSERT-if-absent then read-back, so two concurrent admissions
+ * with the same id settle on exactly one capsule, a successfully admitted
+ * request cannot become a second logically distinct admission after restart,
+ * and a request id reused against a different capsule stays refused. Rows
+ * are written ONLY by `verifyCapsuleAdmission` after every other leg passed —
+ * a Gate-6 failure never persists a false success. A malformed persisted row
+ * or unavailable DB THROWS: unknown idempotency history must refuse, never
+ * read as "never seen".
+ */
+export function createDbAdmissionReplayStore(db: WrcAdmissionDb): WrcAdmissionReplayStore {
+  const readSettled = (id: string): string | null => {
+    const row = db
+      .prepare('SELECT capsule_id FROM wrc_admission_request_ledger WHERE request_instance_id = ?')
+      .get(id) as { capsule_id?: unknown } | undefined
+    if (row === undefined) return null
+    if (typeof row.capsule_id !== 'string' || !row.capsule_id) {
+      throw new Error('malformed admission ledger row')
+    }
+    return row.capsule_id
+  }
+  return {
+    seen: readSettled,
+    record(id, capsuleId) {
+      db.prepare(
+        `INSERT INTO wrc_admission_request_ledger (request_instance_id, capsule_id, created_at)
+           VALUES (?, ?, ?)
+         ON CONFLICT(request_instance_id) DO NOTHING`,
+      ).run(id, capsuleId, new Date().toISOString())
+      const settled = readSettled(id)
+      if (settled === null) throw new Error('admission ledger unreadable after bind')
+      return settled
+    },
   }
 }
 
@@ -366,7 +423,13 @@ export function verifyCapsuleAdmission(input: VerifyCapsuleAdmissionInput): WrcA
 
   // (8. the P15 link scan is pipeline-owned and already ran / runs there.)
 
-  input.replay.record(capsule.request_instance_id, capsule.capsule_id)
+  // Record-and-settle: a concurrent admission may have bound this request id
+  // to a DIFFERENT capsule between the leg-4 read and now — the settled
+  // binding decides, atomically in the store, and the loser refuses.
+  const settled = input.replay.record(capsule.request_instance_id, capsule.capsule_id)
+  if (settled !== capsule.capsule_id) {
+    return { ok: false, leg: 'request_replayed', detail: 'request_instance_id bound to a different capsule' }
+  }
   return {
     ok: true,
     idempotentReplay,

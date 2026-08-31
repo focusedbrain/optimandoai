@@ -316,7 +316,39 @@ export interface WrcMemoryRelayOptions {
   rateWindowS?: number
 }
 
-export function createMemoryRelay(options: WrcMemoryRelayOptions): WrcRelayClient {
+/**
+ * The storage seam beneath the ONE release chain. Two implementations exist —
+ * process-memory (tests, fixtures) and the WRC security DB (production,
+ * Run 5) — but the release logic itself is {@link createRelayClient}, shared:
+ * there is no second release path, only a second place to keep the state.
+ */
+export interface WrcRelayStateStore {
+  saveEnvelope(envelope: WrcRelayEnvelope): void
+  /** Latest envelope addressed to a slot (last deposit wins), or null. */
+  envelopeBySlot(publisherPart: string, entryKey: string): WrcRelayEnvelope | null
+  envelopeById(capsuleId: string): WrcRelayEnvelope | null
+  setStatus(capsuleId: string, status: WrcRelayCapsuleStatus): void
+  /**
+   * §XVI.7.5.9 replay ledger — ATOMICALLY bind `requestInstanceId` (scoped to
+   * the capsule) to its first claimant and return the SETTLED claimant. The
+   * caller compares: settled === claimant ⇒ first use or idempotent
+   * re-release; settled !== claimant ⇒ replay by another party. Two
+   * concurrent first uses must settle on exactly one party.
+   */
+  bindRequest(capsuleId: string, requestInstanceId: string, partyId: string): string
+}
+
+/**
+ * The shared relay core: rate limiting, the ordered §XVI.7.6 Gate-5 legs, and
+ * the §XVI.7.5.9 replay decision — over whichever {@link WrcRelayStateStore}
+ * holds the state.
+ *
+ * Rate-attempt timestamps live in process memory even for the durable relay:
+ * the window is seconds-scale throttling (operational default, not a replay
+ * property), so a restart resetting the window reopens no replay window —
+ * the request ledger, which IS the security state, is the store's.
+ */
+function createRelayClient(store: WrcRelayStateStore, options: WrcMemoryRelayOptions): WrcRelayClient {
   const now = options.now ?? (() => Math.floor(Date.now() / 1000))
   const envLimit = Number(process.env.WRDESK_WRC_RELAY_RATE_LIMIT)
   const envWindow = Number(process.env.WRDESK_WRC_RELAY_RATE_WINDOW_S)
@@ -327,10 +359,6 @@ export function createMemoryRelay(options: WrcMemoryRelayOptions): WrcRelayClien
     options.rateWindowS ??
     (Number.isFinite(envWindow) && envWindow > 0 ? envWindow : WRC_DEFAULT_RELAY_RATE_WINDOW_S)
 
-  const byEntry = new Map<string, WrcRelayEnvelope>()
-  const byId = new Map<string, WrcRelayEnvelope>()
-  /** capsule_id → request_instance_id → claiming party (replay ledger). */
-  const seenRequests = new Map<string, Map<string, string>>()
   /** capsule_id → attempt timestamps inside the current window. */
   const attempts = new Map<string, number[]>()
 
@@ -338,21 +366,19 @@ export function createMemoryRelay(options: WrcMemoryRelayOptions): WrcRelayClien
 
   return {
     deposit(envelope) {
-      byEntry.set(entryKeyOf(envelope.publisher_part, envelope.entry_key), envelope)
-      byId.set(envelope.capsule_id, envelope)
+      store.saveEnvelope(envelope)
     },
 
     hasEnvelope(publisherPart, entryKey) {
-      return byEntry.has(entryKeyOf(publisherPart, entryKey))
+      return store.envelopeBySlot(publisherPart, entryKey) !== null
     },
 
     capsuleIdFor(publisherPart, entryKey) {
-      return byEntry.get(entryKeyOf(publisherPart, entryKey))?.capsule_id ?? null
+      return store.envelopeBySlot(publisherPart, entryKey)?.capsule_id ?? null
     },
 
     setStatus(capsuleId, status) {
-      const env = byId.get(capsuleId)
-      if (env) env.status = status
+      store.setStatus(capsuleId, status)
     },
 
     async release({ publisherPart, entryKey, claim, delegation }) {
@@ -360,7 +386,7 @@ export function createMemoryRelay(options: WrcMemoryRelayOptions): WrcRelayClien
 
       // Rate accounting rides on the ADDRESSED capsule slot, counted for
       // every attempt (successful ones too), so hammering signatures is bounded.
-      const envelope = byEntry.get(entryKeyOf(publisherPart, entryKey))
+      const envelope = store.envelopeBySlot(publisherPart, entryKey)
       const rateKey = envelope?.capsule_id ?? entryKeyOf(publisherPart, entryKey)
       const windowStart = nowS - rateWindowS
       const stamps = (attempts.get(rateKey) ?? []).filter((t) => t > windowStart)
@@ -387,19 +413,185 @@ export function createMemoryRelay(options: WrcMemoryRelayOptions): WrcRelayClien
       })
       if (!chain.ok) return { ok: false, leg: chain.leg, detail: chain.detail }
 
-      // Leg 4 — replay: a request_instance_id is bound to its first claimant.
-      // Same party + same id → idempotent re-release (§XVI.7.5.9); another
-      // party replaying a seen id → refused, deterministically.
-      const ledger = seenRequests.get(envelope.capsule_id) ?? new Map<string, string>()
-      const prior = ledger.get(claim.request_instance_id)
-      if (prior !== undefined && prior !== claim.party_id) {
+      // Leg 4 — replay: a request_instance_id is bound to its first claimant,
+      // ATOMICALLY in the store. Same party + same id → idempotent re-release
+      // (§XVI.7.5.9); another party replaying a seen id — or losing the race
+      // for a concurrent first use — → refused, deterministically.
+      const settled = store.bindRequest(envelope.capsule_id, claim.request_instance_id, claim.party_id)
+      if (settled !== claim.party_id) {
         return { ok: false, leg: 'claim_replayed' }
       }
-      ledger.set(claim.request_instance_id, claim.party_id)
-      seenRequests.set(envelope.capsule_id, ledger)
 
       // "ciphertext plus signed envelope; it can decrypt nothing."
       return { ok: true, capsule: envelope.capsule, capsuleId: envelope.capsule_id }
     },
   }
+}
+
+export function createMemoryRelay(options: WrcMemoryRelayOptions): WrcRelayClient {
+  const byEntry = new Map<string, WrcRelayEnvelope>()
+  const byId = new Map<string, WrcRelayEnvelope>()
+  /** capsule_id → request_instance_id → claiming party (replay ledger). */
+  const seenRequests = new Map<string, Map<string, string>>()
+  const slotOf = (p: string, e: string) => `${p}/${e}`
+
+  return createRelayClient(
+    {
+      saveEnvelope(envelope) {
+        byEntry.set(slotOf(envelope.publisher_part, envelope.entry_key), envelope)
+        byId.set(envelope.capsule_id, envelope)
+      },
+      envelopeBySlot: (p, e) => byEntry.get(slotOf(p, e)) ?? null,
+      envelopeById: (id) => byId.get(id) ?? null,
+      setStatus(capsuleId, status) {
+        const env = byId.get(capsuleId)
+        if (env) env.status = status
+      },
+      bindRequest(capsuleId, requestInstanceId, partyId) {
+        const ledger = seenRequests.get(capsuleId) ?? new Map<string, string>()
+        const prior = ledger.get(requestInstanceId)
+        if (prior !== undefined) return prior
+        ledger.set(requestInstanceId, partyId)
+        seenRequests.set(capsuleId, ledger)
+        return partyId
+      },
+    },
+    options,
+  )
+}
+
+// ── Durable relay (Run 5, Slice 4) ────────────────────────────────────────────
+
+/** Structural view of the WRC security DB — avoids a value-import cycle. */
+interface WrcRelayDb {
+  prepare(sql: string): {
+    get: (...args: unknown[]) => unknown
+    all: (...args: unknown[]) => unknown[]
+    run: (...args: unknown[]) => { changes: number }
+  }
+}
+
+/** Strict decode of a persisted relay envelope — null on ANY malformation. */
+export function decodeRelayEnvelope(value: unknown): WrcRelayEnvelope | null {
+  if (typeof value !== 'object' || value === null) return null
+  const o = value as Record<string, unknown>
+  const str = (v: unknown): v is string => typeof v === 'string' && v.length > 0
+  if (o.type !== 'wrc/relay-envelope') return null
+  if (!str(o.capsule_id) || !str(o.publisher_part) || !str(o.entry_key)) return null
+  if (typeof o.expires_at !== 'number' || !Number.isInteger(o.expires_at)) return null
+  if (o.status !== 'available' && o.status !== 'withdrawn' && o.status !== 'terminal') return null
+  if (typeof o.capsule !== 'object' || o.capsule === null) return null
+  const r = o.recipient as Record<string, unknown> | null
+  if (typeof r !== 'object' || r === null || !str(r.party_id)) return null
+  if (r.publisher_part !== null && !str(r.publisher_part)) return null
+  if (r.principal_key_fingerprint !== null && !str(r.principal_key_fingerprint)) return null
+  return {
+    type: 'wrc/relay-envelope',
+    capsule_id: o.capsule_id,
+    publisher_part: o.publisher_part,
+    entry_key: o.entry_key,
+    recipient: {
+      party_id: r.party_id as string,
+      publisher_part: (r.publisher_part as string) ?? null,
+      principal_key_fingerprint: (r.principal_key_fingerprint as string) ?? null,
+    },
+    expires_at: o.expires_at,
+    status: o.status,
+    capsule: o.capsule as Record<string, unknown>,
+  }
+}
+
+/**
+ * The PRODUCTION relay state, on the WRC security DB (Run 5, Slice 4):
+ *
+ *  - `wrc_relay_envelope` — recipient-bound capsule custody. The envelope
+ *    JSON is authoritative; the columns key it. Last deposit to a slot wins
+ *    (same semantics as the memory store), and a persisted row that does not
+ *    strictly decode reads as ABSENT (`capsule_unknown` downstream) — fail
+ *    closed, never a permissive parse.
+ *  - `wrc_relay_request_ledger` — the §XVI.7.5.9 replay ledger. Binding is a
+ *    single INSERT-if-absent statement followed by a read of the settled
+ *    row, so two concurrent first uses settle on exactly one claimant, and a
+ *    claim refused as replay before a restart remains refused after it.
+ *
+ * A throwing statement (DB gone, disk full) propagates: the release path
+ * REFUSES rather than degrading to memory — the composition root owns the
+ * fail-closed contract.
+ */
+export function createDbRelay(db: WrcRelayDb, options: WrcMemoryRelayOptions): WrcRelayClient {
+  const readEnvelope = (row: unknown): WrcRelayEnvelope | null => {
+    const json = (row as { envelope_json?: unknown } | undefined)?.envelope_json
+    if (typeof json !== 'string') return null
+    try {
+      return decodeRelayEnvelope(JSON.parse(json))
+    } catch {
+      return null
+    }
+  }
+
+  return createRelayClient(
+    {
+      saveEnvelope(envelope) {
+        db.prepare(
+          `INSERT OR REPLACE INTO wrc_relay_envelope
+             (capsule_id, publisher_part, entry_key, status, expires_at, envelope_json, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        ).run(
+          envelope.capsule_id,
+          envelope.publisher_part,
+          envelope.entry_key,
+          envelope.status,
+          envelope.expires_at,
+          JSON.stringify(envelope),
+          new Date().toISOString(),
+        )
+      },
+      envelopeBySlot(publisherPart, entryKey) {
+        return readEnvelope(
+          db
+            .prepare(
+              `SELECT envelope_json FROM wrc_relay_envelope
+                WHERE publisher_part = ? AND entry_key = ?
+                ORDER BY rowid DESC LIMIT 1`,
+            )
+            .get(publisherPart, entryKey),
+        )
+      },
+      envelopeById(capsuleId) {
+        return readEnvelope(
+          db.prepare('SELECT envelope_json FROM wrc_relay_envelope WHERE capsule_id = ?').get(capsuleId),
+        )
+      },
+      setStatus(capsuleId, status) {
+        const row = db
+          .prepare('SELECT envelope_json FROM wrc_relay_envelope WHERE capsule_id = ?')
+          .get(capsuleId)
+        const envelope = readEnvelope(row)
+        if (!envelope) return
+        const next = { ...envelope, status }
+        db.prepare(
+          'UPDATE wrc_relay_envelope SET status = ?, envelope_json = ?, updated_at = ? WHERE capsule_id = ?',
+        ).run(status, JSON.stringify(next), new Date().toISOString(), capsuleId)
+      },
+      bindRequest(capsuleId, requestInstanceId, partyId) {
+        db.prepare(
+          `INSERT INTO wrc_relay_request_ledger (capsule_id, request_instance_id, party_id, created_at)
+             VALUES (?, ?, ?, ?)
+           ON CONFLICT(capsule_id, request_instance_id) DO NOTHING`,
+        ).run(capsuleId, requestInstanceId, partyId, new Date().toISOString())
+        const settled = db
+          .prepare(
+            'SELECT party_id FROM wrc_relay_request_ledger WHERE capsule_id = ? AND request_instance_id = ?',
+          )
+          .get(capsuleId, requestInstanceId) as { party_id?: unknown } | undefined
+        if (!settled || typeof settled.party_id !== 'string' || !settled.party_id) {
+          // A row we just bound that cannot be read back is unknown replay
+          // history — refuse (the caller treats a foreign claimant as replay).
+          throw new Error('relay request ledger unreadable after bind')
+        }
+        return settled.party_id
+      },
+    },
+    options,
+  )
 }
