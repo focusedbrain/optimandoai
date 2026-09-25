@@ -87,22 +87,24 @@ export const WR_ENTRY_TERMINAL_STATES: ReadonlySet<WrEntryLifecycleStatus> = new
  *  - established → revoked | superseded | compromised — "equivalent to ACTIVE
  *    for a relationship entry".
  */
+const to = (...states: WrEntryLifecycleStatus[]): readonly WrEntryLifecycleStatus[] => Object.freeze(states)
+
 export const WR_ENTRY_LIFECYCLE_TRANSITIONS: Readonly<
   Record<WrEntryLifecycleStatus, readonly WrEntryLifecycleStatus[]>
 > = Object.freeze({
-  active: Object.freeze(['inactive', 'revoked', 'superseded', 'compromised', 'claimed', 'consumed', 'exhausted']),
-  inactive: Object.freeze(['active', 'revoked', 'superseded', 'compromised']),
-  claimed: Object.freeze(['active', 'consumed', 'established', 'declined', 'pending', 'revoked', 'compromised']),
-  pending: Object.freeze(['claimed', 'withdrawn', 'expired', 'compromised']),
-  established: Object.freeze(['revoked', 'superseded', 'compromised']),
-  revoked: Object.freeze([]),
-  superseded: Object.freeze([]),
-  compromised: Object.freeze([]),
-  consumed: Object.freeze([]),
-  exhausted: Object.freeze([]),
-  declined: Object.freeze([]),
-  withdrawn: Object.freeze([]),
-  expired: Object.freeze([]),
+  active: to('inactive', 'revoked', 'superseded', 'compromised', 'claimed', 'consumed', 'exhausted'),
+  inactive: to('active', 'revoked', 'superseded', 'compromised'),
+  claimed: to('active', 'consumed', 'established', 'declined', 'pending', 'revoked', 'compromised'),
+  pending: to('claimed', 'withdrawn', 'expired', 'compromised'),
+  established: to('revoked', 'superseded', 'compromised'),
+  revoked: to(),
+  superseded: to(),
+  compromised: to(),
+  consumed: to(),
+  exhausted: to(),
+  declined: to(),
+  withdrawn: to(),
+  expired: to(),
 })
 
 /** True when `from → to` is a move the model permits. Same-state is a no-op, not a transition. */

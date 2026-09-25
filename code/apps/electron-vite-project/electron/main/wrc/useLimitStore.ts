@@ -252,8 +252,9 @@ export function createMemoryUseLimitStore(): WrcUseLimitStore {
         return { ok: false, reason: 'not_claimed_by_party' }
       }
       const r = applyConsume(row, party, requestInstanceId)
-      if (!r.ok) return { ok: false, reason: 'not_claimed_by_party' }
-      return { ok: true, state: row.state, usesTaken: row.uses_taken }
+      const settled: WrcUseState = row.state
+      if (!r.ok || settled === 'claimed') return { ok: false, reason: 'not_claimed_by_party' }
+      return { ok: true, state: settled, usesTaken: row.uses_taken }
     },
 
     release(publisherPart, entryId, party) {
