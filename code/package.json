@@ -18,6 +18,7 @@
     "postinstall": "node -e \"try{const{execSync}=require('child_process');const bin=require.resolve('prebuild-install/bin');execSync('node '+JSON.stringify(bin)+' --runtime node',{cwd:require('path').join(__dirname,'node_modules','better-sqlite3'),stdio:'inherit'})}catch(e){console.warn('better-sqlite3 prebuild install skipped:',e.message)}\"",
     "test": "vitest --passWithNoTests",
     "test:native-db": "node scripts/run-native-db-tests.cjs",
+    "test:prepare": "pnpm --filter @repo/ingestion-core run build && pnpm --filter @repo/coordination-service run build",
     "session:start": "node scripts/session-start.cjs",
     "session:stop": "node scripts/session-stop.cjs",
     "session:build": "node scripts/session-build.cjs",
