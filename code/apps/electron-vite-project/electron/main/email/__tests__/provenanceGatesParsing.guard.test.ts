@@ -89,6 +89,13 @@ describe('2A — the fail-open degradations are closed', () => {
     expect(held.length, 'expected all three branches to hold').toBe(3)
   })
 
+  it('the router holds at exactly seven DepackageCutoverHeldError sites', () => {
+    // 3 in the quarantine block, 2 in the seam, 2 in quarantineRawBytes. A new
+    // hold site or a removed one must be a deliberate change to this count.
+    const all = routerSource.match(/throw new DepackageCutoverHeldError\(/g) ?? []
+    expect(all.length).toBe(7)
+  })
+
   it('the inline path holds on the same conditions the seam path already did', () => {
     // An invariant that holds on one of two paths is not an invariant. If the
     // seam path ever stops holding, this fails too.

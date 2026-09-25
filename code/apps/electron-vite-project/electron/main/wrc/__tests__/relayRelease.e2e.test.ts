@@ -504,3 +504,16 @@ describe('relay store behavior [XVI.7.5.5, XVI.7.5.9]', () => {
     expect(v.leg).toBe('recipient_key_mismatch')
   })
 })
+
+describe('Gate 5 — one principal delegation per claim, sub-delegation unrepresentable', () => {
+  it('the release chain input carries a single delegation, never a list', async () => {
+    const { readFileSync } = await import('node:fs')
+    const { fileURLToPath } = await import('node:url')
+    const { dirname, join } = await import('node:path')
+    const here = dirname(fileURLToPath(import.meta.url))
+    const src = readFileSync(join(here, '..', 'relayRelease.ts'), 'utf8')
+    expect(src).toMatch(/delegation:\s*WrcPrincipalDelegation \| null/)
+    expect(src).not.toMatch(/delegations\s*:/)
+    expect(src).not.toMatch(/WrcPrincipalDelegation\[\]|readonly WrcPrincipalDelegation/)
+  })
+})

@@ -263,6 +263,28 @@ describe('4B — preview hash coverage', () => {
       buildConnectOfferPreview(baseOfferRow()).preview_hash,
     )
   })
+
+  it('the hashed key set is pinned: no class field, no gate output enters the preview', () => {
+    const { preview } = buildConnectOfferPreview(baseOfferRow())
+    expect(Object.keys(preview).sort()).toEqual([
+      'bound_definition', 'entry', 'expires_at', 'external_processing', 'handshake_id', 'ingress_path',
+      'offer_id', 'reciprocal_allowed', 'resolution_mode', 'scopes', 'session_bound_expires_at', 'staged_at',
+    ])
+    expect(Object.keys(preview.entry as Record<string, unknown>).sort()).toEqual([
+      'catalog_epoch', 'entry_local_part', 'entry_status', 'evp_ref', 'publisher_part',
+      'umbrella_handshake_id', 'value_statement', 'wr_code_canonical',
+    ])
+    expect(Object.keys(preview.bound_definition as Record<string, unknown>).sort()).toEqual([
+      'profile_id', 'publisher_domain_verified', 'receiver_email', 'sender_email', 'sender_iss',
+      'sender_sub', 'sender_wrdesk_user_id',
+    ])
+  })
+
+  it('wr_code_class does not change the hash (the canonical prefix already covers it)', () => {
+    expect(buildConnectOfferPreview(baseOfferRow({ wr_code_class: 'P' })).preview_hash).toBe(
+      buildConnectOfferPreview(baseOfferRow({ wr_code_class: null })).preview_hash,
+    )
+  })
 })
 
 describe.skipIf(!Database)('4B — consent records resolution_mode', () => {
