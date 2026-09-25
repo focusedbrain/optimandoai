@@ -1,0 +1,193 @@
+# typecheck before-list — resync 2026-09 — extension
+# HEAD      : 8f0a564360b72900f4edcb8d60a0ca86a766bdd0
+# command   : npx tsc --noEmit -p apps/extension-chromium/tsconfig.json   (cwd: code/)
+# normalized: "error TS" lines only, (line,col) stripped, path separators "/", sorted; compare as multisets
+# counts by commit (all taken 2026-09-25 on this host, same node_modules):
+#   adcc99c2=183  66dc5fe8=183  1085c13d=183  7c8cea08=183  4832178a=183  6c808582=183  8f0a5643=183
+# vs adcc99c2 (RIG-READY baseline re-taken here): +0 / -0
+# NEW since adcc99c2: none (sets identical at every commit)
+# The Author record "183 at adcc99c2" is this extension count; it is unchanged and the set is identical.
+
+apps/extension-chromium/src/background.ts: error TS18047: 'ws' is possibly 'null'.
+apps/extension-chromium/src/background.ts: error TS18047: 'ws' is possibly 'null'.
+apps/extension-chromium/src/background.ts: error TS18047: 'ws' is possibly 'null'.
+apps/extension-chromium/src/background.ts: error TS2339: Property 'busy' does not exist on type 'RunModeAllocatedSessionAutomationResult'.
+apps/extension-chromium/src/background.ts: error TS2339: Property 'provenance' does not exist on type '{ ok: boolean; data?: any; error?: string | undefined; errorCode?: string | undefined; debug?: any; needsReconnect?: boolean | undefined; persistence?: unknown; }'.
+apps/extension-chromium/src/background.ts: error TS2353: Object literal may only specify known properties, and 'timedOut' does not exist in type '{ ok: boolean; matchCount?: number | undefined; executed?: string[] | undefined; error?: string | undefined; busy?: boolean | undefined; }'.
+apps/extension-chromium/src/beap-builder/parserService.ts: error TS2345: Argument of type '(item: { str?: string; }) => string' is not assignable to parameter of type '(value: TextItem | TextMarkedContent, index: number, array: (TextItem | TextMarkedContent)[]) => string'.
+apps/extension-chromium/src/beap-builder/visionExtractionService.ts: error TS2339: Property 'getPage' does not exist on type 'PDFDocumentLoadingTask'.
+apps/extension-chromium/src/beap-builder/visionExtractionService.ts: error TS2345: Argument of type 'PDFDocumentProxy' is not assignable to parameter of type 'PDFDocumentLoadingTask'.
+apps/extension-chromium/src/beap-messages/hooks/useBeapDraftActions.ts: error TS2367: This comparison appears to be unintentional because the types '"download" | "p2p"' and '"messenger"' have no overlap.
+apps/extension-chromium/src/beap-messages/hooks/useBeapDraftActions.ts: error TS2367: This comparison appears to be unintentional because the types '"download" | "p2p"' and '"messenger"' have no overlap.
+apps/extension-chromium/src/beap-messages/hooks/useBeapDraftActions.ts: error TS2678: Type '"messenger"' is not comparable to type 'DeliveryMethod'.
+apps/extension-chromium/src/beap-messages/hooks/useBulkClassification.ts: error TS2459: Module '"../services/beapClassificationEngine"' declares 'GatingAuditStore' locally, but it is not exported.
+apps/extension-chromium/src/beap-messages/inboxRowToBeapMessage.ts: error TS2322: Type '{} | null' is not assignable to type 'SessionImportArtefact | null | undefined'.
+apps/extension-chromium/src/beap-messages/sandbox/sandbox.ts: error TS2305: Module '"../services"' has no exported member 'KnownReceiver'.
+apps/extension-chromium/src/beap-messages/sandbox/sandbox.ts: error TS2305: Module '"../services"' has no exported member 'SenderIdentity'.
+apps/extension-chromium/src/beap-messages/services/BeapPackageBuilder.ts: error TS2300: Duplicate identifier 'OuterEnvelopeHeader'.
+apps/extension-chromium/src/beap-messages/services/BeapPackageBuilder.ts: error TS2300: Duplicate identifier 'OuterEnvelopeHeader'.
+apps/extension-chromium/src/beap-messages/services/BeapPackageBuilder.ts: error TS2322: Type '"p2p_serialization"' is not assignable to type '"package_build" | "preflight" | "send_exception" | "transport_exception" | "p2p_transport" | "ui_validation"'.
+apps/extension-chromium/src/beap-messages/services/BeapPackageBuilder.ts: error TS2322: Type '"p2p_serialization"' is not assignable to type '"package_build" | "preflight" | "send_exception" | "transport_exception" | "p2p_transport" | "ui_validation"'.
+apps/extension-chromium/src/beap-messages/services/BeapPackageBuilder.ts: error TS2339: Property 'hasStoredPrivateKey' does not exist on type '{ ready: boolean; error?: string | undefined; localX25519PublicKey?: string | undefined; }'.
+apps/extension-chromium/src/beap-messages/services/beapDecrypt.ts: error TS2304: Cannot find name 'ProcessingRetention'.
+apps/extension-chromium/src/beap-messages/services/beapDecrypt.ts: error TS2304: Cannot find name 'ProcessingRetention'.
+apps/extension-chromium/src/beap-messages/services/beapDecrypt.ts: error TS2304: Cannot find name 'ProcessingRetention'.
+apps/extension-chromium/src/beap-messages/services/beapDecrypt.ts: error TS2304: Cannot find name 'ProcessingRetention'.
+apps/extension-chromium/src/beap-messages/services/beapDecrypt.ts: error TS2304: Cannot find name 'ProcessingRetention'.
+apps/extension-chromium/src/beap-messages/services/beapDecrypt.ts: error TS2304: Cannot find name 'ProcessingRetention'.
+apps/extension-chromium/src/beap-messages/services/beapDecrypt.ts: error TS2304: Cannot find name 'ProcessingRetention'.
+apps/extension-chromium/src/beap-messages/services/depackagingPipeline.ts: error TS2339: Property 'chunking' does not exist on type 'BeapArtefactEncrypted'.
+apps/extension-chromium/src/beap-messages/services/depackagingPipeline.ts: error TS2339: Property 'chunking' does not exist on type 'BeapArtefactEncrypted'.
+apps/extension-chromium/src/beap-messages/services/depackagingPipeline.ts: error TS2339: Property 'chunking' does not exist on type 'BeapArtefactEncrypted'.
+apps/extension-chromium/src/beap-messages/services/depackagingPipeline.ts: error TS2339: Property 'chunking' does not exist on type 'BeapArtefactEncrypted'.
+apps/extension-chromium/src/beap-messages/services/depackagingPipeline.ts: error TS2339: Property 'chunks' does not exist on type 'ChunkingMetadata'.
+apps/extension-chromium/src/beap-messages/services/depackagingPipeline.ts: error TS2339: Property 'chunks' does not exist on type 'ChunkingMetadata'.
+apps/extension-chromium/src/beap-messages/services/depackagingPipeline.ts: error TS2339: Property 'chunks' does not exist on type 'ChunkingMetadata'.
+apps/extension-chromium/src/beap-messages/services/depackagingPipeline.ts: error TS2339: Property 'chunks' does not exist on type 'ChunkingMetadata'.
+apps/extension-chromium/src/beap-messages/services/depackagingPipeline.ts: error TS2345: Argument of type 'GateResult<Gate1Context>' is not assignable to parameter of type 'GateResult<undefined>'.
+apps/extension-chromium/src/beap-messages/services/depackagingPipeline.ts: error TS2345: Argument of type 'GateResult<Gate2Context>' is not assignable to parameter of type 'GateResult<undefined>'.
+apps/extension-chromium/src/beap-messages/services/depackagingPipeline.ts: error TS2345: Argument of type 'GateResult<Gate3Context>' is not assignable to parameter of type 'GateResult<undefined>'.
+apps/extension-chromium/src/beap-messages/services/depackagingPipeline.ts: error TS2345: Argument of type 'GateResult<Gate4Context>' is not assignable to parameter of type 'GateResult<undefined>'.
+apps/extension-chromium/src/beap-messages/services/depackagingPipeline.ts: error TS2345: Argument of type 'GateResult<Gate5Context>' is not assignable to parameter of type 'GateResult<undefined>'.
+apps/extension-chromium/src/beap-messages/services/depackagingPipeline.ts: error TS2345: Argument of type 'GateResult<Gate6Context>' is not assignable to parameter of type 'GateResult<undefined>'.
+apps/extension-chromium/src/beap-messages/services/depackagingPipeline.ts: error TS2352: Conversion of type 'BeapEnvelopeHeader' to type 'Record<string, unknown>' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+apps/extension-chromium/src/beap-messages/services/depackagingPipeline.ts: error TS2352: Conversion of type 'BeapEnvelopeHeader' to type 'Record<string, unknown>' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+apps/extension-chromium/src/beap-messages/services/poae.ts: error TS2345: Argument of type 'Uint8Array<ArrayBufferLike>' is not assignable to parameter of type 'string'.
+apps/extension-chromium/src/beap-messages/services/poae.ts: error TS2345: Argument of type 'string' is not assignable to parameter of type 'Uint8Array<ArrayBufferLike>'.
+apps/extension-chromium/src/beap-messages/services/poae.ts: error TS2345: Argument of type 'string' is not assignable to parameter of type 'Uint8Array<ArrayBufferLike>'.
+apps/extension-chromium/src/beap-messages/services/signingKeyVault.ts: error TS2322: Type 'Uint8Array<ArrayBufferLike>' is not assignable to type 'BufferSource'.
+apps/extension-chromium/src/beap-messages/services/signingKeyVault.ts: error TS2322: Type 'Uint8Array<ArrayBufferLike>' is not assignable to type 'BufferSource'.
+apps/extension-chromium/src/beap-messages/services/signingKeyVault.ts: error TS2345: Argument of type 'Uint8Array<ArrayBufferLike>' is not assignable to parameter of type 'BufferSource'.
+apps/extension-chromium/src/beap-messages/services/signingKeyVault.ts: error TS2345: Argument of type 'Uint8Array<ArrayBufferLike>' is not assignable to parameter of type 'BufferSource'.
+apps/extension-chromium/src/beap-messages/services/signingKeyVault.ts: error TS2769: No overload matches this call.
+apps/extension-chromium/src/components/P2pOutboundDebugModal.tsx: error TS2339: Property 'body_looks_double_encoded' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+apps/extension-chromium/src/components/P2pOutboundDebugModal.tsx: error TS2339: Property 'body_type' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+apps/extension-chromium/src/components/P2pOutboundDebugModal.tsx: error TS2339: Property 'canon_chunking_summary' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+apps/extension-chromium/src/components/P2pOutboundDebugModal.tsx: error TS2339: Property 'canon_chunking_summary' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+apps/extension-chromium/src/components/P2pOutboundDebugModal.tsx: error TS2339: Property 'content_length_bytes' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+apps/extension-chromium/src/components/P2pOutboundDebugModal.tsx: error TS2339: Property 'content_type' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+apps/extension-chromium/src/components/P2pOutboundDebugModal.tsx: error TS2339: Property 'coordination_normalized_shape' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+apps/extension-chromium/src/components/P2pOutboundDebugModal.tsx: error TS2339: Property 'coordination_normalized_shape' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+apps/extension-chromium/src/components/P2pOutboundDebugModal.tsx: error TS2339: Property 'coordination_single_post_json' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+apps/extension-chromium/src/components/P2pOutboundDebugModal.tsx: error TS2339: Property 'coordination_single_post_json' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+apps/extension-chromium/src/components/P2pOutboundDebugModal.tsx: error TS2339: Property 'coordination_source_format' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+apps/extension-chromium/src/components/P2pOutboundDebugModal.tsx: error TS2339: Property 'coordination_source_format' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+apps/extension-chromium/src/components/P2pOutboundDebugModal.tsx: error TS2339: Property 'derived_relay_capsule_type' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+apps/extension-chromium/src/components/P2pOutboundDebugModal.tsx: error TS2339: Property 'derived_relay_capsule_type' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+apps/extension-chromium/src/components/P2pOutboundDebugModal.tsx: error TS2339: Property 'derived_relay_capsule_type' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+apps/extension-chromium/src/components/P2pOutboundDebugModal.tsx: error TS2339: Property 'expected_coordination_routing_keys' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+apps/extension-chromium/src/components/P2pOutboundDebugModal.tsx: error TS2339: Property 'expected_coordination_routing_keys' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+apps/extension-chromium/src/components/P2pOutboundDebugModal.tsx: error TS2339: Property 'http_status' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+apps/extension-chromium/src/components/P2pOutboundDebugModal.tsx: error TS2339: Property 'method' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+apps/extension-chromium/src/components/P2pOutboundDebugModal.tsx: error TS2339: Property 'missing_coordination_top_level_fields' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+apps/extension-chromium/src/components/P2pOutboundDebugModal.tsx: error TS2339: Property 'missing_coordination_top_level_fields' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+apps/extension-chromium/src/components/P2pOutboundDebugModal.tsx: error TS2339: Property 'missing_coordination_top_level_fields' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+apps/extension-chromium/src/components/P2pOutboundDebugModal.tsx: error TS2339: Property 'relay_allowed_types_from_response' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+apps/extension-chromium/src/components/P2pOutboundDebugModal.tsx: error TS2339: Property 'relay_allowed_types_from_response' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+apps/extension-chromium/src/components/P2pOutboundDebugModal.tsx: error TS2339: Property 'relay_allowed_types_from_response' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+apps/extension-chromium/src/components/P2pOutboundDebugModal.tsx: error TS2339: Property 'relay_capsule_type_field_name' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+apps/extension-chromium/src/components/P2pOutboundDebugModal.tsx: error TS2339: Property 'relay_capsule_type_field_name' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+apps/extension-chromium/src/components/P2pOutboundDebugModal.tsx: error TS2339: Property 'relay_envelope_matches_expectations' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+apps/extension-chromium/src/components/P2pOutboundDebugModal.tsx: error TS2339: Property 'relay_envelope_matches_expectations' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+apps/extension-chromium/src/components/P2pOutboundDebugModal.tsx: error TS2339: Property 'relay_validator_contract_matches' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+apps/extension-chromium/src/components/P2pOutboundDebugModal.tsx: error TS2339: Property 'relay_validator_contract_matches' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+apps/extension-chromium/src/components/P2pOutboundDebugModal.tsx: error TS2339: Property 'request_shape' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+apps/extension-chromium/src/components/P2pOutboundDebugModal.tsx: error TS2339: Property 'response_body_snippet' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+apps/extension-chromium/src/components/P2pOutboundDebugModal.tsx: error TS2339: Property 'response_body_snippet' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+apps/extension-chromium/src/components/P2pOutboundDebugModal.tsx: error TS2339: Property 'response_body_snippet' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+apps/extension-chromium/src/components/P2pOutboundDebugModal.tsx: error TS2339: Property 'route' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+apps/extension-chromium/src/components/P2pOutboundDebugModal.tsx: error TS2339: Property 'serialized_capsule_type_field_present' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+apps/extension-chromium/src/components/P2pOutboundDebugModal.tsx: error TS2339: Property 'serialized_capsule_type_field_present' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+apps/extension-chromium/src/components/P2pOutboundDebugModal.tsx: error TS2339: Property 'serialized_capsule_type_value' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+apps/extension-chromium/src/components/P2pOutboundDebugModal.tsx: error TS2339: Property 'serialized_capsule_type_value' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+apps/extension-chromium/src/components/P2pOutboundDebugModal.tsx: error TS2339: Property 'serialized_capsule_type_value' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+apps/extension-chromium/src/components/P2pOutboundDebugModal.tsx: error TS2339: Property 'top_level_keys' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+apps/extension-chromium/src/components/P2pOutboundDebugModal.tsx: error TS2339: Property 'transport_error' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+apps/extension-chromium/src/components/P2pOutboundDebugModal.tsx: error TS2339: Property 'transport_error' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+apps/extension-chromium/src/components/P2pOutboundDebugModal.tsx: error TS2339: Property 'url' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+apps/extension-chromium/src/content-script.tsx: error TS2339: Property 'length' does not exist on type '{}'.
+apps/extension-chromium/src/content-script.tsx: error TS2339: Property 'length' does not exist on type '{}'.
+apps/extension-chromium/src/content-script.tsx: error TS2339: Property 'length' does not exist on type '{}'.
+apps/extension-chromium/src/content-script.tsx: error TS2339: Property 'length' does not exist on type '{}'.
+apps/extension-chromium/src/content-script.tsx: error TS2353: Object literal may only specify known properties, and 'sessionKey' does not exist in type '{ importData: unknown; fallbackModel: string; }'.
+apps/extension-chromium/src/handshake/components/HandshakeAcceptModal.tsx: error TS18048: 'adhocBlockPolicy.policy' is possibly 'undefined'.
+apps/extension-chromium/src/handshake/components/HandshakeContextProfilePicker.tsx: error TS2307: Cannot find module '../../../../packages/shared/src/handshake/types' or its corresponding type declarations.
+apps/extension-chromium/src/handshake/components/HandshakeRequestForm.tsx: error TS18048: 'adhocBlockPolicy.policy' is possibly 'undefined'.
+apps/extension-chromium/src/handshake/components/InitiateHandshakeDialog.tsx: error TS18048: 'adhocBlockPolicy.policy' is possibly 'undefined'.
+apps/extension-chromium/src/handshake/components/SendHandshakeDelivery.tsx: error TS18048: 'adhocBlockPolicy.policy' is possibly 'undefined'.
+apps/extension-chromium/src/handshake/handshakeService.ts: error TS2304: Cannot find name 'keypair'.
+apps/extension-chromium/src/ingress/electronDepackagedSync.ts: error TS2345: Argument of type '{ ok?: boolean | undefined; error?: string | undefined; }' is not assignable to parameter of type '{ ok: boolean; error?: string | undefined; } | PromiseLike<{ ok: boolean; error?: string | undefined; }>'.
+apps/extension-chromium/src/ingress/importPipeline.ts: error TS2305: Module '"../beap-messages/sandbox"' has no exported member 'RejectionReasonUI'.
+apps/extension-chromium/src/ingress/importPipeline.ts: error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+apps/extension-chromium/src/lib/inferenceSubmitRouting.ts: error TS2339: Property 'internalInference' does not exist on type 'Window & typeof globalThis'.
+apps/extension-chromium/src/services/InputCoordinator.ts: error TS18046: 'condition' is of type 'unknown'.
+apps/extension-chromium/src/services/InputCoordinator.ts: error TS18046: 'condition' is of type 'unknown'.
+apps/extension-chromium/src/services/InputCoordinator.ts: error TS18046: 'condition' is of type 'unknown'.
+apps/extension-chromium/src/services/InputCoordinator.ts: error TS18046: 'condition' is of type 'unknown'.
+apps/extension-chromium/src/services/InputCoordinator.ts: error TS18046: 'condition' is of type 'unknown'.
+apps/extension-chromium/src/services/InputCoordinator.ts: error TS18046: 'condition' is of type 'unknown'.
+apps/extension-chromium/src/services/InputCoordinator.ts: error TS18046: 'condition' is of type 'unknown'.
+apps/extension-chromium/src/services/InputCoordinator.ts: error TS18046: 'condition' is of type 'unknown'.
+apps/extension-chromium/src/services/InputCoordinator.ts: error TS18046: 'condition' is of type 'unknown'.
+apps/extension-chromium/src/services/InputCoordinator.ts: error TS18046: 'condition' is of type 'unknown'.
+apps/extension-chromium/src/services/InputCoordinator.ts: error TS18046: 'condition' is of type 'unknown'.
+apps/extension-chromium/src/services/InputCoordinator.ts: error TS18046: 'condition' is of type 'unknown'.
+apps/extension-chromium/src/services/InputCoordinator.ts: error TS18046: 'condition' is of type 'unknown'.
+apps/extension-chromium/src/services/InputCoordinator.ts: error TS18046: 'condition' is of type 'unknown'.
+apps/extension-chromium/src/services/InputCoordinator.ts: error TS2339: Property 'type' does not exist on type '{ tag?: string | undefined; tagName?: string | undefined; keywords?: string[] | undefined; keywordMode?: string | undefined; }'.
+apps/extension-chromium/src/services/modeRunExecution.ts: error TS2339: Property 'hostAvailable' does not exist on type 'WrChatSelectorRow'.
+apps/extension-chromium/src/services/modeRunExecution.ts: error TS2345: Argument of type 'Window' is not assignable to parameter of type 'Window & typeof globalThis'.
+apps/extension-chromium/src/services/modeRunExecution.ts: error TS2345: Argument of type 'WrChatSelectorRow | undefined' is not assignable to parameter of type '{ hostLocalModelName?: string | undefined; } | undefined'.
+apps/extension-chromium/src/services/modeSessionRunInFlightExecute.ts: error TS2339: Property 'matchCount' does not exist on type 'BeapAutomationModeRunErr'.
+apps/extension-chromium/src/services/sessionActivationForOptimization.ts: error TS2694: Namespace 'chrome.tabs' has no exported member 'TabChangeInfo'.
+apps/extension-chromium/src/shared/components/EmailConnectWizard.tsx: error TS2322: Type '{ configured: boolean; developerCredentialsStored: boolean; builtinOAuthAvailable: boolean; builtinStandardConnectReady: boolean; gmailBuiltinProviderStatus: GmailBuiltinProviderStatusUi | undefined; ... 5 more ...; standardConnectBundledClientFingerprint: string | null; }' is not assignable to type '{ configured: boolean; developerCredentialsStored?: boolean | undefined; builtinOAuthAvailable?: boolean | undefined; builtinStandardConnectReady?: boolean | undefined; gmailBuiltinProviderStatus?: GmailBuiltinProviderStatusUi | undefined; ... 5 more ...; standardConnectBundledClientFingerprint?: string | ... 1 more...'.
+apps/extension-chromium/src/shared/components/EmailConnectWizard.tsx: error TS2322: Type '{ configured: boolean; developerCredentialsStored: boolean; builtinOAuthAvailable: boolean; builtinStandardConnectReady: boolean; gmailBuiltinProviderStatus: GmailBuiltinProviderStatusUi | undefined; ... 5 more ...; standardConnectBundledClientFingerprint: string | null; }' is not assignable to type '{ configured: boolean; developerCredentialsStored?: boolean | undefined; builtinOAuthAvailable?: boolean | undefined; builtinStandardConnectReady?: boolean | undefined; gmailBuiltinProviderStatus?: GmailBuiltinProviderStatusUi | undefined; ... 5 more ...; standardConnectBundledClientFingerprint?: string | ... 1 more...'.
+apps/extension-chromium/src/shared/components/EmailConnectWizard.tsx: error TS2339: Property 'emailAccounts' does not exist on type 'Window & typeof globalThis'.
+apps/extension-chromium/src/shared/components/EmailConnectWizard.tsx: error TS2339: Property 'emailAccounts' does not exist on type 'Window & typeof globalThis'.
+apps/extension-chromium/src/shared/components/EmailConnectWizard.tsx: error TS2339: Property 'emailAccounts' does not exist on type 'Window & typeof globalThis'.
+apps/extension-chromium/src/shared/components/EmailConnectWizard.tsx: error TS2339: Property 'emailAccounts' does not exist on type 'Window & typeof globalThis'.
+apps/extension-chromium/src/sidepanel.tsx: error TS18048: 'att' is possibly 'undefined'.
+apps/extension-chromium/src/sidepanel.tsx: error TS2300: Duplicate identifier 'getChatFocusLlmPrefix'.
+apps/extension-chromium/src/sidepanel.tsx: error TS2300: Duplicate identifier 'getChatFocusLlmPrefix'.
+apps/extension-chromium/src/sidepanel.tsx: error TS2300: Duplicate identifier 'useChatFocusStore'.
+apps/extension-chromium/src/sidepanel.tsx: error TS2300: Duplicate identifier 'useChatFocusStore'.
+apps/extension-chromium/src/sidepanel.tsx: error TS2322: Type '(options?: { textOverride?: string; }) => Promise<void>' is not assignable to type 'MouseEventHandler<HTMLButtonElement>'.
+apps/extension-chromium/src/sidepanel.tsx: error TS2322: Type 'string | null' is not assignable to type 'string'.
+apps/extension-chromium/src/sidepanel.tsx: error TS2322: Type 'string | null' is not assignable to type 'string'.
+apps/extension-chromium/src/sidepanel.tsx: error TS2339: Property 'hostAvailable' does not exist on type 'WrChatSelectorRow'.
+apps/extension-chromium/src/sidepanel.tsx: error TS2339: Property 'hostAvailable' does not exist on type 'WrChatSelectorRow'.
+apps/extension-chromium/src/sidepanel.tsx: error TS2345: Argument of type '(prompt: string) => Promise<{ content: string; provenance?: unknown; }>' is not assignable to parameter of type 'LlmGenerateFn'.
+apps/extension-chromium/src/sidepanel.tsx: error TS2540: Cannot assign to 'current' because it is a read-only property.
+apps/extension-chromium/src/sidepanel.tsx: error TS7053: Element implicitly has an 'any' type because expression of type '"optimando-wrchat-selection-fallback"' can't be used to index type 'StorageChange'.
+apps/extension-chromium/src/sidepanel.tsx: error TS7053: Element implicitly has an 'any' type because expression of type '"optimando-wrchat-selection-fallback"' can't be used to index type 'StorageChange'.
+apps/extension-chromium/src/tests/wrChatPipeline.test.ts: error TS2322: Type 'string' is not assignable to type 'string[]'.
+apps/extension-chromium/src/tests/wrChatPipeline.test.ts: error TS2353: Object literal may only specify known properties, and 'id' does not exist in type '{ tag?: string | undefined; tagName?: string | undefined; keywords?: string[] | undefined; keywordMode?: string | undefined; }'.
+apps/extension-chromium/src/tests/wrChatPipeline.test.ts: error TS2353: Object literal may only specify known properties, and 'id' does not exist in type '{ tag?: string | undefined; tagName?: string | undefined; keywords?: string[] | undefined; keywordMode?: string | undefined; }'.
+apps/extension-chromium/src/tests/wrChatPipeline.test.ts: error TS2353: Object literal may only specify known properties, and 'id' does not exist in type '{ tag?: string | undefined; tagName?: string | undefined; keywords?: string[] | undefined; keywordMode?: string | undefined; }'.
+apps/extension-chromium/src/tests/wrChatPipeline.test.ts: error TS2353: Object literal may only specify known properties, and 'id' does not exist in type '{ tag?: string | undefined; tagName?: string | undefined; keywords?: string[] | undefined; keywordMode?: string | undefined; }'.
+apps/extension-chromium/src/tests/wrChatPipeline.test.ts: error TS2353: Object literal may only specify known properties, and 'id' does not exist in type '{ tag?: string | undefined; tagName?: string | undefined; keywords?: string[] | undefined; keywordMode?: string | undefined; }'.
+apps/extension-chromium/src/tests/wrChatPipeline.test.ts: error TS2353: Object literal may only specify known properties, and 'id' does not exist in type '{ tag?: string | undefined; tagName?: string | undefined; keywords?: string[] | undefined; keywordMode?: string | undefined; }'.
+apps/extension-chromium/src/tests/wrChatPipeline.test.ts: error TS2353: Object literal may only specify known properties, and 'id' does not exist in type '{ tag?: string | undefined; tagName?: string | undefined; keywords?: string[] | undefined; keywordMode?: string | undefined; }'.
+apps/extension-chromium/src/tests/wrChatPipeline.test.ts: error TS2353: Object literal may only specify known properties, and 'type' does not exist in type '{ tag?: string | undefined; tagName?: string | undefined; keywords?: string[] | undefined; keywordMode?: string | undefined; }'.
+apps/extension-chromium/src/tests/wrChatPipeline.test.ts: error TS2353: Object literal may only specify known properties, and 'type' does not exist in type '{ tag?: string | undefined; tagName?: string | undefined; keywords?: string[] | undefined; keywordMode?: string | undefined; }'.
+apps/extension-chromium/src/tests/wrChatPipeline.test.ts: error TS2353: Object literal may only specify known properties, and 'type' does not exist in type '{ tag?: string | undefined; tagName?: string | undefined; keywords?: string[] | undefined; keywordMode?: string | undefined; }'.
+apps/extension-chromium/src/ui/components/PopupChatView.tsx: error TS2304: Cannot find name 'setDisclosureDismissed'.
+apps/extension-chromium/src/ui/components/PopupChatView.tsx: error TS2322: Type 'string | null' is not assignable to type 'string'.
+apps/extension-chromium/src/ui/components/PopupChatView.tsx: error TS2322: Type 'string | null' is not assignable to type 'string'.
+apps/extension-chromium/src/ui/components/PopupChatView.tsx: error TS2322: Type 'string | null' is not assignable to type 'string'.
+apps/extension-chromium/src/ui/components/PopupChatView.tsx: error TS2322: Type 'string | null' is not assignable to type 'string'.
+apps/extension-chromium/src/ui/components/PopupChatView.tsx: error TS2322: Type 'string | null' is not assignable to type 'string'.
+apps/extension-chromium/src/ui/components/PopupChatView.tsx: error TS2322: Type 'string | null' is not assignable to type 'string'.
+apps/extension-chromium/src/ui/components/PopupChatView.tsx: error TS2322: Type '{ name: string; size?: string | undefined; displayTitle?: string | undefined; subtitle?: string | undefined; hostTooltipDetail?: string | undefined; hostAi?: boolean | undefined; hostAvailable?: boolean | undefined; ... 7 more ...; section?: "local" | ... 2 more ... | undefined; }[]' is not assignable to type 'readonly WrChatSelectorRow[]'.
+apps/extension-chromium/src/ui/components/PopupChatView.tsx: error TS2322: Type '{ name: string; size?: string | undefined; displayTitle?: string | undefined; subtitle?: string | undefined; hostTooltipDetail?: string | undefined; hostAi?: boolean | undefined; hostAvailable?: boolean | undefined; ... 7 more ...; section?: "local" | ... 2 more ... | undefined; }[]' is not assignable to type 'readonly WrChatSelectorRow[]'.
+apps/extension-chromium/src/ui/components/PopupChatView.tsx: error TS2322: Type '{ name: string; size?: string | undefined; displayTitle?: string | undefined; subtitle?: string | undefined; hostTooltipDetail?: string | undefined; hostAi?: boolean | undefined; hostAvailable?: boolean | undefined; ... 7 more ...; section?: "local" | ... 2 more ... | undefined; }[]' is not assignable to type 'readonly WrChatSelectorRow[]'.
+apps/extension-chromium/src/ui/components/PopupChatView.tsx: error TS2540: Cannot assign to 'current' because it is a read-only property.
+apps/extension-chromium/src/ui/components/PopupChatView.tsx: error TS7053: Element implicitly has an 'any' type because expression of type '"optimando-wrchat-selection-fallback"' can't be used to index type 'StorageChange'.
+apps/extension-chromium/src/ui/components/PopupChatView.tsx: error TS7053: Element implicitly has an 'any' type because expression of type '"optimando-wrchat-selection-fallback"' can't be used to index type 'StorageChange'.
+apps/extension-chromium/src/utils/chatFocusLlmPrefix.ts: error TS2552: Cannot find name 'ChatFocusMode'. Did you mean 'ChatFocusMeta'?
+apps/extension-chromium/src/vault/autofill/committer.ts: error TS2578: Unused '@ts-expect-error' directive.
+apps/extension-chromium/src/vault/autofill/tierConfig.ts: error TS2322: Type '"unknown"' is not assignable to type 'never'.
+apps/extension-chromium/src/vault/vault-ui-typescript.ts: error TS2322: Type 'Record<string, string>[]' is not assignable to type '{ type: string; iban?: string | undefined; bic?: string | undefined; bank_name?: string | undefined; account_holder?: string | undefined; cc_number?: string | undefined; cc_holder?: string | undefined; cc_expiry?: string | undefined; cc_cvv?: string | undefined; paypal_email?: string | undefined; }[]'.
+apps/extension-chromium/src/wrguard/components/EmailProvidersSection.remoteSyncBadge.test.tsx: error TS2322: Type '{ code: string; thisNodeRole?: "sandbox" | "host" | undefined; } | null' is not assignable to type 'IngestionTopologyStatus | null | undefined'.
+apps/extension-chromium/vite.config.ts: error TS2769: No overload matches this call.
+apps/extension-chromium/vite.config.ts: error TS5097: An import path can only end with a '.ts' extension when 'allowImportingTsExtensions' is enabled.
