@@ -159,7 +159,7 @@ export default function InboxBulkActionsBar({
           <button
             type="button"
             onClick={onBulkDelete}
-            title="Remove selected from WRDesk inbox only — does not delete from the origin mailbox"
+            title="Remove selected from Optirando inbox only — does not delete from the origin mailbox"
             style={{
               padding: '5px 10px',
               fontSize: 10,

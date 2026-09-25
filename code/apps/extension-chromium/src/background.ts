@@ -268,7 +268,7 @@ async function triggerPendingBeapRun(sessionKey: string): Promise<void> {
 
 try {
   const m = chrome.runtime.getManifest()
-  console.info('[WR Desk] Service worker started', {
+  console.info('[Optirando] Service worker started', {
     manifestVersion: m.version,
     buildStamp: import.meta.env.VITE_EXT_BUILD_STAMP ?? 'dev',
   })
@@ -1090,7 +1090,7 @@ async function electronRequest(
   if (!electronRunning) {
     return { 
       ok: false, 
-      error: 'WR Deskâ„¢ desktop app is not running. Please start it manually or check if it is installed.',
+      error: 'Optirando™ desktop app is not running. Please start it manually or check if it is installed.',
       errorCode: 'ELECTRON_NOT_RUNNING'
     };
   }
@@ -1118,7 +1118,7 @@ async function electronRequest(
         if (!(await ensureElectronRunning())) {
           return {
             ok: false,
-            error: 'WR Deskâ„¢ desktop app stopped unexpectedly. Please restart it.',
+            error: 'Optirando™ desktop app stopped unexpectedly. Please restart it.',
             errorCode: 'ELECTRON_STOPPED'
           };
         }
@@ -1181,7 +1181,7 @@ async function electronRequest(
       }
 
       const data = await response.json();
-      /** WR Desk APIs use `{ ok: boolean, data?, error? }` with HTTP 200 â€” honor body.ok for truthful success. */
+      /** Optirando APIs use `{ ok: boolean, data?, error? }` with HTTP 200 â€” honor body.ok for truthful success. */
       if (data && typeof data === 'object' && 'ok' in data && data.ok === false) {
         const body = data as {
           ok?: boolean
@@ -1226,7 +1226,7 @@ async function electronRequest(
       }
 
       if (err.message?.includes('Failed to fetch') || err.message?.includes('NetworkError')) {
-        lastError = 'Cannot connect to WR Deskâ„¢ desktop app';
+        lastError = 'Cannot connect to Optirando™ desktop app';
         lastErrorCode = 'NETWORK_ERROR';
         continue;
       }
@@ -1239,7 +1239,7 @@ async function electronRequest(
   // All retries exhausted
   return { 
     ok: false, 
-    error: `${lastError}. Please try again or restart WR Deskâ„¢.`,
+    error: `${lastError}. Please try again or restart Optirando™.`,
     errorCode: lastErrorCode
   };
 }
@@ -1311,7 +1311,7 @@ async function syncApiKeysToElectron(keysArg?: Record<string, string> | null): P
   if (!ready) {
     console.warn('[BG] syncApiKeysToElectron: launch secret not ready â€” skipping')
     await setApiKeySyncPending(true)
-    return { ok: false, error: 'Launch secret not ready â€” open WR Desk desktop app' }
+    return { ok: false, error: 'Launch secret not ready â€” open Optirando desktop app' }
   }
   const apiKeys: Partial<Record<'OpenAI' | 'Claude' | 'Gemini' | 'Grok', string>> = {}
   for (const k of ['OpenAI', 'Claude', 'Gemini', 'Grok'] as const) {
@@ -2406,14 +2406,14 @@ async function checkAndLaunchElectronApp(sendResponse: (response: any) => void, 
       chrome.notifications.create(notificationId, {
         type: 'basic',
         iconUrl: chrome.runtime.getURL('icon-128.png'),
-        title: 'WR Desk Analysis Dashboard',
+        title: 'Optirando Analysis Dashboard',
         message: 'Click here to start the Analysis Dashboard, or start it from the Start Menu.',
         priority: 2,
         requireInteraction: true
       }, (createdNotificationId) => {
         if (chrome.runtime.lastError) {
           console.error('[BG] Failed to create notification:', chrome.runtime.lastError)
-          try { sendResponse({ success: false, error: 'Please start the WR Desk Analysis Dashboard from the Start Menu.' }) } catch {}
+          try { sendResponse({ success: false, error: 'Please start the Optirando Analysis Dashboard from the Start Menu.' }) } catch {}
           return
         }
         
@@ -2427,7 +2427,7 @@ async function checkAndLaunchElectronApp(sendResponse: (response: any) => void, 
             if (running) {
               try { sendResponse({ success: true }) } catch {}
             } else {
-              try { sendResponse({ success: false, error: 'Please start WR Desk from the Start Menu.' }) } catch {}
+              try { sendResponse({ success: false, error: 'Please start Optirando from the Start Menu.' }) } catch {}
             }
           }
         }
@@ -2488,7 +2488,7 @@ async function launchElectronAppDirect(): Promise<boolean> {
     // - Windows: Caused "Open Electron?" prompts and "Cannot find module" errors.
     // - Linux: Triggers "xdg-open Ã¶ffnen?" when protocol handler not registered
     //   (common in dev mode or when .desktop file doesn't register the handler).
-    // Users must start WR Desk manually from application menu or desktop shortcut.
+    // Users must start Optirando manually from application menu or desktop shortcut.
     // ============================================================================
 
     // Wait briefly and check if app is starting (user may have started manually)
@@ -2552,7 +2552,7 @@ async function launchElectronApp(sendResponse: (response: any) => void): Promise
       chrome.notifications.create({
         type: 'basic',
         iconUrl: chrome.runtime.getURL('icon-128.png'),
-        title: 'WR Desk Analysis Dashboard',
+        title: 'Optirando Analysis Dashboard',
         message: 'Could not start automatically. Please start WR Code from the Start Menu or desktop shortcut.',
         priority: 2,
         requireInteraction: false
@@ -3354,7 +3354,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true; // Keep channel open for async response
   }
 
-  // Handle "Open WRDesk Home" - opens optirando.com if not already open (NO tab spam)
+  // Handle "Open Optirando Home" - opens optirando.com if not already open (NO tab spam)
   // Used when extension popup/sidepanel is opened in logged-out state
   if (msg && msg.type === 'OPEN_WRDESK_HOME_IF_NEEDED') {
     (async () => {
@@ -4071,8 +4071,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           chrome.notifications.create('wrdesk-launch-help', {
             type: 'basic',
             iconUrl: chrome.runtime.getURL('icon-128.png'),
-            title: 'WR Desk Dashboard',
-            message: 'Please start "WR Desk" from the Start Menu or desktop shortcut, then click Retry Connection.',
+            title: 'Optirando Dashboard',
+            message: 'Please start "Optirando" from the Start Menu or desktop shortcut, then click Retry Connection.',
             priority: 2,
             requireInteraction: true
           });
@@ -4080,14 +4080,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           // Always show manual instructions when launch fails
           sendResponse({ 
             success: false, 
-            error: 'Please start "WR Desk" from the Start Menu or desktop shortcut.',
+            error: 'Please start "Optirando" from the Start Menu or desktop shortcut.',
             showManualInstructions: true
           });
         } catch (err) {
           console.error('[BG] Failed to launch Electron:', err);
           sendResponse({ 
             success: false, 
-            error: 'Please start the WR Desk Dashboard manually from the Start Menu.',
+            error: 'Please start the Optirando Dashboard manually from the Start Menu.',
             showManualInstructions: true
           });
         }
@@ -4129,7 +4129,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           try { 
             sendResponse({ 
               success: false, 
-              error: 'Could not connect to WR Deskâ„¢. Make sure the Electron app is running.' 
+              error: 'Could not connect to Optirando™. Make sure the Electron app is running.' 
             }) 
           } catch {}
         }

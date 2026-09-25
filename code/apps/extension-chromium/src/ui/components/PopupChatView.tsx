@@ -892,7 +892,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
           pendingTriggerRef.current = null
           setMessages(prev => [...prev, {
             role: 'assistant' as const,
-            text: `⚠️ Trigger capture failed: ${err?.message || 'Network error'}. Is the WR Desk app running?`,
+            text: `⚠️ Trigger capture failed: ${err?.message || 'Network error'}. Is the Optirando app running?`,
           }])
           scrollToBottom()
         }
@@ -2634,7 +2634,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
           pendingTriggerRef.current = null
           setMessages(prev => [...prev, {
             role: 'assistant' as const,
-            text: '⚠️ Trigger timed out — no screenshot was received within 15 seconds. Is the WR Desk app running?',
+            text: '⚠️ Trigger timed out — no screenshot was received within 15 seconds. Is the Optirando app running?',
           }])
           scrollToBottom()
         }

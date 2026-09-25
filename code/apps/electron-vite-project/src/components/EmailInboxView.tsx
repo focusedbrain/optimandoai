@@ -3772,7 +3772,7 @@ export default function EmailInboxView({
     const fn = window.emailInbox?.fullRemoteSyncAllAccounts
     if (!fn) {
       console.warn('[Inbox] fullRemoteSyncAllAccounts not available (update app)')
-      useEmailInboxStore.getState().addRemoteSyncLog('Sync: remote reconcile not available — update WR Desk')
+      useEmailInboxStore.getState().addRemoteSyncLog('Sync: remote reconcile not available — update Optirando')
       return
     }
     setRemoteSyncBusy(true)

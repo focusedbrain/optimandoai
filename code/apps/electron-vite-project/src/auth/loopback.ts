@@ -4,18 +4,22 @@ import path from 'node:path';
 import { URL } from 'node:url';
 import { randomString } from './pkce';
 
-/** Same mark as renderer: `public/wrdesk-logo.png` (dev) or `dist/wrdesk-logo.png` (packaged). */
+/** Auth pages use the Optirando wordmark (horizontal swirl + text). */
 function wrDeskLogoHtml(): string {
   const pub = process.env.VITE_PUBLIC;
   if (!pub) {
-    return '<div class="logo" style="font-weight:800;font-size:22px;color:#0f172a">WR Desk</div>';
+    return '<div class="logo" style="font-weight:800;font-size:22px;color:#0f172a">Optirando</div>';
   }
   try {
-    const png = fs.readFileSync(path.join(pub, 'wrdesk-logo.png'));
+    // Prefer wordmark; fall back to legacy filename (now Optirando symbol content).
+    const wordmark = path.join(pub, 'optirando-wordmark.png');
+    const legacy = path.join(pub, 'wrdesk-logo.png'); // Legacy filename; asset displays Optirando branding.
+    const file = fs.existsSync(wordmark) ? wordmark : legacy;
+    const png = fs.readFileSync(file);
     const uri = `data:image/png;base64,${png.toString('base64')}`;
-    return `<div class="logo" role="img" aria-label="WR Desk"><img src="${uri}" alt="WR Desk" /></div>`;
+    return `<div class="logo" role="img" aria-label="Optirando"><img src="${uri}" alt="Optirando" style="max-width:280px;height:auto" /></div>`;
   } catch {
-    return '<div class="logo" style="font-weight:800;font-size:22px;color:#0f172a">WR Desk</div>';
+    return '<div class="logo" style="font-weight:800;font-size:22px;color:#0f172a">Optirando</div>';
   }
 }
 
@@ -135,7 +139,7 @@ function startServerOnPort(port: number): Promise<LoopbackServer> {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Authentication Complete - WR Desk</title>
+  <title>Authentication Complete - Optirando</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -267,9 +271,9 @@ function startServerOnPort(port: number): Promise<LoopbackServer> {
       <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg>
       <span>Authentication successful</span>
     </div>
-    <h1>You're signed in to WR Desk</h1>
+    <h1>You're signed in to Optirando</h1>
     <p class="message">
-      Your session is now active. You can continue browsing and access the AI Orchestrator from the WR Desk extension in your browser toolbar.
+      Your session is now active. You can continue browsing and access the AI Orchestrator from the Optirando extension in your browser toolbar.
     </p>
     <div class="accordion-section">
       <div class="accordion">
@@ -280,7 +284,7 @@ function startServerOnPort(port: number): Promise<LoopbackServer> {
         <div id="help-extension" class="accordion-content">
           <ol>
             <li>Click the puzzle icon in your browser toolbar</li>
-            <li>Find "WR Desk" in the extensions list</li>
+            <li>Find "Optirando" in the extensions list</li>
             <li>Click the pin icon to keep it visible</li>
           </ol>
         </div>
@@ -291,7 +295,7 @@ function startServerOnPort(port: number): Promise<LoopbackServer> {
           <svg viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"></polyline></svg>
         </button>
         <div id="help-sso" class="accordion-content">
-          <p>WR Desk uses Single Sign-On (SSO) for a unified authentication experience. When you sign out from optirando.com, all linked WR Desk sessions—including the browser extension and desktop orchestrator—will also be signed out.</p>
+          <p>Optirando uses Single Sign-On (SSO) for a unified authentication experience. When you sign out from optirando.com, all linked Optirando sessions—including the browser extension and desktop orchestrator—will also be signed out.</p>
         </div>
       </div>
     </div>

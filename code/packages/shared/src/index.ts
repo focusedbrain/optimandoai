@@ -1,4 +1,4 @@
-export const APP_NAME = "WR Desk™ Orchestrator";
+export const APP_NAME = "Optirando™ Orchestrator";
 
 // EU AI Act Art. 50 provenance (machine-readable marking)
 export * from './aiProvenance';

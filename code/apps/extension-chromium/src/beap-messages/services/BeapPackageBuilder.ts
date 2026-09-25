@@ -1318,7 +1318,7 @@ async function buildQBeapPackage(config: BeapPackageConfig): Promise<PackageBuil
         return {
           success: false,
           error:
-            'Cannot reach the post-quantum service. Ensure WR Desk is running, the extension is connected, and try again.',
+            'Cannot reach the post-quantum service. Ensure Optirando is running, the extension is connected, and try again.',
         }
       }
       return {

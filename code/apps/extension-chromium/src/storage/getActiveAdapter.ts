@@ -89,7 +89,7 @@ export async function getActiveAdapter(): Promise<StorageAdapter> {
         console.error(
           '[getActiveAdapter] Orchestrator backend expected but unreachable. ' +
             'Tier detection and feature gating may be incorrect. ' +
-            'Ensure the WRDesk Electron app is running. ' +
+            'Ensure the Optirando Electron app is running. ' +
             errDetail
         );
 
@@ -103,7 +103,7 @@ export async function getActiveAdapter(): Promise<StorageAdapter> {
 
         const err = new Error(
           `Orchestrator backend expected but unreachable (${errDetail}). ` +
-            'Start the WRDesk Electron app for correct tier and feature gating.'
+            'Start the Optirando Electron app for correct tier and feature gating.'
         );
         reject(err);
         return;

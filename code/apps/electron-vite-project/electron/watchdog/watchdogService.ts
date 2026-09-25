@@ -173,7 +173,7 @@ export async function resolveWatchdogEffectiveModelId(configModelId?: string): P
 }
 
 /** Smart Summary — executive workspace overview (same capture as Watchdog; plain-text reply). */
-const SMART_SUMMARY_SYSTEM_PROMPT = `You are a workspace activity summarizer for WR Desk, a secure business communication platform. Analyze the user's current workspace and provide a concise executive summary.
+const SMART_SUMMARY_SYSTEM_PROMPT = `You are a workspace activity summarizer for Optirando, a secure business communication platform. Analyze the user's current workspace and provide a concise executive summary.
 
 Include:
 - What tabs/applications are currently open and what the user appears to be working on
