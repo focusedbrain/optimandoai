@@ -37,7 +37,6 @@ import {
 import LinkWarningDialog from './LinkWarningDialog'
 import SandboxLinkInfoDialog from './SandboxLinkInfoDialog'
 import { channelProvenanceAlertRecordFromUnknown } from '@repo/shared-beap-ui'
-import { AiInteractionDisclosure } from './ai/AiInteractionDisclosure'
 import { writeAiClipboard } from '../lib/aiClipboard'
 import { openAppExternalUrl } from '../lib/openAppExternalUrl'
 import BeapMessageSafeLinkParts from './BeapMessageSafeLinkParts'
@@ -2203,7 +2202,7 @@ export default function EmailInboxBulkView({
     const fn = window.emailInbox?.fullRemoteSyncAllAccounts
     if (!fn) {
       console.warn('[Inbox] fullRemoteSyncAllAccounts not available (update app)')
-      addRemoteSyncLog('Sync: remote reconcile not available — update WR Desk')
+      addRemoteSyncLog('Sync: remote reconcile not available — update Optirando')
       return
     }
     setRemoteSyncBusy(true)
@@ -5682,7 +5681,6 @@ export default function EmailInboxBulkView({
 
   return (
     <div className={`bulk-view-root ${bulkCompactMode ? 'bulk-view--compact' : ''}`} ref={bulkScrollContainerRef}>
-      <AiInteractionDisclosure variant="full" />
       {/* Toolbar — row 1: status tabs; row 2: Type filter; row 3: selection + AI / sync */}
       <div className="bulk-view-toolbar bulk-view-toolbar--stacked">
         <div className="bulk-view-toolbar-row bulk-view-toolbar-row--tabs">
@@ -6352,7 +6350,7 @@ export default function EmailInboxBulkView({
                       Unclassified messages (main Inbox — may still be in server Posteingang)
                     </div>
                     <div style={{ fontSize: 10, color: MUTED, marginBottom: 8, lineHeight: 1.45 }}>
-                      WR Desk “all” tab: not archived, not pending delete/review. Classified messages mirror to four server
+                      Optirando “all” tab: not archived, not pending delete/review. Classified messages mirror to four server
                       folders: <strong>Archive</strong> (archive / newsletter / normal / other categories),{' '}
                       <strong>Pending Review</strong> (pending_review / important), <strong>Pending Delete</strong>,{' '}
                       <strong>Urgent</strong>. Unclassified (no sort_category) stay in Inbox until Auto-Sort.

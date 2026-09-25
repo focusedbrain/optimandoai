@@ -2011,7 +2011,7 @@ export async function pqKemGenerateKeyPair(): Promise<{
   const authReady = await ensurePqHttpAuthReady()
   if (!authReady) {
     throw new PQNotAvailableError(
-      'pqKemGenerateKeyPair: launch secret not ready — ensure WR Desk is running and connected',
+      'pqKemGenerateKeyPair: launch secret not ready — ensure Optirando is running and connected',
     )
   }
 
@@ -2070,7 +2070,7 @@ export async function pqEncapsulate(peerPublicKeyB64: string): Promise<PQEncapsu
   const authReady = await ensurePqHttpAuthReady()
   if (!authReady) {
     throw new PQNotAvailableError(
-      'pqEncapsulate: launch secret not ready — ensure WR Desk is running and connected',
+      'pqEncapsulate: launch secret not ready — ensure Optirando is running and connected',
     )
   }
 
@@ -2130,7 +2130,7 @@ export async function pqDecapsulate(kemCiphertextB64: string, secretKeyB64: stri
   const authReady = await ensurePqHttpAuthReady()
   if (!authReady) {
     throw new PQNotAvailableError(
-      'pqDecapsulate: launch secret not ready — ensure WR Desk is running and connected',
+      'pqDecapsulate: launch secret not ready — ensure Optirando is running and connected',
     )
   }
 

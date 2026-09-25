@@ -1302,7 +1302,8 @@ async function createWindow() {
   // Security: renderer isolation; tokens must never be exposed to renderer
   // Always create hidden - visibility is controlled by openDashboardWindow()
   win = new BrowserWindow({
-    title: 'WR Deskâ„¢',
+    title: 'Optirando™',
+    // Legacy filename; asset displays Optirando branding (256×256 symbol).
     icon: path.join(process.env.VITE_PUBLIC, 'wrdesk-logo.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
@@ -2299,9 +2300,10 @@ async function createWindow() {
 
 function createTray() {
   try {
+    // Legacy filename; asset displays Optirando branding (symbol for compact tray).
     tray = new Tray(path.join(process.env.VITE_PUBLIC, 'wrdesk-logo.png'))
     updateTrayMenu()
-    tray.setToolTip('WR Desk Orchestrator')
+    tray.setToolTip('Optirando Orchestrator')
 
     const handleTrayActivate = async () => {
       console.log('[TRAY] Tray icon activated')
@@ -2327,7 +2329,7 @@ function createTray() {
     }
     // Startup toast
     try {
-      new Notification({ title: 'WR Desk Orchestrator', body: 'Running in background. Use Alt+Shift+S or chat icons to capture.' }).show()
+      new Notification({ title: 'Optirando Orchestrator', body: 'Running in background. Use Alt+Shift+S or chat icons to capture.' }).show()
     } catch {}
   } catch {}
 }
@@ -2477,10 +2479,10 @@ app.on('second-instance', (_e, argv) => {
   if (arg) handleDeepLink(arg)
 })
 
-// Register protocols: wrcode (primary), wrdesk (Launch WR Desk button), opengiraffe (legacy)
+// Register protocols: wrcode (primary), wrdesk (Launch Optirando button; scheme id unchanged), opengiraffe (legacy)
 app.setAsDefaultProtocolClient('wrcode')
 try {
-  app.setAsDefaultProtocolClient('wrdesk') // Used by extension "Launch WR Desk" button
+  app.setAsDefaultProtocolClient('wrdesk') // Used by extension "Launch Optirando" button (protocol id unchanged)
 } catch (err) {
   console.log('[MAIN] Could not register wrdesk protocol (may already be registered):', err)
 }
@@ -8439,7 +8441,7 @@ httpApp.post('/api/wrchat/watchdog/continuous', async (req, res) => {
               }
               
               const connectionId = 'postgres-local-wr-code';
-              const connectionName = 'Local PostgreSQL (WR Desk)';
+              const connectionName = 'Local PostgreSQL (Optirando)';
               // Include credentials in JDBC URL for automatic authentication
               const jdbcUrl = `jdbc:postgresql://${postgresConfig.host}:${postgresConfig.port}/${postgresConfig.database}?user=${encodeURIComponent(postgresConfig.user)}&password=${encodeURIComponent(postgresConfig.password)}`;
               
@@ -8506,11 +8508,11 @@ httpApp.post('/api/wrchat/watchdog/continuous', async (req, res) => {
         res.json({
           ok: true,
           message: postgresConfig 
-            ? 'DBeaver launched and configured! The connection "Local PostgreSQL (WR Desk)" is ready. Username is pre-filled. You may need to enter the password on first connect.'
+            ? 'DBeaver launched and configured! The connection "Local PostgreSQL (Optirando)" is ready. Username is pre-filled. You may need to enter the password on first connect.'
             : 'DBeaver launched successfully',
           path: launchPath,
           configured: !!postgresConfig,
-          connectionName: postgresConfig ? 'Local PostgreSQL (WR Desk)' : undefined,
+          connectionName: postgresConfig ? 'Local PostgreSQL (Optirando)' : undefined,
           username: postgresConfig?.user
         });
       } catch (error: any) {
@@ -8679,7 +8681,7 @@ httpApp.post('/api/wrchat/watchdog/continuous', async (req, res) => {
         
         // Create connection ID
         const connectionId = 'postgres-local-wr-code';
-        const connectionName = 'Local PostgreSQL (WR Desk)';
+        const connectionName = 'Local PostgreSQL (Optirando)';
         
         // Build JDBC URL
         const jdbcUrl = `jdbc:postgresql://${postgresConfig.host}:${postgresConfig.port}/${postgresConfig.database}`;
@@ -11844,10 +11846,10 @@ httpApp.post('/api/wrchat/watchdog/continuous', async (req, res) => {
           console.error(`[BOOT] âŒ FATAL: Port ${HTTP_PORT} is already in use`)
           console.error(`[BOOT] âŒ The Chrome extension expects Electron on port ${HTTP_PORT}`)
           dialog.showErrorBox(
-            'WRDesk Orchestrator - Port Conflict',
+            'Optirando Orchestrator - Port Conflict',
             `Port ${HTTP_PORT} is already in use by another process.\n\n` +
             `The Chrome extension requires Electron to be available on this exact port.\n\n` +
-            `Please close any previous WRDesk instance or other application using port ${HTTP_PORT}, then restart WRDesk Orchestrator.`
+            `Please close any previous Optirando instance or other application using port ${HTTP_PORT}, then restart Optirando Orchestrator.`
           )
           app.exit(1)
         } else {

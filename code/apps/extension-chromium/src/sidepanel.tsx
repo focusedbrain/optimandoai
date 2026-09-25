@@ -523,7 +523,7 @@ function SidepanelOrchestrator() {
         const reason = response?.error || 'unknown';
         if (response?.electronNotRunning) {
           setElectronNotRunning(true);
-          setLoginError('WR Desk Orchestrator is not running.');
+          setLoginError('Optirando Orchestrator is not running.');
           chrome.runtime.sendMessage({ type: 'OPEN_WRDESK_HOME_IF_NEEDED' });
         } else {
           setElectronNotRunning(false);
@@ -1098,7 +1098,7 @@ function SidepanelOrchestrator() {
         const r = response as { error?: string; errorCode?: string }
         const parts = [r.error, r.errorCode].filter((x): x is string => typeof x === 'string' && x.trim().length > 0)
         setEmailAccountsLoadError(
-          parts.length ? parts.join(' — ') : 'Could not load accounts from WR Desk™ (desktop app unreachable or request failed).',
+          parts.length ? parts.join(' — ') : 'Could not load accounts from Optirando™ (desktop app unreachable or request failed).',
         )
         return
       }
@@ -1121,18 +1121,18 @@ function SidepanelOrchestrator() {
       }
       if (persistence?.credentialDecryptIssues?.length) {
         hints.push(
-          `${persistence.credentialDecryptIssues.length} account(s) have credentials that could not be decrypted — reconnect in WR Desk™.`,
+          `${persistence.credentialDecryptIssues.length} account(s) have credentials that could not be decrypted — reconnect in Optirando™.`,
         )
       }
       if (persistence && 'secureStorageAvailable' in persistence && persistence.secureStorageAvailable === false) {
         hints.push(
-          'OS secure storage is unavailable. Adding or updating accounts in WR Desk™ may fail until the OS profile allows DPAPI / keychain.',
+          'OS secure storage is unavailable. Adding or updating accounts in Optirando™ may fail until the OS profile allows DPAPI / keychain.',
         )
       }
       const rowsUnknown = (response as { data?: unknown }).data
       if (!Array.isArray(rowsUnknown)) {
         setEmailAccounts([])
-        setEmailAccountsLoadError(hints.join(' ') || 'WR Desk™ returned no account list.')
+        setEmailAccountsLoadError(hints.join(' ') || 'Optirando™ returned no account list.')
         return
       }
       if (
@@ -1141,14 +1141,14 @@ function SidepanelOrchestrator() {
         persistence.load.ok === true &&
         persistence.load.fileMissing === true
       ) {
-        hints.push('No saved accounts file in WR Desk™ yet — connect an account from the desktop app first.')
+        hints.push('No saved accounts file in Optirando™ yet — connect an account from the desktop app first.')
       } else if (
         rowsUnknown.length === 0 &&
         persistence?.load &&
         persistence.load.ok === true &&
         !persistence.load.fileMissing
       ) {
-        hints.push('WR Desk™ saved accounts file lists no accounts.')
+        hints.push('Optirando™ saved accounts file lists no accounts.')
       }
       const rows = rowsUnknown as Array<{
         id: string
@@ -2508,7 +2508,7 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
       console.error('[Sidepanel] Failed to launch Electron:', err)
       setShowManualLaunchInstructions(true)
       setNotification({ 
-        message: 'Please start the WR Desk Dashboard manually.', 
+        message: 'Please start the Optirando Dashboard manually.', 
         type: 'error' 
       })
       setTimeout(() => setNotification(null), 8000)
@@ -2701,7 +2701,7 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
   }
 
 
-  // Pull tags from Electron host (WR Desk dashboard) into chrome.storage so they match popup/dashboard WR Chat.
+  // Pull tags from Electron host (Optirando dashboard) into chrome.storage so they match popup/dashboard WR Chat.
   useEffect(() => {
     void mergeTaggedTriggersFromHost()
     const t = setInterval(() => void mergeTaggedTriggersFromHost(), 45_000)
@@ -3968,7 +3968,7 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
           pendingTriggerRef.current = null
           setChatMessages(prev => [...prev, {
             role: 'assistant' as const,
-            text: '⚠️ Trigger timed out — no screenshot was received within 15 seconds. Is the WR Desk app running?',
+            text: '⚠️ Trigger timed out — no screenshot was received within 15 seconds. Is the Optirando app running?',
           }])
         }
       }, TRIGGER_TIMEOUT_MS)
@@ -4864,7 +4864,7 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
         try { window.dispatchEvent(new CustomEvent('optimando-sp-trigger-result-received')) } catch { /* noop */ }
         setChatMessages(prev => [...prev, {
           role: 'assistant' as const,
-          text: `⚠️ Trigger capture failed: ${errorText}. Check that the WR Desk app is running and the trigger region is valid.`,
+          text: `⚠️ Trigger capture failed: ${errorText}. Check that the Optirando app is running and the trigger region is valid.`,
         }])
       } catch (err: unknown) {
         console.error('[Sidepanel] execute-trigger fetch error:', err)
@@ -4873,7 +4873,7 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
         const msg = err instanceof Error ? err.message : 'Network error'
         setChatMessages(prev => [...prev, {
           role: 'assistant' as const,
-          text: `⚠️ Trigger capture failed: ${msg}. Is the WR Desk app running?`,
+          text: `⚠️ Trigger capture failed: ${msg}. Is the Optirando app running?`,
         }])
       }
     })()
@@ -5310,7 +5310,7 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
                   {platformOs === 'linux' ? (
                     <>
                       <li>Open your application menu</li>
-                      <li>Search for <strong>WR Desk</strong></li>
+                      <li>Search for <strong>Optirando</strong></li>
                       <li>Click to launch the application</li>
                       <li>Wait for the tray icon (🧠) to appear</li>
                       <li>Click <strong>Retry Connection</strong> below</li>
@@ -5318,7 +5318,7 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
                   ) : (
                     <>
                       <li>Open the <strong>Start Menu</strong></li>
-                      <li>Search for <strong>WR Desk</strong></li>
+                      <li>Search for <strong>Optirando</strong></li>
                       <li>Click to launch the application</li>
                       <li>Wait for the tray icon (🧠) to appear</li>
                       <li>Click <strong>Retry Connection</strong> below</li>
@@ -5373,7 +5373,7 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
             paddingTop: '12px'
           }}>
             <strong>Tip:</strong> {platformOs === 'linux'
-              ? 'On Linux, start WR Desk from your application menu. Check the system tray (🧠) if it\'s running.'
+              ? 'On Linux, start Optirando from your application menu. Check the system tray (🧠) if it\'s running.'
               : 'The dashboard normally starts automatically with Windows. Check the system tray (🧠) if it\'s running in the background.'}
           </div>
         </div>
@@ -5403,7 +5403,7 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
           color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)',
           textAlign: 'center'
         }}>
-          Loading WR Desk™…
+          Loading Optirando™…
         </div>
       </div>
     )
@@ -5429,25 +5429,22 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
         gap: '24px',
         boxSizing: 'border-box'
       }}>
-        {/* WRDesk Logo */}
+        {/* Optirando Logo */}
         <div style={{ textAlign: 'center' }}>
-          <img 
-            src={chrome.runtime.getURL('wrdesk-logo.png')}
-            alt="WR Desk"
+          <img
+            src={chrome.runtime.getURL('optirando-logo.png')}
+            alt="Optirando"
             style={{
-              width: '180px',
+              width: '220px',
               height: 'auto',
-              marginBottom: '16px'
+              maxWidth: '100%',
+              objectFit: 'contain',
+              marginBottom: '12px'
+            }}
+            onError={(e) => {
+              ;(e.currentTarget as HTMLImageElement).src = chrome.runtime.getURL('optirando-symbol.png')
             }}
           />
-          <p style={{
-            fontSize: '13px',
-            color: mutedColor,
-            margin: '0 0 8px 0',
-            lineHeight: '1.5'
-          }}>
-            Workflow-Ready Desk
-          </p>
           <p style={{
             fontSize: '11px',
             color: mutedColor,
@@ -5548,7 +5545,7 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
                   textAlign: 'center',
                   lineHeight: '1.5',
                 }}>
-                  WR Desk Orchestrator is not running.
+                  Optirando Orchestrator is not running.
                 </p>
                 <p style={{
                   fontSize: '11px',
@@ -5558,12 +5555,12 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
                   lineHeight: '1.5',
                 }}>
                   {platformOs === 'linux'
-                    ? 'Please start WR Desk from your application menu.'
-                    : <>Please start WR Desk from the Start menu.</>}
+                    ? 'Please start Optirando from your application menu.'
+                    : <>Please start Optirando from the Start menu.</>}
                 </p>
                 {launchTimedOut ? (
                   <p style={{ fontSize: '11px', color: theme === 'standard' ? '#dc2626' : '#f87171', margin: '4px 0 0', textAlign: 'center' }}>
-                    Could not connect. Please make sure WR Desk is running and try again.
+                    Could not connect. Please make sure Optirando is running and try again.
                   </p>
                 ) : null}
                 <button

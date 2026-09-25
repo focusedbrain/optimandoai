@@ -1224,7 +1224,7 @@ export function EmailConnectWizard({
                     color: isPro ? '#92400e' : 'rgba(255,255,255,0.9)',
                   }}
                 >
-                  Email connection requires the desktop app. Ensure WR Desk™ is running.
+                  Email connection requires the desktop app. Ensure Optirando™ is running.
                 </div>
               )}
               <div

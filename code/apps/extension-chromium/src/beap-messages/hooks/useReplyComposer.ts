@@ -11,7 +11,7 @@
  *    - BEAP mode  → packages a reply capsule, delivers it via executeEmailAction
  *                   (packageConfig.deliveryMethod is always 'email' for replies),
  *                   and records it in the store only after delivery succeeds.
- *    - Email mode → composes an email with the mandatory WR Desk signature, dispatches
+ *    - Email mode → composes an email with the mandatory Optirando signature, dispatches
  *                   via executeEmailAction, records in store.
  * 4. Expose saveDraft(): persists current composer text to BeapMessage.draftReply.
  * 5. Expose generateAiDraft(): gate-checks semantic authorization, calls the AI
@@ -59,7 +59,7 @@ import {
 // Constants
 // =============================================================================
 
-/** Mandatory WR Desk promotional email signature. */
+/** Mandatory Optirando promotional email signature. */
 export const EMAIL_SIGNATURE = '\n\n—\nAutomate your inbox. Try optirando.com\nhttps://optirando.com'
 
 /** Derive a reply subject from a message. */
