@@ -3379,6 +3379,16 @@ app.whenReady().then(async () => {
         return (await handleHandshakeRPC(method, p, db)) as Record<string, unknown>
       }
 
+      // WR Code (Annex XVI): every effect requires a signed-in account, so the
+      // whole wrc.* surface needs an active SSO session. No skipVaultContext
+      // escape exists for this prefix.
+      if (method.startsWith('wrc.')) {
+        if (!getCurrentSession()) {
+          return { success: false, error: 'No active session. Please log in first.' }
+        }
+        return (await handleHandshakeRPC(method, p, getLedgerDb())) as Record<string, unknown>
+      }
+
       if (method.startsWith('ingestion.')) {
         const ssoSession = getCurrentSession()
         const ledgerDb = getLedgerDb()
@@ -6204,6 +6214,27 @@ async function runDeviceKeyMigration(
               return
             }
 
+            // ===== WR CODE RPC HANDLING (signed-in account required) =====
+            // Annex XVI: every WR Code effect requires an account; no
+            // skipVaultContext escape exists for this prefix.
+            if (msg.method && msg.method.startsWith('wrc.')) {
+              try {
+                if (!getCurrentSession()) {
+                  socket.send(JSON.stringify({
+                    id: msg.id,
+                    success: false,
+                    error: 'No active session. Please log in first.',
+                  }))
+                  return
+                }
+                const response = await handleHandshakeRPC(msg.method, msg.params || {}, getLedgerDb())
+                socket.send(JSON.stringify({ id: msg.id, ...response }))
+              } catch (error: any) {
+                console.error('[MAIN] wrc RPC error:', msg.method, error?.message)
+                socket.send(JSON.stringify({ id: msg.id, success: false, error: error.message || 'Unknown error' }))
+              }
+              return
+            }
 
             // ===== BEAP RPC HANDLING (device keys — no vault lock required) =====
             if (msg.method && msg.method.startsWith('beap.')) {
