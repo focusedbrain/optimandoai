@@ -102,7 +102,6 @@ function inboxFailureLooksEmbeddingOnly(message: string | undefined): boolean {
 import { InboxUrgencyMeter } from './InboxUrgencyMeter'
 import { InboxHandshakeNavIconButton } from './InboxHandshakeNavIcon'
 import '../components/handshakeViewTypes'
-import { AiInteractionDisclosure } from './ai/AiInteractionDisclosure'
 import { writeAiClipboard } from '../lib/aiClipboard'
 import { executeDeliveryAction, type BeapPackageConfig } from '@ext/beap-messages/services/BeapPackageBuilder'
 import { buildSessionImportArtefact, type BuildArtefactInput } from '@ext/beap-builder/buildSessionImportArtefact'
@@ -1745,7 +1744,6 @@ export function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive,
 
   return (
     <div className="inbox-detail-ai-inner inbox-detail-ai-premium" role="complementary" aria-label="AI email analysis">
-      <AiInteractionDisclosure variant="full" />
       <div className="inbox-detail-ai-action-bar">
         <button
           type="button"

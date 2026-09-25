@@ -11,7 +11,6 @@ import { useLetterComposerStore } from '../stores/useLetterComposerStore'
 import { LetterTemplatePort } from './LetterTemplatePort'
 import { LetterViewerPort } from './LetterViewerPort'
 import './LetterComposerView.css'
-import { AiInteractionDisclosure } from './ai/AiInteractionDisclosure'
 
 /** Pushes letter-composer into chat focus. `focusedPort` is set by port buttons or implicitly when a template field is focused (`setFocusedTemplateField`). */
 function syncLetterComposerChatFocus() {
@@ -255,7 +254,6 @@ export function LetterComposerView({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="letter-composer-view">
-      <AiInteractionDisclosure variant="full" />
       <div className="letter-composer-vault-bar">
         <label className="letter-composer-vault-bar__label" htmlFor="letter-vault-category">
           Sender data:

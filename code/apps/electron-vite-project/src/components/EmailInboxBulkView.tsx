@@ -37,7 +37,6 @@ import {
 import LinkWarningDialog from './LinkWarningDialog'
 import SandboxLinkInfoDialog from './SandboxLinkInfoDialog'
 import { channelProvenanceAlertRecordFromUnknown } from '@repo/shared-beap-ui'
-import { AiInteractionDisclosure } from './ai/AiInteractionDisclosure'
 import { writeAiClipboard } from '../lib/aiClipboard'
 import { openAppExternalUrl } from '../lib/openAppExternalUrl'
 import BeapMessageSafeLinkParts from './BeapMessageSafeLinkParts'
@@ -5682,7 +5681,6 @@ export default function EmailInboxBulkView({
 
   return (
     <div className={`bulk-view-root ${bulkCompactMode ? 'bulk-view--compact' : ''}`} ref={bulkScrollContainerRef}>
-      <AiInteractionDisclosure variant="full" />
       {/* Toolbar — row 1: status tabs; row 2: Type filter; row 3: selection + AI / sync */}
       <div className="bulk-view-toolbar bulk-view-toolbar--stacked">
         <div className="bulk-view-toolbar-row bulk-view-toolbar-row--tabs">
