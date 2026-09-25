@@ -1,16 +1,14 @@
 /**
- * WR Code e-mail detection [XVI.7.5, grammar v2] — the producer that scans a
- * plain body and merges check-verified references into the seal-bound
- * `depackaged_metadata` blob beside the Channel Provenance Record.
+ * WR Code e-mail body scan [XVI.3, XVI.7.4a, grammar v2] — explicit trigger
+ * only. The scanner returns check-verified candidates; ingest never runs it.
  */
+import { readFileSync } from 'node:fs'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { mergeChannelProvenanceMetadata, produceChannelProvenance } from '../channelProvenanceProducer'
-import {
-  WR_CODE_DETECTION_METADATA_KEY,
-  detectWrCodeReferencesInEmailBody,
-  mergeWrCodeDetectionMetadata,
-  readWrCodeDetectionMetadata,
-} from '../wrCodeEmailDetection'
+import { detectWrCodeReferencesInEmailBody } from '../wrCodeEmailDetection'
+
+const here = dirname(fileURLToPath(import.meta.url))
 
 const BODY = [
   'Dear operator,',
@@ -34,47 +32,16 @@ describe('detectWrCodeReferencesInEmailBody', () => {
   })
 })
 
-describe('mergeWrCodeDetectionMetadata', () => {
-  const DETECTIONS = detectWrCodeReferencesInEmailBody(BODY)
+describe('ingest never auto-detects loose WR Code references [XVI.3, XVI.7.4a]', () => {
+  const routerSource = readFileSync(resolve(here, '../messageRouter.ts'), 'utf8')
 
-  it('no detections ⇒ metadata passes through unchanged (null stays null)', () => {
-    expect(mergeWrCodeDetectionMetadata(null, [])).toBeNull()
-    expect(mergeWrCodeDetectionMetadata('{"a":1}', [])).toBe('{"a":1}')
+  it('the message router does not import or call any reference scanner', () => {
+    expect(routerSource).not.toMatch(/wrCodeEmailDetection/)
+    expect(routerSource).not.toMatch(/detectWrCodeReferences/)
   })
 
-  it('detections merge beside existing keys without dropping them', () => {
-    const merged = mergeWrCodeDetectionMetadata('{"pbeap_trust":{"kind":"live"}}', DETECTIONS)!
-    const parsed = JSON.parse(merged)
-    expect(parsed.pbeap_trust).toEqual({ kind: 'live' })
-    expect(parsed[WR_CODE_DETECTION_METADATA_KEY]).toHaveLength(2)
-  })
-
-  it('unreadable existing metadata is quarantined, not dropped', () => {
-    const merged = mergeWrCodeDetectionMetadata('not json', DETECTIONS)!
-    expect(JSON.parse(merged).unparsable_metadata).toBe('not json')
-  })
-
-  it('composes with the CPR merge exactly as the router calls it', () => {
-    const cpr = produceChannelProvenance({ contentSha256: 'c'.repeat(64) })
-    const blob = mergeChannelProvenanceMetadata(
-      mergeWrCodeDetectionMetadata(null, DETECTIONS),
-      cpr,
-    )
-    const detections = readWrCodeDetectionMetadata(blob)
-    expect(detections.map((d) => d.canonical)).toEqual(['PWR7X4K9B2M3C', 'SPWR7X4KH2N5V87'])
-    // The CPR is still there beside the detections.
-    expect(JSON.parse(blob).channel_provenance).toBeDefined()
-  })
-})
-
-describe('readWrCodeDetectionMetadata', () => {
-  it('round-trips and fails closed on garbage', () => {
-    const blob = mergeWrCodeDetectionMetadata(null, detectWrCodeReferencesInEmailBody(BODY))
-    expect(readWrCodeDetectionMetadata(blob)).toHaveLength(2)
-    expect(readWrCodeDetectionMetadata(null)).toEqual([])
-    expect(readWrCodeDetectionMetadata('')).toEqual([])
-    expect(readWrCodeDetectionMetadata('not json')).toEqual([])
-    expect(readWrCodeDetectionMetadata('{"wr_code_detections":"nope"}')).toEqual([])
-    expect(readWrCodeDetectionMetadata('{"wr_code_detections":[{"canonical":1}]}')).toEqual([])
+  it('no detections are written into the sealed message metadata', () => {
+    expect(routerSource).not.toMatch(/wr_code_detections/)
+    expect(routerSource).toMatch(/mergeChannelProvenanceMetadata\(null, channelProvenance\)/)
   })
 })

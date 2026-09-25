@@ -7,7 +7,7 @@
  * with the fail-closed reason codes intact.
  */
 import { describe, expect, it } from 'vitest'
-import { handleWrcCaptureReference } from '../wrcRuntime'
+import { handleWrcCaptureReference, handleWrcDetectReferences } from '../wrcRuntime'
 
 describe('handleWrcCaptureReference', () => {
   it('captures a v1.95 reference of each shape with full framing', () => {
@@ -44,5 +44,22 @@ describe('handleWrcCaptureReference', () => {
   it('rejects a missing or non-string payload at the boundary', () => {
     expect(handleWrcCaptureReference({})).toEqual({ success: false, error: 'raw is required' })
     expect(handleWrcCaptureReference({ raw: 42 })).toEqual({ success: false, error: 'raw is required' })
+  })
+})
+
+describe('handleWrcDetectReferences — explicit-trigger scan [XVI.3, XVI.7.4a]', () => {
+  it('returns only check-verified candidates found in the given text', () => {
+    const r = handleWrcDetectReferences({
+      text: 'Offer P-WR7X4K-9B2M3C, near-miss P-WR7Z4K-9B2M3C, retired WR7X4K9B2M3P.',
+    })
+    expect(r).toEqual({
+      success: true,
+      result: [{ canonical: 'PWR7X4K9B2M3C', cls: 'P', display: 'P-WR7X4K-9B2M3C', publisher: 'WR7X4K' }],
+    })
+  })
+
+  it('rejects a missing or non-string payload at the boundary', () => {
+    expect(handleWrcDetectReferences({})).toEqual({ success: false, error: 'text is required' })
+    expect(handleWrcDetectReferences({ text: 7 })).toEqual({ success: false, error: 'text is required' })
   })
 })

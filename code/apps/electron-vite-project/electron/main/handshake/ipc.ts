@@ -3587,6 +3587,14 @@ export async function handleHandshakeRPC(
       return handleWrcCaptureReference((params ?? {}) as Record<string, unknown>)
     }
 
+    // Explicit user-triggered scan of free text for WR Code candidates
+    // [XVI.3, XVI.7.4a]: the only way a loose textual reference is detected.
+    // Local, no network; candidates are submitted separately.
+    case 'wrc.detectReferences': {
+      const { handleWrcDetectReferences } = await import('../wrc/wrcRuntime')
+      return handleWrcDetectReferences((params ?? {}) as Record<string, unknown>)
+    }
+
     // WR Code submission [XVI.7.6]: THE resolution path. Runs the six ordered
     // fail-closed gates (syntax → namespace → entry → self-match →
     // relay-release → capsule-admission); first failure terminates with the

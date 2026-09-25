@@ -1,40 +1,25 @@
 /**
- * WR Code® detection for the e-mail slice — Annex XVI v1.95 §XVI.7.5 (linkless
- * email carrier), grammar version 2.
+ * WR Code® reference scan of an e-mail body — Annex XVI v1.95, grammar version 2.
  *
- * A plain e-mail body is scanned for textual references of every class
- * (P/I/C/SP/SI/SC/SE, prefix-aware) with the ingestion-core detector; only
- * check-verified candidates ever leave the scanner. The verdicts are merged
- * into the message's `depackaged_metadata` blob, which is BOUND INTO THE SEAL
- * beside the Channel Provenance Record — so a stored detection can no more be
- * edited after the fact than the channel verdict can.
+ * EXPLICIT TRIGGER ONLY. Annex XVI §XVI.3 and §XVI.7.4a: automatic detection
+ * (and auto-insertion) from a web page or an e-mail requires that the
+ * reference was placed there through the signed WR script block; loose
+ * textual references remain capturable manually and are verified like any
+ * other capture, but are never auto-detected. Ingest therefore never calls
+ * this module — the only caller is a user-initiated scan
+ * (`wrc.detectReferences`), whose candidates the user then submits through
+ * `wrc.submitReference` and the one §XVI.7.6 pipeline.
  *
- * What a detection is NOT: it is not a submission, not a resolution, and not
- * an affordance by itself. §XVI.5.8 keeps completeness, submission, and
- * verification apart — a detected candidate is DISPLAY material for a capture
- * indicator until an explicit act submits it.
- *
- * The caller (messageRouter) runs this ONLY for a channel-authenticated
- * message, in the same structural position as BEAP carrier detection: when
- * `channel_pass` fails, this code is never reached rather than its result
- * being discarded.
- *
- * TODO [XVI.7.7]: capture-indicator surface + SUBMITTED state for detected
- *   candidates (explicit submission act; out of scope for this run).
- *
- * Run 2: submission EXISTS — a detected candidate's explicit submission act
- * exits into `wrc.submitReference` (`handleWrcSubmitReference`), the one
- * §XVI.7.6 six-gate pipeline. No path from a detection to a resolution
- * bypasses it; §XVI.8.4 one-time-use is enforced inside those gates, never
- * as detection state.
+ * The scan is pure and local: prefix-aware, length-bounded, and every
+ * candidate is re-framed by the grammar-v2 capture gate, so only
+ * check-verified references are returned. A near-miss or old-format code
+ * contributes nothing. A returned candidate is display material, never a
+ * submission, resolution, or affordance by itself (§XVI.5.8).
  */
 
 import { detectWrCodeReferences, type WrCodeClass } from '@repo/ingestion-core'
 
-/** Metadata key under which detections live in `depackaged_metadata`. */
-export const WR_CODE_DETECTION_METADATA_KEY = 'wr_code_detections'
-
-/** Persisted per-detection verdict: identifier material only, never carrier bytes. */
+/** One check-verified candidate: identifier material only, never carrier bytes. */
 export interface WrCodeEmailDetection {
   /** Grammar-v2 canonical (prefix + normalized body + check, ungrouped). */
   canonical: string
@@ -44,10 +29,7 @@ export interface WrCodeEmailDetection {
   publisher: string
 }
 
-/**
- * Scan a plain e-mail body. Every entry is check-verified and re-framed from
- * the capture gate; a near-miss or old-format code contributes nothing.
- */
+/** Scan a plain-text body on explicit user request. */
 export function detectWrCodeReferencesInEmailBody(bodyText: string): WrCodeEmailDetection[] {
   return detectWrCodeReferences(bodyText ?? '').map((d) => ({
     canonical: d.reference.canonical,
@@ -55,52 +37,4 @@ export function detectWrCodeReferencesInEmailBody(bodyText: string): WrCodeEmail
     display: d.reference.display,
     publisher: d.reference.publisher,
   }))
-}
-
-/**
- * Merge detections into a `depackaged_metadata` JSON blob (same contract as
- * `mergeChannelProvenanceMetadata`: unreadable existing metadata is kept under
- * a quarantine key, never dropped). No detections ⇒ the blob passes through
- * unchanged, so pre-existing rows and no-hit messages are byte-identical to
- * before this feature existed.
- */
-export function mergeWrCodeDetectionMetadata(
-  existingMetadataJson: string | null | undefined,
-  detections: readonly WrCodeEmailDetection[],
-): string | null {
-  if (detections.length === 0) return existingMetadataJson ?? null
-  let base: Record<string, unknown> = {}
-  if (typeof existingMetadataJson === 'string' && existingMetadataJson.trim() !== '') {
-    try {
-      const parsed = JSON.parse(existingMetadataJson)
-      if (typeof parsed === 'object' && parsed !== null) base = parsed as Record<string, unknown>
-      else base = { unparsable_metadata: existingMetadataJson }
-    } catch {
-      base = { unparsable_metadata: existingMetadataJson }
-    }
-  }
-  base[WR_CODE_DETECTION_METADATA_KEY] = detections
-  return JSON.stringify(base)
-}
-
-/** Typed reader for consumers of persisted rows (capture indicator, tests). */
-export function readWrCodeDetectionMetadata(
-  metadataJson: string | null | undefined,
-): WrCodeEmailDetection[] {
-  if (typeof metadataJson !== 'string' || metadataJson.trim() === '') return []
-  try {
-    const parsed = JSON.parse(metadataJson) as Record<string, unknown>
-    const raw = parsed?.[WR_CODE_DETECTION_METADATA_KEY]
-    if (!Array.isArray(raw)) return []
-    return raw.filter(
-      (e): e is WrCodeEmailDetection =>
-        typeof e === 'object' && e !== null &&
-        typeof (e as WrCodeEmailDetection).canonical === 'string' &&
-        typeof (e as WrCodeEmailDetection).cls === 'string' &&
-        typeof (e as WrCodeEmailDetection).display === 'string' &&
-        typeof (e as WrCodeEmailDetection).publisher === 'string',
-    )
-  } catch {
-    return []
-  }
 }

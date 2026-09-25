@@ -44,11 +44,6 @@ import {
   produceChannelProvenance,
   recordChannelProvenanceEvidence,
 } from './channelProvenanceProducer'
-import {
-  detectWrCodeReferencesInEmailBody,
-  mergeWrCodeDetectionMetadata,
-  type WrCodeEmailDetection,
-} from './wrCodeEmailDetection'
 import { validatorOrchestrator } from '../validator-process/orchestrator'
 import { isSeamValidationCutoverEnabled } from '../critical-jobs/featureFlags'
 import { isOpaqueIngestionActive } from './opaqueIngestion'
@@ -526,15 +521,10 @@ export async function detectAndRouteMessageInline(
   const handshakeId: string | null = detection.handshakeId
   const detectedType: 'beap' | 'plain' = detection.detectedType
 
-  // WR Code reference detection (Annex XVI v1.95, §XVI.7.5 linkless email):
-  // same structural gate as BEAP carrier detection — a failing `channel_pass`
-  // means this scan is never reached. Plain messages only; a BEAP capsule's
-  // WR material arrives through the offer path, not free-text scanning. Every
-  // entry is check-verified by the grammar-v2 capture gate before it exists.
-  const wrCodeDetections: WrCodeEmailDetection[] =
-    channelProvenance.channel_pass && detectedType === 'plain'
-      ? detectWrCodeReferencesInEmailBody(bodyText)
-      : []
+  // No WR Code reference scan at ingest (Annex XVI v1.95 §XVI.3, §XVI.7.4a):
+  // automatic detection from a message requires the signed WR script block,
+  // and loose textual references are captured only by an explicit user
+  // trigger (`wrc.detectReferences` / `wrc.captureReference`).
 
   // ── Step 2a: Attachment preprocessing (Att-2, PR B-3.1) ──────────────────
   //
@@ -874,12 +864,7 @@ export async function detectAndRouteMessageInline(
       inboxMessageId, messageId, accountId, rawMsg, fromAddr,
       fromName, subject, bodyText, bodyHtml, toList, ccList,
       receivedAt, attachmentsCanonical,
-      // Detections ride beside the CPR in the seal-bound metadata blob, so a
-      // stored detection is as tamper-evident as the channel verdict itself.
-      mergeChannelProvenanceMetadata(
-        mergeWrCodeDetectionMetadata(null, wrCodeDetections),
-        channelProvenance,
-      ),
+      mergeChannelProvenanceMetadata(null, channelProvenance),
     )
   }
 

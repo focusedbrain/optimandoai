@@ -29,7 +29,6 @@ import { tmpdir } from 'node:os'
 import { buildWrCodeReference, captureWrCodeReference } from '@repo/ingestion-core'
 import { handleHandshakeRPC } from '../../handshake/ipc'
 import { WR_CODE_GATE_ORDER } from '../gatePipeline'
-import { detectWrCodeReferencesInEmailBody } from '../../email/wrCodeEmailDetection'
 import { WrcDirectoryClient } from '../namespaceDirectory'
 import { createDbDeviceRegistry, type WrcDeviceRegistry } from '../deviceRegistry'
 import { deriveEntryDesignator, useLimitEntryKey } from '../entryDesignator'
@@ -375,10 +374,12 @@ describe.skipIf(!Database)('production full path: every Annex class via the RPC 
     expect(useLimits.read(TENANT, C_ENTRY_KEY)?.uses_taken).toBe(1)
   })
 
-  it('e-mail detection is a capture origin: the detected canonical submits and admits', async () => {
+  it('an explicitly triggered message scan is a capture origin: the found canonical submits and admits', async () => {
     setWrcIdentityForTests(TENANT_PRINCIPAL)
-    const body = `Hi — your context reference is ${I_REF}, please open it in WRDesk.`
-    const detections = detectWrCodeReferencesInEmailBody(body)
+    const body = `Hi — your context reference is ${I_REF}, please open it in Optirando.`
+    const scanned = await rpc('wrc.detectReferences', { text: body })
+    expect(scanned.success).toBe(true)
+    const detections = scanned.result as Array<{ canonical: string; cls: string }>
     expect(detections.length).toBe(1)
     expect(detections[0]!.cls).toBe('I')
 

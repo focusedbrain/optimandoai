@@ -26,6 +26,10 @@ import { randomBytes } from 'node:crypto'
 import { getCachedUserInfo } from '../../../src/auth/sessionCache'
 import { captureWrCodeReference, type WrCodeCaptureResult } from '@repo/ingestion-core'
 import {
+  detectWrCodeReferencesInEmailBody,
+  type WrCodeEmailDetection,
+} from '../email/wrCodeEmailDetection'
+import {
   claimantIdOf,
   runWrCodeGatePipeline,
   type WrCodeGateOutcome,
@@ -323,6 +327,21 @@ export function handleWrcCaptureReference(params: {
 }): { success: true; result: WrCodeCaptureResult } | { success: false; error: string } {
   if (typeof params?.raw !== 'string') return { success: false, error: 'raw is required' }
   return { success: true, result: captureWrCodeReference(params.raw) }
+}
+
+/**
+ * Loopback-RPC entry point (`wrc.detectReferences`) — the explicit user
+ * trigger for scanning free text, e.g. "find WR codes in this message".
+ * Annex XVI §XVI.3/§XVI.7.4a: loose textual references are never
+ * auto-detected; they are captured only on the user's request. Local and
+ * pure like `wrc.captureReference`: no network, no store; every candidate is
+ * check-verified and still has to be submitted explicitly.
+ */
+export function handleWrcDetectReferences(params: {
+  text?: unknown
+}): { success: true; result: WrCodeEmailDetection[] } | { success: false; error: string } {
+  if (typeof params?.text !== 'string') return { success: false, error: 'text is required' }
+  return { success: true, result: detectWrCodeReferencesInEmailBody(params.text) }
 }
 
 /**
