@@ -3613,6 +3613,13 @@ export async function handleHandshakeRPC(
       return handleWrcAcceptReference((params ?? {}) as Record<string, unknown>)
     }
 
+    // Build flavor and configuration, so a surface can mark test-registry
+    // material as test data before rendering it.
+    case 'wrc.runtimeStatus': {
+      const { handleWrcRuntimeStatus } = await import('../wrc/wrcRuntime')
+      return handleWrcRuntimeStatus()
+    }
+
     // ── Phase B, PR B-8: Extension BEAP Inbox — sealed read + operational mutations ──
     // ── Phase B, PR B-8.1: cursor-based pagination helpers ──
 

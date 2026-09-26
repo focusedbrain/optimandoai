@@ -28,7 +28,9 @@ if (!basename) {
   process.exit(1)
 }
 
-const winUnpackedDir = path.join(BUILD_BASE, basename, 'win-unpacked')
+/** `build:wrc-test` packages into `<basename>-wrc-test` (electron-builder.config.cjs). The extension folder keeps `basename`. */
+const outputBasename = basename + (process.env.WRDESK_WRC_BUILD_FLAVOR === 'wrc-test' ? '-wrc-test' : '')
+const winUnpackedDir = path.join(BUILD_BASE, outputBasename, 'win-unpacked')
 
 /** Prefer current config name; accept legacy `WR DeskT.exe` until everyone rebuilds. */
 function resolvePackagedExePath() {
@@ -95,7 +97,7 @@ if (!peers.ok) {
   console.error(
     `[verify-win-unpacked] INCOMPLETE win-unpacked (${peers.detail}). Expected ${executableName}.exe (or legacy WR DeskT.exe) plus Chromium DLLs next to locales/.\n` +
       '  Fix: pnpm run build (or pnpm run build:portable), exclude C:\\build-output from AV, delete C:\\build-output\\' +
-      basename +
+      outputBasename +
       ' and retry.\n' +
       '  Chrome extension path is apps\\extension-chromium\\' +
       basename +
@@ -176,7 +178,7 @@ console.log('  ' + exePath)
 
 /** Helps when users open only `C:\\build-output\\buildNN` and expect the EXE next to builder-debug.yml. */
 try {
-  const marker = path.join(BUILD_BASE, basename, 'WHERE_IS_THE_EXE.txt')
+  const marker = path.join(BUILD_BASE, outputBasename, 'WHERE_IS_THE_EXE.txt')
   const body = [
     'WR Desk Windows unpacked build (desktop Electron app — NOT the Chrome extension).',
     '',

@@ -4,6 +4,8 @@
 declare const __WR_RUNTIME_GIT_COMMIT__: string
 declare const __WR_RUNTIME_GIT_BRANCH__: string
 declare const __ORCHESTRATOR_BUILD_STAMP__: string
+/** WR Code trust flavor: `release` or `wrc-test` (`vite.config.ts`). */
+declare const __WRC_BUILD_FLAVOR__: string
 
 declare module 'ws'
 

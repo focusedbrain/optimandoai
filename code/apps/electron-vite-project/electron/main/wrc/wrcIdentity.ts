@@ -16,8 +16,10 @@
  *    must not enter the pipeline as "SSO-verified".
  *  - Party/publisher/device identifiers and key material: deployment
  *    configuration (env), because the WRC party model has no settings
- *    surface yet (same posture as the registry endpoint in `wrcRuntime.ts`).
- *    Absent pieces stay absent — the gates that need them fail closed.
+ *    surface yet (Q19 = B). Trust anchors are NOT read here: release builds
+ *    pin them in `wrcTrustAnchors.ts`. `wrc-test` builds use the test
+ *    registry's identity instead. Absent pieces stay absent — the gates that
+ *    need them fail closed.
  *
  * Everything here is read once per runtime init; tests inject a full
  * identity via the seam in `wrcRuntime.ts`, never through the RPC caller.

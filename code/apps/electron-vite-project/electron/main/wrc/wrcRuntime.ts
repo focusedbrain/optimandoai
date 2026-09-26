@@ -57,10 +57,14 @@ import { WrcDirectoryClient } from './namespaceDirectory'
 import { createDbUseLimitStore, type WrcUseLimitStore } from './useLimitStore'
 import {
   createDbDirectoryGenerationFloorStore,
+  defaultWrcSecurityDbPath,
   maintainWrcSecurityDb,
   openWrcSecurityDb,
   type WrcSecurityDb,
 } from './wrcSecurityDb'
+import { wrcBuildFlavor, type WrcBuildFlavor } from './wrcBuildFlavor'
+import { WRC_RELEASE_TRUST, WRC_TEST_KID_PREFIX, type WrcPinnedTrust } from './wrcTrustAnchors'
+import { createWrcTestRegistry, type WrcTestRegistry } from './wrcTestRegistry'
 import { createDbAdmissionReplayStore, type WrcAdmissionReplayStore } from './capsuleAdmission'
 import { readRuntimeIdentityFromEnvironment, type WrcRuntimeIdentity } from './wrcIdentity'
 import { createDbDeviceRegistry, type WrcDeviceRegistry } from './deviceRegistry'
@@ -113,14 +117,48 @@ function cachedSsoEmail(): string | null {
 }
 
 function readConfigFromEnvironment(): WrcRuntimeConfig {
-  // Env only for now: the settings surface for the registry endpoint arrives
-  // with the Phase-4 offer work. Contract-first means no half-built UI.
   return {
     registryBaseUrl: process.env.WRDESK_WRC_REGISTRY_URL ?? null,
     ingestPublicKey: process.env.WRDESK_WRC_INGEST_PUBKEY ?? null,
     directoryOperatorKid: process.env.WRDESK_WRC_DIRECTORY_OPERATOR_KID ?? null,
     directoryOperatorPub: process.env.WRDESK_WRC_DIRECTORY_OPERATOR_PUBKEY ?? null,
   }
+}
+
+/** The built-in test registry, created once per process in `wrc-test` builds. */
+let _testRegistry: WrcTestRegistry | null = null
+let _testRegistryActive = false
+
+function testRegistry(): WrcTestRegistry {
+  if (!_testRegistry) _testRegistry = createWrcTestRegistry({ ssoEmail: cachedSsoEmail })
+  return _testRegistry
+}
+
+/**
+ * The one trust source each build flavor may use (`wrcBuildFlavor.ts`):
+ * release reads only the anchors pinned in source, `wrc-test` only the
+ * built-in registry, and only an unbundled dev run reads the environment.
+ * A pinned anchor carrying the test key prefix is refused, so test trust can
+ * never ship in a release build.
+ */
+export function resolveWrcTrustConfig(
+  flavor: WrcBuildFlavor,
+  pinned: WrcPinnedTrust | null = WRC_RELEASE_TRUST,
+): WrcRuntimeConfig {
+  if (flavor === 'dev') return readConfigFromEnvironment()
+  if (flavor === 'wrc-test') return testRegistry().config
+  if (!pinned) return {}
+  if (pinned.directoryOperatorKid.startsWith(WRC_TEST_KID_PREFIX)) {
+    console.error('[WRC] release trust refused: the pinned directory operator carries the test key prefix')
+    return {}
+  }
+  return { ...pinned }
+}
+
+/** `wrc-test` builds keep their state apart: test floors and uses never touch real ones. */
+function flavoredPath(path: string, ext: string): string {
+  if (!_testRegistryActive) return path
+  return path.endsWith(ext) ? `${path.slice(0, -ext.length)}.wrc-test${ext}` : `${path}.wrc-test`
 }
 
 function userDataDir(): string {
@@ -145,7 +183,7 @@ let _securityDb: WrcSecurityDb | null = null
 
 function resolveSecurityDb(): WrcSecurityDb {
   if (_securityDb) return _securityDb
-  _securityDb = openWrcSecurityDb()
+  _securityDb = openWrcSecurityDb(flavoredPath(defaultWrcSecurityDbPath(), '.db'))
   // Slice 13 — bounded lazy maintenance, once per process at first use. Only
   // prunes rows past their security relevance (see maintainWrcSecurityDb);
   // a maintenance failure never blocks resolution — pruning less is safe,
@@ -173,6 +211,7 @@ let _useLimits: WrcUseLimitStore | null = null
 async function resolveUseLimitStore(): Promise<WrcUseLimitStore> {
   if (_useLimits) return _useLimits
   _useLimits = createDbUseLimitStore(resolveSecurityDb())
+  if (_testRegistryActive) testRegistry().seedUseLimits(_useLimits)
   return _useLimits
 }
 
@@ -183,19 +222,25 @@ export function setWrcUseLimitStoreForTests(store: WrcUseLimitStore | null): voi
 
 /** Build (or rebuild) the process client. Tests call {@link setWrcClientForTests}. */
 export async function initWrcClient(config?: WrcRuntimeConfig): Promise<WrcResolutionClient> {
-  const cfg = config ?? readConfigFromEnvironment()
-  const transport: WrcTransport =
-    cfg.registryBaseUrl && cfg.ingestPublicKey
+  const flavor = wrcBuildFlavor()
+  _testRegistryActive = !config && flavor === 'wrc-test'
+  const cfg = config ?? resolveWrcTrustConfig(flavor)
+  const transport: WrcTransport = _testRegistryActive
+    ? testRegistry().transport
+    : cfg.registryBaseUrl && cfg.ingestPublicKey
       ? createWrcHttpTransport({ registryBaseUrl: cfg.registryBaseUrl })
       : createUnconfiguredWrcTransport()
   _configured = Boolean(cfg.registryBaseUrl && cfg.ingestPublicKey)
+  if (_testRegistryActive) {
+    console.warn('[WRC] TEST REGISTRY ACTIVE: WR Codes resolve against built-in test publishers, not real ones')
+  }
   // Run 5 — durable trust state, fail-closed: a security DB that cannot open
   // throws HERE, and the runtime is visibly unavailable. No memory fallback.
   const securityDb = resolveSecurityDb()
   _client = new WrcResolutionClient({
     transport,
     store: new WrcResolvedRecordStore(
-      createFilePersistence(defaultResolvedRecordPath(userDataDir())),
+      createFilePersistence(flavoredPath(defaultResolvedRecordPath(userDataDir()), '.json')),
       createDbEpochFloorStore(securityDb),
     ),
     ingestPublicKey: cfg.ingestPublicKey ?? '',
@@ -216,7 +261,11 @@ export async function initWrcClient(config?: WrcRuntimeConfig): Promise<WrcResol
   // Run 5 — the identity is resolved from the sanctioned sources (SSO session
   // + deployment config), never from a caller. A test-injected identity is
   // left in place: tests own the seam, callers own nothing.
-  if (!_identityInjected) _identity = readRuntimeIdentityFromEnvironment(cachedSsoEmail())
+  if (!_identityInjected) {
+    _identity = _testRegistryActive
+      ? testRegistry().identity()
+      : readRuntimeIdentityFromEnvironment(cachedSsoEmail())
+  }
 
   // Run 5 Slice 3 — the device registry is the durable security-DB store:
   // Device Records, counterpart passes, and revocations survive restart.
@@ -579,4 +628,32 @@ export async function handleWrcResolvePublisher(params: {
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : String(e) }
   }
+}
+
+export interface WrcRuntimeStatus {
+  flavor: WrcBuildFlavor
+  configured: boolean
+  /** True in `wrc-test` builds: every surface showing WR Code material must mark it as test data. */
+  testRegistry: boolean
+}
+
+/** `wrc.runtimeStatus` — lets a surface mark test data before it renders any WR Code material. */
+export async function handleWrcRuntimeStatus(): Promise<
+  { success: true; result: WrcRuntimeStatus } | { success: false; error: string }
+> {
+  try {
+    const configured = await isWrcConfigured()
+    return {
+      success: true,
+      result: { flavor: wrcBuildFlavor(), configured, testRegistry: _testRegistryActive },
+    }
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : String(e) }
+  }
+}
+
+/** Test seam: drop the process test registry; the next init builds a fresh one. */
+export function resetWrcTestRegistryForTests(): void {
+  _testRegistry = null
+  _testRegistryActive = false
 }

@@ -60,6 +60,13 @@ const OBJECT_MAX_BYTES = 128 * 1024
 const HEAD_MAX_BYTES = 16 * 1024
 const MANIFEST_MAX_BYTES = 32 * 1024
 
+/** The same caps, for transports that must answer exactly as the wire would. */
+export const WRC_TRANSPORT_MAX_BYTES = Object.freeze({
+  object: OBJECT_MAX_BYTES,
+  head: HEAD_MAX_BYTES,
+  manifest: MANIFEST_MAX_BYTES,
+})
+
 function toResult(r: Awaited<ReturnType<typeof wrcHttpsGet>>): WrcTransportResult {
   if (!r.ok) return { ok: false, code: r.code, message: r.message, status: r.status }
   return { ok: true, value: r.json }

@@ -13,6 +13,12 @@ function windowsOutputDirMarker() {
   return 'C:\\build-output\\build007'
 }
 
+/**
+ * `pnpm run build:wrc-test` packages into its own `…-wrc-test` folder, so an
+ * existing release build is kept. The Windows build scripts apply the same suffix.
+ */
+const WRC_TEST_OUTPUT_SUFFIX = process.env.WRDESK_WRC_BUILD_FLAVOR === 'wrc-test' ? '-wrc-test' : ''
+
 const workspaceRoot = path.resolve(appDir, '../..')
 
 function findFile(candidates) {
@@ -61,12 +67,16 @@ module.exports = {
   /** Avoid winCodeSign tool download/extract (fails on Windows without symlink privilege for darwin symlinks in the archive). */
   forceCodeSigning: false,
   directories: {
-    output: process.platform === 'win32' ? windowsOutputDirMarker() : path.join(appDir, 'dist', 'release'),
+    output:
+      process.platform === 'win32'
+        ? windowsOutputDirMarker() + WRC_TEST_OUTPUT_SUFFIX
+        : path.join(appDir, 'dist', `release${WRC_TEST_OUTPUT_SUFFIX}`),
     buildResources: 'build',
   },
   files: [
     'dist/**/*',
     '!dist/release/**',
+    '!dist/release-wrc-test/**',
     'dist-electron/**/*',
     'package.json',
     'node_modules/**/*',

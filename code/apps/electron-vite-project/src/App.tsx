@@ -33,6 +33,7 @@ import {
 import { type AnalysisOpenPayload, sanitizeAnalysisOpenPayload } from './components/analysis'
 import './components/handshakeViewTypes'
 import { HandshakeHealthOrchestratorBanner } from './components/HandshakeHealthOrchestratorBanner'
+import { WrcTestRegistryBanner } from './components/WrcTestRegistryBanner'
 import { useActiveHandshakeHealthBanner } from './hooks/useActiveHandshakeHealthBanner'
 // === TEMPORARY DEBUG LOG VIEWER (remove before production) ===
 import { DebugLogViewer } from './components/DebugLogViewer'
@@ -558,6 +559,8 @@ function App() {
           }}
         />
       </header>
+
+      <WrcTestRegistryBanner />
 
       {handshakeHealthIssue ? (
         <HandshakeHealthOrchestratorBanner
