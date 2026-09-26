@@ -4,6 +4,7 @@
 
 import type { HandshakeRecord } from './types'
 import { HandshakeState } from './types'
+import { wireDeclaresSamePrincipal } from './samePrincipalWire'
 import {
   validateInternalEndpointFields,
   validateInternalEndpointPairDistinct,
@@ -30,7 +31,7 @@ export function computeInternalRoutingKey(
  * both roles, both computer names (initiator_* + acceptor_* columns).
  */
 export function isInternalCoordinationIdentityComplete(record: HandshakeRecord): boolean {
-  if (record.handshake_type !== 'internal') return false
+  if (record.same_principal !== true) return false
   const iid = record.initiator_coordination_device_id?.trim() ?? ''
   const aid = record.acceptor_coordination_device_id?.trim() ?? ''
   if (!iid || !aid) return false
@@ -45,7 +46,7 @@ export function isInternalCoordinationIdentityComplete(record: HandshakeRecord):
  * - internal_coordination_identity_complete: strict symmetry (ids + roles + names).
  */
 export function finalizeInternalHandshakePersistence(record: HandshakeRecord): HandshakeRecord {
-  if (record.handshake_type !== 'internal') {
+  if (record.same_principal !== true) {
     return {
       ...record,
       internal_routing_key: null,
@@ -95,7 +96,7 @@ export function validateInternalInitiateCapsuleWire(c: Record<string, unknown>):
   error?: string
   code?: string
 } {
-  if (c?.handshake_type !== 'internal') return { ok: true }
+  if (!wireDeclaresSamePrincipal(c)) return { ok: true }
   const initiatorId =
     typeof c.sender_device_id === 'string' && c.sender_device_id.trim().length > 0
       ? c.sender_device_id.trim()

@@ -49,6 +49,7 @@ import {
 import { LOCAL_LLM_CTX_STANDARD } from './localLlmServerConfig'
 import { RotatingLogWriter, llamaServerLogPath } from './llamaServerLog'
 import { extractLlamaChatContent } from './llamaChatResponseContent'
+import { attachAndLogProvenance } from '../aiProvenance/attachProvenance'
 
 const execAsync = promisify(exec)
 
@@ -1086,12 +1087,17 @@ export class LocalLlmManager {
       // reasoning_content fallback: with --jinja + reasoning enabled the answer can land in
       // reasoning_content with an empty content. Empty stays '' here — callers decide to error.
       const extracted = extractLlamaChatContent(data.choices?.[0]?.message)
+      const prov = attachAndLogProvenance(extracted.content, {
+        model_id: data.model || modelId,
+        provider: 'local',
+      })
       const out: ChatResponse = {
         content: extracted.content,
         model: data.model || modelId,
         done: true,
         promptEvalCount: data.usage?.prompt_tokens,
         evalCount: data.usage?.completion_tokens,
+        provenance: prov.provenance,
       }
       localLlmRuntimeRecordChatTiming(Date.now() - t0)
       return out

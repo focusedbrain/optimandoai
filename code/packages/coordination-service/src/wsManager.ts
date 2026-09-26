@@ -10,6 +10,8 @@ import type { StoreAdapter } from './store.js'
 export interface ConnectedClient {
   userId: string
   email: string
+  /** OIDC issuer from the validated connection token — part of the full-claim identity [VII.3.8]. */
+  iss: string
   deviceId: string
   ws: WebSocket
   connectedAt: Date
@@ -140,6 +142,8 @@ export interface WsManagerAdapter {
   startHeartbeat(intervalMs: number): ReturnType<typeof setInterval>
   onPong(ws: WebSocket): void
   getUserIdForWs(ws: WebSocket): string | undefined
+  /** Full authenticated identity bound to this WebSocket (sub + iss), for full-claim checks. */
+  getIdentityForWs(ws: WebSocket): { userId: string; iss: string } | undefined
   /** First connected client for this user (any device). Backward compatible with userId-only routing. */
   getClient(userId: string): ConnectedClient | undefined
   getClientByDevice(userId: string, deviceId: string): ConnectedClient | undefined
@@ -201,6 +205,7 @@ export function createWsManager(store: StoreAdapter): WsManagerAdapter {
       const client: ConnectedClient = {
         userId,
         email,
+        iss: identity.iss,
         deviceId: did,
         ws,
         connectedAt: new Date(),
@@ -383,6 +388,14 @@ export function createWsManager(store: StoreAdapter): WsManagerAdapter {
       const clientKey = wsToClientKey.get(ws)
       if (!clientKey) return undefined
       return parseCompositeKey(clientKey).userId
+    },
+
+    getIdentityForWs(ws: WebSocket): { userId: string; iss: string } | undefined {
+      const clientKey = wsToClientKey.get(ws)
+      if (!clientKey) return undefined
+      const client = clients.get(clientKey)
+      if (!client) return undefined
+      return { userId: client.userId, iss: client.iss }
     },
 
     getClient,

@@ -1,7 +1,7 @@
 import { defineManifest } from '@crxjs/vite-plugin'
 
 export default defineManifest({
-  name: 'WR Desk',
+  name: 'Optirando',
   description: 'Multi-AI-Agenten Workflow Orchestrator mit echten Sidebars',
   version: '0.0.7',
   manifest_version: 3,
@@ -56,7 +56,7 @@ export default defineManifest({
     service_worker: 'src/background.ts'
   },
   action: {
-    default_title: 'WR Desk - Toggle Sidebars'
+    default_title: 'Optirando - Toggle Sidebars'
   },
   commands: {
     'toggle-overlay': {
@@ -69,7 +69,11 @@ export default defineManifest({
   web_accessible_resources: [
     {
       resources: [
-        'wrdesk-logo.png',
+        'wrdesk-logo.png', // Legacy filename; asset displays Optirando branding.
+        'optirando-logo.png', // Stacked symbol + Optirando text (transparent)
+        'optirando-wordmark.png',
+        'optirando-symbol.png',
+        'optirando-symbol-256.png',
         'grid-display.html',
         'grid-display.js',
         'grid-script.js',

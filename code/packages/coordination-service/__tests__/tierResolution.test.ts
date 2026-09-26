@@ -131,8 +131,8 @@ describe('resolveRelayTier', () => {
 // ── Cache version isolation invariant ────────────────────────────────────────
 
 describe('cache version isolation', () => {
-  test('RESOLVER_VERSION is 2', () => {
-    expect(RESOLVER_VERSION).toBe(2)
+  test('RESOLVER_VERSION is 3 (v3: iss added to ValidatedIdentity + issuer-salted token hash)', () => {
+    expect(RESOLVER_VERSION).toBe(3)
   })
 
   test('old hash key (no version prefix) differs from new versioned key for the same token', () => {

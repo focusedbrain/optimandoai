@@ -28,7 +28,7 @@ function letterComposerPdfFriendlyError(raw: string | undefined): string {
     lower.includes('libreoffice') &&
     (lower.includes('not found') || lower.includes('not installed') || lower.includes('not detected'))
   ) {
-    return 'LibreOffice is required for PDF export and printing. Please install it from https://www.libreoffice.org/download/ and restart WR Desk.'
+    return 'LibreOffice is required for PDF export and printing. Please install it from https://www.libreoffice.org/download/ and restart Optirando.'
   }
   return raw
 }
@@ -294,7 +294,7 @@ export function LetterTemplatePort() {
       const api = window.letterComposer
       const lo = window.libreoffice
       if (!api?.saveTemplateFromPath && !api?.saveTemplateBuffer) {
-        setError('Template upload requires WR Desk (Electron).')
+        setError('Template upload requires Optirando (Electron).')
         return
       }
       if (!lo?.detect || !lo?.convertToPdf) {
@@ -621,7 +621,7 @@ export function LetterTemplatePort() {
     try {
       if (activeTemplate.builtinLayout) {
         if (!api?.exportBuiltinDocx) {
-          setError('Built-in DOCX export requires WR Desk (Electron) with an up-to-date Letter Composer bridge.')
+          setError('Built-in DOCX export requires Optirando (Electron) with an up-to-date Letter Composer bridge.')
           return
         }
         const r = await api.exportBuiltinDocx({
@@ -657,7 +657,7 @@ export function LetterTemplatePort() {
     try {
       if (activeTemplate.builtinLayout) {
         if (!api?.exportBuiltinPdf) {
-          setError('Built-in PDF export requires WR Desk (Electron) with an up-to-date Letter Composer bridge.')
+          setError('Built-in PDF export requires Optirando (Electron) with an up-to-date Letter Composer bridge.')
           return
         }
         const fieldRecord = buildBuiltinFieldRecord()
@@ -811,7 +811,7 @@ export function LetterTemplatePort() {
     if (!activeTemplate?.pdfPreviewPath) return
     const api = window.letterComposer
     if (!api?.detectTemplateFields) {
-      setError('Field auto-detection requires WR Desk (Electron) with an up-to-date Letter Composer bridge.')
+      setError('Field auto-detection requires Optirando (Electron) with an up-to-date Letter Composer bridge.')
       return
     }
     setError(null)
@@ -945,7 +945,7 @@ export function LetterTemplatePort() {
             Letter Composer uses LibreOffice to render your corporate templates with perfect layout fidelity.
           </p>
           <p>
-            If LibreOffice is already installed but was not detected, point WR Desk at <code>soffice.exe</code> or
+            If LibreOffice is already installed but was not detected, point Optirando at <code>soffice.exe</code> or
             check again after fixing your install.
           </p>
           <p>It&apos;s free, open source, and trusted by millions of businesses.</p>

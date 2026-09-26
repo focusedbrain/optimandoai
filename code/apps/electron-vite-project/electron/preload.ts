@@ -833,7 +833,7 @@ contextBridge.exposeInMainWorld('handshakeView', {
     return ipcRenderer.invoke('handshake:importCapsule', jsonString)
   },
   acceptHandshake: (id: unknown, sharingMode: unknown, fromAccountId: unknown, contextOpts?: unknown) => {
-    // Allowlisted fields only; X25519 / internal vs normal is enforced in main (persisted `record.handshake_type`).
+    // Allowlisted fields only; X25519 / internal vs normal is enforced in main (persisted `record.same_principal`).
     const safeOpts = buildHandshakeAcceptSafeOpts(contextOpts)
     return ipcRenderer.invoke('handshake:accept', assertString(id, 'id'), assertString(sharingMode, 'sharingMode'), typeof fromAccountId === 'string' ? fromAccountId : '', safeOpts)
   },
@@ -1083,7 +1083,7 @@ contextBridge.exposeInMainWorld('handshakeView', {
       ...(Array.isArray(opts.profile_ids) ? { profile_ids: opts.profile_ids } : {}),
       ...(Array.isArray(opts.profile_items) ? { profile_items: opts.profile_items } : {}),
       ...(opts.policy_selections && typeof opts.policy_selections === 'object' ? { policy_selections: opts.policy_selections } : {}),
-      ...(opts.handshake_type === 'internal' || opts.handshake_type === 'standard' ? { handshake_type: opts.handshake_type } : {}),
+      ...(typeof opts.profile_id === 'string' && opts.profile_id.trim() ? { profile_id: opts.profile_id.trim() } : {}),
       ...(typeof opts.device_name === 'string' && opts.device_name.trim() ? { device_name: opts.device_name.trim() } : {}),
       ...(opts.device_role === 'host' || opts.device_role === 'sandbox' ? { device_role: opts.device_role } : {}),
       ...(typeof opts.counterparty_device_id === 'string' && opts.counterparty_device_id.trim()
@@ -1115,7 +1115,7 @@ contextBridge.exposeInMainWorld('handshakeView', {
       ...(Array.isArray(opts.profile_ids) ? { profile_ids: opts.profile_ids } : {}),
       ...(Array.isArray(opts.profile_items) ? { profile_items: opts.profile_items } : {}),
       ...(opts.policy_selections && typeof opts.policy_selections === 'object' ? { policy_selections: opts.policy_selections } : {}),
-      ...(opts.handshake_type === 'internal' || opts.handshake_type === 'standard' ? { handshake_type: opts.handshake_type } : {}),
+      ...(typeof opts.profile_id === 'string' && opts.profile_id.trim() ? { profile_id: opts.profile_id.trim() } : {}),
       ...(typeof opts.device_name === 'string' && opts.device_name.trim() ? { device_name: opts.device_name.trim() } : {}),
       ...(opts.device_role === 'host' || opts.device_role === 'sandbox' ? { device_role: opts.device_role } : {}),
       ...(typeof opts.counterparty_device_id === 'string' && opts.counterparty_device_id.trim()
@@ -1269,7 +1269,7 @@ contextBridge.exposeInMainWorld('emailAccounts', {
     accountId: string,
     creds: { imapPassword: string; smtpPassword?: string; smtpUseSameCredentials?: boolean },
   ) => ipcRenderer.invoke('email:updateImapCredentials', accountId, creds),
-  sendEmail: (accountId: string, payload: { to: string[]; subject: string; bodyText: string; attachments?: { filename: string; mimeType: string; contentBase64: string }[] }) =>
+  sendEmail: (accountId: string, payload: { to: string[]; subject: string; bodyText: string; attachments?: { filename: string; mimeType: string; contentBase64: string }[]; provenance?: Record<string, unknown> }) =>
     ipcRenderer.invoke('email:sendEmail', accountId, payload),
   deleteAccount: (accountId: string) => ipcRenderer.invoke('email:deleteAccount', accountId),
   connectGmail: (displayName?: string, syncWindowDays?: number, gmailOAuthCredentialSource?: 'builtin_public' | 'developer_saved') =>
@@ -1453,8 +1453,8 @@ contextBridge.exposeInMainWorld('emailInbox', {
     ipcRenderer.on('inbox:aiAnalyzeMessageChunk', handler)
     return () => ipcRenderer.removeListener('inbox:aiAnalyzeMessageChunk', handler)
   },
-  onAiAnalyzeDone: (cb: (data: { messageId: string }) => void) => {
-    const handler = (_e: Electron.IpcRendererEvent, data: { messageId: string }) => cb(data)
+  onAiAnalyzeDone: (cb: (data: { messageId: string; provenance?: unknown }) => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, data: { messageId: string; provenance?: unknown }) => cb(data)
     ipcRenderer.on('inbox:aiAnalyzeMessageDone', handler)
     return () => ipcRenderer.removeListener('inbox:aiAnalyzeMessageDone', handler)
   },
@@ -2022,6 +2022,12 @@ contextBridge.exposeInMainWorld('libreoffice', {
     ipcRenderer.invoke('libreoffice:browseForSoffice') as Promise<
       { ok: true; path: string } | { ok: false; error?: string }
     >,
+})
+
+// ── Art. 50 editorial responsibility IPC ─────────────────────────────────────
+contextBridge.exposeInMainWorld('art50', {
+  logEditorialResponsibility: (p: unknown) =>
+    ipcRenderer.invoke('art50:logEditorialResponsibility', p) as Promise<unknown>,
 })
 
 // === TEMPORARY DEBUG LOG BRIDGE (remove before production) ===

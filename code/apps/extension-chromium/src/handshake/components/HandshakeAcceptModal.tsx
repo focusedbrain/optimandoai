@@ -17,6 +17,11 @@ import React, { useState, useEffect } from 'react'
 import type { HandshakeRecord } from '../rpcTypes'
 import { acceptHandshake, revokeHandshake } from '../handshakeRpc'
 import { isSameAccountHandshakeEmails } from '@shared/handshake/receiverEmailValidation'
+import {
+  connectOfferConsentErrorCopy,
+  connectOfferPreviewRows,
+  readConnectOfferPreview,
+} from '@shared/handshake/connectOfferPreview'
 import { buildAcceptContextOptions } from '../buildInitiateContextOptions'
 import { HandshakeContextProfilePicker } from './HandshakeContextProfilePicker'
 import type { ProfileContextItem } from '@shared/handshake/types'
@@ -88,11 +93,14 @@ export const HandshakeAcceptModal: React.FC<HandshakeAcceptModalProps> = ({
   const defaultPolicy = { ai_processing_mode: 'local_only' as const }
 
   const isInternal =
-    handshake.handshake_type === 'internal' ||
+    handshake.same_principal === true ||
     isSameAccountHandshakeEmails(handshake.counterparty_email, handshake.receiver_email)
 
   const [acceptorDeviceName, setAcceptorDeviceName] = useState('')
   const [acceptorDeviceRole, setAcceptorDeviceRole] = useState<'host' | 'sandbox'>('sandbox')
+
+  const offerPreview = readConnectOfferPreview(handshake.connect_offer_preview)
+  const offerPreviewRows = offerPreview ? connectOfferPreviewRows(offerPreview) : []
 
   const t = getThemeTokens(theme)
 
@@ -133,12 +141,20 @@ export const HandshakeAcceptModal: React.FC<HandshakeAcceptModalProps> = ({
         if (acceptorDeviceName.trim()) (opts as { device_name?: string }).device_name = acceptorDeviceName.trim()
         ;(opts as { device_role?: 'host' | 'sandbox' }).device_role = acceptorDeviceRole
       }
-      await acceptHandshake(
+      if (offerPreview) (opts as { expected_preview_hash?: string }).expected_preview_hash = offerPreview.preview_hash
+      const result = (await acceptHandshake(
         handshake.handshake_id,
         sharingMode,
         fromAccountId,
         Object.keys(opts).length > 0 ? opts : undefined,
-      )
+      )) as { success?: boolean; reason?: unknown; error?: unknown } | undefined
+      if (result?.success === false) {
+        setError(
+          connectOfferConsentErrorCopy(result.reason) ??
+            (typeof result.error === 'string' && result.error ? result.error : 'Accept failed'),
+        )
+        return
+      }
       onAccepted?.(handshake.handshake_id)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Accept failed')
@@ -203,6 +219,30 @@ export const HandshakeAcceptModal: React.FC<HandshakeAcceptModalProps> = ({
                 Requested: {new Date(handshake.created_at).toLocaleDateString()}
               </div>
             </div>
+
+            {offerPreviewRows.length > 0 && (
+              <section aria-label="What you are agreeing to" data-testid="connect-offer-preview" style={cardStyle(t)}>
+                <div style={themeLabelStyle(t)}>What you are agreeing to</div>
+                <dl
+                  style={{
+                    margin: 0,
+                    display: 'grid',
+                    gridTemplateColumns: 'max-content 1fr',
+                    columnGap: '12px',
+                    rowGap: '4px',
+                    fontSize: '12px',
+                    lineHeight: 1.45,
+                  }}
+                >
+                  {offerPreviewRows.map((row) => (
+                    <React.Fragment key={row.label}>
+                      <dt style={{ color: t.textMuted, fontWeight: 600 }}>{row.label}</dt>
+                      <dd style={{ margin: 0, color: t.cardText, overflowWrap: 'anywhere' }}>{row.value}</dd>
+                    </React.Fragment>
+                  ))}
+                </dl>
+              </section>
+            )}
 
             {/* Sharing Mode */}
             <div style={cardStyle(t)}>

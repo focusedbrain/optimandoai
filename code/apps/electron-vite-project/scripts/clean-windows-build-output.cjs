@@ -24,7 +24,9 @@ if (!basename) {
   process.exit(0)
 }
 
-const winUnpacked = path.join(BUILD_BASE, basename, 'win-unpacked')
+// `build:wrc-test` packages into `<basename>-wrc-test` (electron-builder.config.cjs).
+const outputBasename = basename + (process.env.WRDESK_WRC_BUILD_FLAVOR === 'wrc-test' ? '-wrc-test' : '')
+const winUnpacked = path.join(BUILD_BASE, outputBasename, 'win-unpacked')
 if (fs.existsSync(winUnpacked)) {
   fs.rmSync(winUnpacked, { recursive: true, force: true })
   console.log('[clean-windows-build-output] Removed', winUnpacked)

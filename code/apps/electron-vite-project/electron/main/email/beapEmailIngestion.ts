@@ -678,7 +678,8 @@ export interface P2PInlineResult {
   outcome: 'inbox' | 'quarantine' | 'error'
   rowId?: string
   error?: string
-  reasonCode?: ReasonCode
+  /** Vault capability code, or an ingress admission block [VII.2.7]. */
+  reasonCode?: ReasonCode | `ingress_admission_${string}`
   retryable?: boolean
 }
 
@@ -687,6 +688,7 @@ function buildP2PProvenance(
   transportSender: string | null,
   sourceType: ProvenanceMetadata['source_type'],
   packageJson: string,
+  grantRef?: string | null,
 ): ProvenanceMetadata {
   return {
     source_type: sourceType,
@@ -695,6 +697,8 @@ function buildP2PProvenance(
     transport_metadata: {
       sender_address: transportSender ?? undefined,
       message_id: handshakeId,
+      // Phase 5 [VII.10.3]: grant the delivery was admitted under.
+      grant_ref: grantRef ?? undefined,
     },
     input_classification: 'beap_capsule_present',
     raw_input_hash: createHash('sha256').update(packageJson, 'utf8').digest('hex'),
@@ -995,6 +999,35 @@ async function processBeapPackageInlineInternal(
 
   console.log(`[BEAP_DELIVERY] native_message_received messageId=${rowId} handshake=${handshakeId} sourceType=${sourceType}`)
 
+  // ── Stage 0: ingress admission filter [VII.2.7] ──────────────────────────
+  // First ingress stage for every inbox delivery: relationship must exist and
+  // be live, and the delivery is admitted under the relationship's DELIVERY
+  // grant (Phase 5, E2 [VII.10.2]). Blocked transmissions die pre-visibility —
+  // no inbox row, no placeholder, no dashboard notification; audit_log and
+  // the evidence chain carry the record.
+  let admittedGrantRef: string | null = null
+  {
+    const { admitInboundDelivery } = await import('../handshake/ingressAdmission')
+    const admission = admitInboundDelivery(db, {
+      handshakeId,
+      kind: 'beap_message',
+      source: sourceType,
+    })
+    if (!admission.admitted) {
+      console.log(
+        `[BEAP_DELIVERY] receive_blocked messageId=${rowId} reason=ingress_admission:${admission.reason}`,
+      )
+      return {
+        outcome: 'error',
+        rowId,
+        error: `Inbound delivery refused: ${admission.reason}`,
+        reasonCode: `ingress_admission_${admission.reason}`,
+        retryable: false,
+      }
+    }
+    admittedGrantRef = admission.grantRef
+  }
+
   // ── Parse outer package ──────────────────────────────────────────────────
   let pkg: Record<string, unknown>
   let pkgEncoding: string | undefined
@@ -1078,7 +1111,7 @@ async function processBeapPackageInlineInternal(
       packageJson,
       { id: rowId, subject: preview.subject, from_address: transportSender, body_text: preview.body_text },
     )
-    const provenance = buildP2PProvenance(handshakeId, transportSender, sourceType, packageJson)
+    const provenance = buildP2PProvenance(handshakeId, transportSender, sourceType, packageJson, admittedGrantRef)
     const resp = await validatorOrchestrator.validate({
       envelope: pkg,
       plaintext_or_encrypted: { kind: 'plaintext', content: dpJson },
@@ -1250,7 +1283,7 @@ async function processBeapPackageInlineInternal(
       // validation routes through the critical-job dispatcher (in-process → same
       // forked validator subprocess; byte-identical parity). Flag OFF runs the
       // original inline call. The qBEAP/pBEAP decrypt above stays untouched.
-      const provenance = buildP2PProvenance(handshakeId, transportSender, sourceType, packageJson)
+      const provenance = buildP2PProvenance(handshakeId, transportSender, sourceType, packageJson, admittedGrantRef)
       const validationInput = {
         envelope: pkg,
         plaintext_or_encrypted: { kind: 'plaintext' as const, content: depackagedJsonForRow },

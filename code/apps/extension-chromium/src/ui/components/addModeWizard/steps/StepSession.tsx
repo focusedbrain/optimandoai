@@ -30,7 +30,7 @@ export function StepSession({
       setSessions(list)
       if (list.length === 0) {
         setHint(
-          'No sessions in history yet — open WR Chat at least once, or ensure WR Desk is running.',
+          'No sessions in history yet — open WR Chat at least once, or ensure Optirando is running.',
         )
       }
     } finally {

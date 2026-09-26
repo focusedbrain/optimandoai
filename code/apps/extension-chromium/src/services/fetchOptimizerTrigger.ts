@@ -116,7 +116,7 @@ export async function setOptimizerContinuous(
       ok: true,
     }
   } catch {
-    const message = 'Could not reach WR Desk for continuous optimization.'
+    const message = 'Could not reach Optirando for continuous optimization.'
     dispatchOptimizationToast(message, 'warning')
     return { enabled: false, intervalMs: 300_000, ok: false, message }
   }
@@ -152,7 +152,7 @@ export async function triggerOptimizerSnapshot(projectId: string): Promise<{
     }
     return { ok: true }
   } catch {
-    const message = 'Could not reach WR Desk for snapshot optimization.'
+    const message = 'Could not reach Optirando for snapshot optimization.'
     dispatchOptimizationToast(message, 'warning')
     return { ok: false, message }
   }

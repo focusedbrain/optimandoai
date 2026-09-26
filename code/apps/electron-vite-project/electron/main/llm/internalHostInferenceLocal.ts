@@ -40,6 +40,8 @@ export interface RunInternalHostLocalLlmResult {
   model: string
   usage?: { prompt_eval_count?: number; eval_count?: number }
   durationMs: number
+  /** Art. 50 provenance attached at this generation boundary (logged once). */
+  provenance?: import('../../../../../packages/shared/src/aiProvenance').AiProvenance
 }
 
 /** @deprecated Use RunInternalHostLocalLlmResult */
@@ -167,6 +169,11 @@ export async function runInternalHostLocalLlmInference(
     }
     const text = extracted.content.trim()
     clearTimeout(timer)
+    const { attachAndLogProvenance } = await import('../aiProvenance/attachProvenance')
+    const attached = attachAndLogProvenance(text, {
+      model_id: data.model ?? model,
+      provider: 'host-ai',
+    })
     return {
       text,
       model: data.model ?? model,
@@ -175,6 +182,7 @@ export async function runInternalHostLocalLlmInference(
         eval_count: data.usage?.completion_tokens,
       },
       durationMs: Date.now() - t0,
+      provenance: attached.provenance,
     }
   } catch (e) {
     clearTimeout(timer)

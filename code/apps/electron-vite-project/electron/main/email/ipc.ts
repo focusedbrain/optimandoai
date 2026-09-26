@@ -48,7 +48,7 @@ const DEFAULT_RULES_PATH = path.join(
   '../electron/WRExpert.default.md',
 )
 
-const DEFAULT_WREXPERT_CONTENT = `# WRExpert.md — WR Desk Inbox AI Behaviour
+const DEFAULT_WREXPERT_CONTENT = `# WRExpert.md — Optirando Inbox AI Behaviour
 # This is your personal AI expert. Edit this file to teach the AI how to
 # handle your specific inbox. Changes take effect on the next Auto-Sort run.
 # Lines starting with # are comments and are ignored by the AI.
@@ -86,7 +86,7 @@ Move here if:
 - Meeting notes, summaries, reports for future reference
 - Any email explicitly marked by the user as "keep"
 
-### urgent (WR Desk Urgent tab + mirrored to server **Urgent** folder on sync, urgency >= 7)
+### urgent (Optirando Urgent tab + mirrored to server **Urgent** folder on sync, urgency >= 7)
 Move here if ANY of these apply:
 - Invoice or payment overdue or due within 3 days
 - Legal deadline within 7 days
@@ -94,13 +94,13 @@ Move here if ANY of these apply:
 - Security alert requiring immediate action
 - Direct request from a known important contact requiring same-day response
 
-### action_required (WR Desk Important flow + mirrored to **Pending Review** on sync, urgency 4–6)
+### action_required (Optirando Important flow + mirrored to **Pending Review** on sync, urgency 4–6)
 Move here if:
 - Requires a response within the next 7 days
 - Requires a decision or manual step (not just reading)
 - Contains a question directed at you that is not automated
 
-### normal (WR Desk Normal / All until archived; mirrored to **Archive** on sync when classified)
+### normal (Optirando Normal / All until archived; mirrored to **Archive** on sync when classified)
 Move here if:
 - Requires attention but no urgency
 - Does not fit the above categories
@@ -297,7 +297,11 @@ import {
 import { resolveInboxReplyMode } from '../../../src/lib/inboxAiCloneClassification'
 import { reconcileAnalyzeTriage, reconcileInboxClassification } from '../../../src/lib/inboxClassificationReconcile'
 import { streamInboxOllamaAnalyzeWithSandboxRouting } from './inboxOllamaChatStreamSandbox'
-import { appendScamWatchdogToSystemPrompt, buildScamWatchdogUserContext } from './scamWatchdog'
+import {
+  appendScamWatchdogToSystemPrompt,
+  buildScamWatchdogUserContext,
+  channelProvenanceAnalysisInput,
+} from './scamWatchdog'
 import { assembleScamWatchdog } from '../../../src/utils/parseInboxAiJson'
 import { buildInboxAiAnalyzeErrorPayload, buildInboxAiDraftIpcFailure } from './inboxAiErrorMapping'
 import { formatSourceWeightingForPrompt, sortSourceWeightingFromMessageRow } from '../../../src/lib/inboxSortSourceWeighting'
@@ -312,8 +316,23 @@ import {
 } from './inboxSealedRead'
 import { readDecryptedAttachmentBuffer, type AttachmentRowCrypto } from './attachmentBlobCrypto'
 import { inboxLlmChat, isLlmAvailable, INBOX_LLM_LOCAL_TIMEOUT_MS, INBOX_LLM_MAX_OUTPUT_TOKENS, resolveInboxLlmSettings, preResolveInboxLlm, type ResolvedLlmContext } from './inboxLlmChat'
+import { attachAndLogProvenance } from '../aiProvenance/attachProvenance'
 import { EMPTY_LLM_RESPONSE_ERROR } from '../llm/llamaChatResponseContent'
 import { maybePrewarmLocalLlmForBulkClassify, type LocalLlmBulkPrewarmDiag } from '../llm/localLlmBulkPrewarm'
+
+/** Map inbox LLM provider string to AiProvenance provider string. */
+function inboxProviderForProvenance(): { model_id: string; provider: string } {
+  try {
+    const s = resolveInboxLlmSettings()
+    const pLower = (s.provider ?? 'ollama').toLowerCase()
+    return {
+      model_id: s.model ?? 'unknown',
+      provider: pLower === 'ollama' ? 'local' : `cloud:${pLower}`,
+    }
+  } catch {
+    return { model_id: 'unknown', provider: 'local' }
+  }
+}
 
 /** Per-page strings from DB `extracted_text` (extraction joins pages with \\n\\n). */
 function inboxPagesFromStoredExtractedText(text: string): string[] {
@@ -1992,6 +2011,7 @@ Rules:
 
     try {
       const rawStr = (await inboxLlmChat({ system: systemPrompt, user: userPrompt, contentTask: { kind: 'summary' } })).trim()
+      const summaryProv = attachAndLogProvenance(rawStr, inboxProviderForProvenance())
       const parsed = parseAiJson(rawStr)
       if (!parsed || Object.keys(parsed).length === 0) throw new Error('Failed to parse summary JSON')
 
@@ -2008,7 +2028,7 @@ Rules:
         typeof parsed.patterns_note === 'string' && parsed.patterns_note.trim()
           ? parsed.patterns_note.trim()
           : ''
-      const summaryOut = { headline, patterns_note }
+      const summaryOut = { headline, patterns_note, provenance: summaryProv.provenance }
 
       db.prepare('UPDATE autosort_sessions SET ai_summary_json = ? WHERE id = ?').run(JSON.stringify(summaryOut), sessionId)
 
@@ -2525,7 +2545,7 @@ Rules:
   })
 
   /**
-   * Debug: WR Desk “main inbox” rows (same filter as UI “all” tab) — explains why mail may still sit in server Inbox.
+   * Debug: Optirando “main inbox” rows (same filter as UI “all” tab) — explains why mail may still sit in server Inbox.
    * Optional `accountId` limits to one account; omit / null = all accounts (capped).
    */
   ipcMain.handle('inbox:debugMainInboxRows', async (_e, accountId?: string | null) => {
@@ -3458,7 +3478,9 @@ Rules:
    * `inbox:cloneBeapToSandbox` is the product channel name; both invoke the same logic.
    *
    * Host only: clone is a Host → Sandbox orchestration path (same identity, internal handshake).
-   * On failure, `code` may include `NO_ACTIVE_SANDBOX_HANDSHAKE`, `MESSAGE_NOT_FOUND`,
+   * On failure, `code` may include `NO_ACTIVE_SANDBOX_HANDSHAKE`, `MESSAGE_NOT_FOUND`
+   * (row genuinely absent), `SOURCE_UNVERIFIABLE` (row present, seal verification
+   * filtered it), `SOURCE_NO_CANONICAL_CONTENT` (row present, no plaintext to clone),
    * `outer_vault_unavailable`, `outer_vault_or_key_provider_unavailable`, `MESSAGE_CONTENT_NOT_EXTRACTABLE`,
    * `TARGET_HANDSHAKE_REQUIRED`, or `NOT_HOST_ORCHESTRATOR` (envelope) for structured UI.
    */
@@ -3629,7 +3651,7 @@ Rules:
     }
   })
 
-  // ── Deletion (local WRDesk store; optional origin trash when per-account toggle ON) ──
+  // ── Deletion (local Optirando store; optional origin trash when per-account toggle ON) ──
   ipcMain.handle(
     'inbox:deleteMessages',
     async (
@@ -3928,10 +3950,11 @@ Rules:
       const body = (row.body_text || '').trim().slice(0, 8000)
       const userPrompt = `From: ${sender}\nSubject: ${row.subject || '(No subject)'}\nDate: ${row.received_at || '—'}\n\n${body}`
 
-      const systemPrompt = 'You are an AI assistant for WR Desk inbox. Summarize the following email concisely in 2-3 sentences. Focus on: who sent it, what they want, and any action required.'
+      const systemPrompt = 'You are an AI assistant for Optirando inbox. Summarize the following email concisely in 2-3 sentences. Focus on: who sent it, what they want, and any action required.'
       console.log('[AI-SUMMARIZE] System prompt length:', systemPrompt.length)
       console.log('[AI-SUMMARIZE] Calling LLM...')
       const summary = await inboxLlmChat({ system: systemPrompt, user: userPrompt, contentTask: { kind: 'summary' } })
+      const summaryProv = attachAndLogProvenance(summary, inboxProviderForProvenance())
       console.log('[AI-SUMMARIZE] Raw LLM response:', summary.substring(0, 500))
 
       /** B-7: persist to ai_analysis_json via sealed re-seal so the seal covers this addition. */
@@ -3943,6 +3966,7 @@ Rules:
         } catch { /* ignore */ }
       }
       merged.summary = summary.slice(0, 1000)
+      merged.provenance = summaryProv.provenance
       merged.status = merged.status ?? 'summarized'
       const sealRes = await resealWithAiAnalysis(db, messageId, merged)
       if (!sealRes.ok) {
@@ -3950,7 +3974,7 @@ Rules:
         return { ok: false, error: `AI analysis could not be applied: ${sealRes.error}` }
       }
 
-      return { ok: true, data: { summary } }
+      return { ok: true, data: { summary, provenance: summaryProv.provenance } }
     } catch (err: any) {
       const isTimeout = err?.message?.startsWith('LLM_TIMEOUT')
       return {
@@ -4260,7 +4284,7 @@ Write a reply specifically to the pbeap field above. Output ONLY the reply text.
 
       const { tone } = getToneAndSortForPrompts(db)
       const contextBlock = getContextBlockForPrompts(db)
-      let systemPrompt = 'You are an AI assistant for WR Desk inbox. Draft a professional reply to the following email. Match the language of the original email (if the email is in German, reply in German). Keep it concise. Output ONLY the reply text, no subject line, no metadata.'
+      let systemPrompt = 'You are an AI assistant for Optirando inbox. Draft a professional reply to the following email. Match the language of the original email (if the email is in German, reply in German). Keep it concise. Output ONLY the reply text, no subject line, no metadata.'
       if (tone) systemPrompt += `\n\nUser instructions for response tone and style: ${tone}`
       if (contextBlock) systemPrompt += contextBlock
       console.log('[AI-DRAFT] System prompt length:', systemPrompt.length)
@@ -4270,6 +4294,10 @@ Write a reply specifically to the pbeap field above. Output ONLY the reply text.
         user: userPrompt,
         ...(aiExecDraft ? { aiExecution: aiExecDraft } : {}),
         contentTask: { kind: 'draft' },
+      })
+      const draftProv = attachAndLogProvenance(draft, {
+        ...inboxProviderForProvenance(),
+        ...(tkModel ? { model_id: tkModel } : {}),
       })
       console.log('[AI-DRAFT] Raw LLM response:', draft.substring(0, 500))
 
@@ -4290,6 +4318,8 @@ Write a reply specifically to the pbeap field above. Output ONLY the reply text.
         } catch { /* ignore */ }
       }
       merged.draftReply = draft.slice(0, 8000)
+      merged.draftProvenance = draftProv.provenance
+      merged.provenance = draftProv.provenance
       merged.status = merged.status ?? 'draft_reply'
       if (isDraftReplyRunStale(messageId, genAtStart)) {
         return buildInboxAiDraftIpcFailure(new Error('Draft superseded'), { aiExecution: aiExecDraft, model: aiExecDraft?.model }) as {
@@ -4312,7 +4342,7 @@ Write a reply specifically to the pbeap field above. Output ONLY the reply text.
         }
       }
 
-      return { ok: true, data: { draft } }
+      return { ok: true, data: { draft, provenance: draftProv.provenance } }
     } catch (err: unknown) {
       if (isDraftReplyRunStale(messageId, genAtStart)) {
         return buildInboxAiDraftIpcFailure(new Error('Draft superseded'), { aiExecution: aiExecDraft, model: aiExecDraft?.model }, isNativeBeap ? { isNativeBeap: true } : undefined) as {
@@ -4353,7 +4383,7 @@ Write a reply specifically to the pbeap field above. Output ONLY the reply text.
       if (!db) return { ok: false, error: 'Database unavailable' }
       const row = db
         .prepare(
-          'SELECT from_address, from_name, subject, body_text, received_at, source_type, handshake_id, depackaged_json, beap_package_json FROM inbox_messages WHERE id = ?',
+          'SELECT from_address, from_name, subject, body_text, received_at, source_type, handshake_id, depackaged_json, depackaged_metadata, beap_package_json FROM inbox_messages WHERE id = ?',
         )
         .get(messageId) as
         | {
@@ -4365,6 +4395,7 @@ Write a reply specifically to the pbeap field above. Output ONLY the reply text.
             source_type?: string | null
             handshake_id?: string | null
             depackaged_json?: string | null
+            depackaged_metadata?: string | null
             beap_package_json?: string | null
           }
         | undefined
@@ -4383,11 +4414,12 @@ Write a reply specifically to the pbeap field above. Output ONLY the reply text.
         ? buildNativeBeapAnalyzeBody(row)
         : (row.body_text || '').trim().slice(0, 8000)
       const sortWAnalyze = sortSourceWeightingFromMessageRow(row)
-      const userPrompt = `From: ${sender}\nSubject: ${row.subject || '(No subject)'}\nDate: ${row.received_at || '—'}\n\n${body}\n\n${formatSourceWeightingForPrompt(sortWAnalyze)}${buildScamWatchdogUserContext(body)}`
+      const cprAnalyze = channelProvenanceAnalysisInput(row.depackaged_metadata)
+      const userPrompt = `From: ${sender}\nSubject: ${row.subject || '(No subject)'}\nDate: ${row.received_at || '—'}\n\n${body}\n\n${formatSourceWeightingForPrompt(sortWAnalyze)}${buildScamWatchdogUserContext(body, cprAnalyze)}`
 
       const { tone, sortRules } = getToneAndSortForPrompts(db)
       const contextBlock = getContextBlockForPrompts(db)
-      let systemPrompt = `You are an email triage AI for WR Desk. Analyze the following email and respond with a JSON object only. Use these exact keys:
+      let systemPrompt = `You are an email triage AI for Optirando. Analyze the following email and respond with a JSON object only. Use these exact keys:
 - needsReply: boolean — true if the user should respond to this email
 - needsReplyReason: string — one sentence explaining why (e.g. "No — this is an automated notification" or "Yes — sender is asking for clarification")
 - summary: string — 2-3 sentence summary of the message
@@ -4400,7 +4432,7 @@ Write a reply specifically to the pbeap field above. Output ONLY the reply text.
 
 Respond ONLY with one valid JSON object. No markdown, no backticks, no preamble, no trailing prose, no explanation.`
       if (isNativeBeap) {
-        systemPrompt = `You are an email triage AI for WR Desk. The message is a BEAP handshake / native capsule. Analyze it and respond with a JSON object only. Use these exact keys:
+        systemPrompt = `You are an email triage AI for Optirando. The message is a BEAP handshake / native capsule. Analyze it and respond with a JSON object only. Use these exact keys:
 - needsReply: boolean — true if the user should respond
 - needsReplyReason: string — one sentence why
 - summary: string — 2-3 sentence summary
@@ -4422,6 +4454,7 @@ Respond ONLY with one valid JSON object. No markdown, no backticks, no preamble,
       console.log('[AI-ANALYZE] System prompt length:', systemPrompt.length)
       console.log('[AI-ANALYZE] Calling LLM...')
       const raw = await inboxLlmChat({ system: systemPrompt, user: userPrompt, contentTask: { kind: 'analysis' } })
+      const analyzeProv = attachAndLogProvenance(raw, inboxProviderForProvenance())
       console.log('[AI-ANALYZE] Raw LLM response:', raw.substring(0, 500))
       const parsed = parseAiJson(raw) as {
         needsReply?: boolean
@@ -4490,6 +4523,7 @@ Respond ONLY with one valid JSON object. No markdown, no backticks, no preamble,
           archiveReason,
           draftReply,
           scamWatchdog,
+          provenance: analyzeProv.provenance,
         },
       }
     } catch (err: any) {
@@ -4724,7 +4758,7 @@ Respond ONLY with one valid JSON object. No markdown, no backticks, no preamble,
           }
           const row = db
             .prepare(
-              'SELECT from_address, from_name, subject, body_text, received_at, source_type, handshake_id, depackaged_json, beap_package_json FROM inbox_messages WHERE id = ?',
+              'SELECT from_address, from_name, subject, body_text, received_at, source_type, handshake_id, depackaged_json, depackaged_metadata, beap_package_json FROM inbox_messages WHERE id = ?',
             )
             .get(messageId) as
             | {
@@ -4736,6 +4770,7 @@ Respond ONLY with one valid JSON object. No markdown, no backticks, no preamble,
                 source_type?: string | null
                 handshake_id?: string | null
                 depackaged_json?: string | null
+                depackaged_metadata?: string | null
                 beap_package_json?: string | null
               }
             | undefined
@@ -4815,11 +4850,12 @@ Respond ONLY with one valid JSON object. No markdown, no backticks, no preamble,
             ? buildNativeBeapAnalyzeBody(row)
             : (row.body_text || '').trim().slice(0, 8000)
           const sortWStream = sortSourceWeightingFromMessageRow(row)
-          const userPrompt = `From: ${sender}\nSubject: ${row.subject || '(No subject)'}\nDate: ${row.received_at || '—'}\n\n${body}\n\n${formatSourceWeightingForPrompt(sortWStream)}${buildScamWatchdogUserContext(body)}`
+          const cprStream = channelProvenanceAnalysisInput(row.depackaged_metadata)
+          const userPrompt = `From: ${sender}\nSubject: ${row.subject || '(No subject)'}\nDate: ${row.received_at || '—'}\n\n${body}\n\n${formatSourceWeightingForPrompt(sortWStream)}${buildScamWatchdogUserContext(body, cprStream)}`
 
           const { tone, sortRules } = getToneAndSortForPrompts(db)
           const contextBlock = getContextBlockForPrompts(db)
-          let systemPrompt = `You are an email triage AI for WR Desk. Analyze the following email and respond with a JSON object only. Use these exact keys:
+          let systemPrompt = `You are an email triage AI for Optirando. Analyze the following email and respond with a JSON object only. Use these exact keys:
 - needsReply: boolean — true if the user should respond to this email
 - needsReplyReason: string — one sentence explaining why (e.g. "No — this is an automated notification" or "Yes — sender is asking for clarification")
 - summary: string — 2-3 sentence summary of the message
@@ -4832,7 +4868,7 @@ Respond ONLY with one valid JSON object. No markdown, no backticks, no preamble,
 
 Respond ONLY with one valid JSON object. No markdown, no backticks, no preamble, no trailing prose, no explanation.`
           if (isNativeBeapStream) {
-            systemPrompt = `You are an email triage AI for WR Desk. The message is a BEAP handshake / native capsule. Analyze it and respond with JSON only. Keys:
+            systemPrompt = `You are an email triage AI for Optirando. The message is a BEAP handshake / native capsule. Analyze it and respond with JSON only. Keys:
 - needsReply, needsReplyReason, summary, urgencyScore, urgencyReason, actionItems, archiveRecommendation, archiveReason (same meanings as email triage)
 - draftReplyPublic: string | null — If needsReply is true, brief 1-2 sentence preview (plain prose). If false, null.
 - draftReplyFull: string | null — If needsReply is true, full reply as natural prose (no JSON inside strings). If false, null.
@@ -4928,8 +4964,42 @@ Respond ONLY with one valid JSON object. No markdown, no backticks, no preamble,
               })}`,
             )
             assertMinimumAnalysisOutput(finalAnalysisText, { messageId, requestId })
+            const streamProv = attachAndLogProvenance(finalAnalysisText, inboxProviderForProvenance())
+            // Art. 50: persist same provenance object into ai_analysis_json (not a second mint).
+            try {
+              const dbPersist = await resolveDb()
+              if (dbPersist) {
+                const parsedStream =
+                  parseAnalysisJsonObjectFromStreamText(finalAnalysisText) ??
+                  ({ analysisText: finalAnalysisText } as Record<string, unknown>)
+                const existingRow = dbPersist
+                  .prepare('SELECT ai_analysis_json FROM inbox_messages WHERE id = ?')
+                  .get(messageId) as { ai_analysis_json?: string | null } | undefined
+                let merged: Record<string, unknown> = {}
+                if (existingRow?.ai_analysis_json) {
+                  try {
+                    merged = JSON.parse(existingRow.ai_analysis_json) as Record<string, unknown>
+                  } catch {
+                    merged = {}
+                  }
+                }
+                merged = { ...merged, ...parsedStream, provenance: streamProv.provenance }
+                const sealRes = await resealWithAiAnalysis(dbPersist, messageId, merged)
+                if (!sealRes.ok) {
+                  console.warn(
+                    '[Inbox IPC] aiAnalyzeMessageStream provenance persist re-seal failed:',
+                    sealRes.error,
+                  )
+                }
+              }
+            } catch (persistErr: unknown) {
+              console.warn(
+                '[Inbox IPC] aiAnalyzeMessageStream provenance persist failed:',
+                persistErr instanceof Error ? persistErr.message : String(persistErr),
+              )
+            }
             markAnalysisStreamReplayDone(analyzeDedupeKey)
-            event.sender.send('inbox:aiAnalyzeMessageDone', { messageId })
+            event.sender.send('inbox:aiAnalyzeMessageDone', { messageId, provenance: streamProv.provenance })
             console.log(
               `[INBOX_AUDIT] analysis_done_sent ${JSON.stringify({
                 messageId,
@@ -5113,6 +5183,7 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
               }
             : undefined,
       })
+      const classifyProv = attachAndLogProvenance(raw ?? '', inboxProviderForProvenance())
       const parsed = parseAiJson(raw) as {
         category?: string
         urgency?: number
@@ -5221,6 +5292,7 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
         actionItems: [],
         draftReply: needsReply ? (parsed.draftReply ?? null) : null,
         status: 'classified',
+        provenance: classifyProv.provenance,
       }
       const sealResClassify = await resealWithAiAnalysis(db, messageId, aiAnalysisData)
       if (!sealResClassify.ok) {

@@ -27,6 +27,10 @@ import {
   SendEmailPayload, 
   SendResult 
 } from '../types'
+import {
+  serializeForMime,
+  shouldApplyMachineMarking,
+} from '../../../../../../packages/shared/src/aiProvenance'
 import type {
   OrchestratorRemoteOperation,
   OrchestratorRemoteApplyResult,
@@ -1536,6 +1540,14 @@ export class GmailProvider extends BaseEmailProvider {
     }
     if (payload.references?.length) {
       lines.push(`References: ${payload.references.join(' ')}`)
+    }
+
+    // Art. 50 Layer A — machine-readable provenance headers (provider duty, not user-optional).
+    if (shouldApplyMachineMarking(payload.provenance)) {
+      const mimeHeaders = serializeForMime(payload.provenance!)
+      for (const [key, val] of Object.entries(mimeHeaders)) {
+        lines.push(`${key}: ${val}`)
+      }
     }
     
     const hasAttachments = payload.attachments?.length && payload.attachments.length > 0

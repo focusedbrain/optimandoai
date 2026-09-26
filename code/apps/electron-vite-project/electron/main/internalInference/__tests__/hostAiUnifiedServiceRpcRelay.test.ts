@@ -55,7 +55,7 @@ function makeRecord(partial: {
 }): HandshakeRecord {
   return {
     handshake_id: 'hs-c1',
-    handshake_type: 'internal',
+    same_principal: true,
     state: HandshakeState.ACTIVE,
     local_role: partial.localRole,
     peer_x25519_public_key_b64: partial.peer.pubB64,

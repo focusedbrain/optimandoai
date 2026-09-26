@@ -44,18 +44,25 @@ import {
   getExistingHandshakesForLookup,
   insertAuditLogEntry,
   markContextBlocksInactiveByHandshake,
+  refreshInternalHandshakePersistenceFlags,
 } from './db'
+import { resolveProfile } from '@repo/ingestion-core'
+import { wireDeclaresSamePrincipal } from './samePrincipalWire'
 import { ingestContextBlocks } from './contextIngestion'
 import { indexCapsuleBlocks } from './capsuleBlockIndexer'
-import { buildSuccessAuditEntry, buildDenialAuditEntry } from './auditLog'
+import { buildSuccessAuditEntry, buildDenialAuditEntry, type WireFormatMarker } from './auditLog'
 import { verifyCapsuleSignature } from './signatureKeys'
 import { verifyCapsuleHashIntegrity } from './steps/verifyCapsuleHash'
+import { admitInboundDelivery } from './ingressAdmission'
+import { hasCanonicalEnvelope, verifyCanonicalEnvelope } from './canonicalCore'
+import { checkAndRecordNonce, WR_CORE_NONCE_SCOPE } from './nonceStore'
 import { logHandshakeKeyBinding } from './keyBindingDebug'
 import { getNextStateAfterInboundContextSync } from './contextSyncActiveGate'
 export { getNextStateAfterInboundContextSync }
 import { getP2PConfig } from '../p2p/p2pConfig'
 import { registerHandshakeWithRelay } from '../p2p/relaySync'
 import { retryDeferredInitialContextSyncForInternalHandshake } from './contextSyncEnqueue'
+import { stageInboundInitiate, completeFormationConsent, type FormationConsentRef } from './formationPipeline'
 /**
  * Map ValidatedCapsule's capsule_type to the handshake layer's CapsuleType.
  * internal_draft is not a handshake capsule type — it should not reach here.
@@ -186,6 +193,15 @@ export function processHandshakeCapsule(
   validated: ValidatedCapsule,
   receiverPolicy: ReceiverPolicy,
   ssoSession: SSOSession,
+  opts?: {
+    /**
+     * Phase 4 (Q1) [IX.3.1]: the consent gate. Without this, an inbound
+     * initiate capsule that passes the FULL verification chain produces a
+     * staged Connect offer — never a relationship row. Only the consent
+     * flow (formationPipeline.prepareFormationConsent) hands one in.
+     */
+    formationConsent?: FormationConsentRef
+  },
 ): HandshakeProcessResult {
   // Runtime guard: reject any input that did not pass through the Validator.
   // This catches forged objects, `as ValidatedCapsule` casts, and prototype-hacked inputs.
@@ -216,6 +232,25 @@ export function processHandshakeCapsule(
 
   const input = extractVerifiedInput(validated)
   const startTime = performance.now()
+
+  // Stage 0: ingress admission filter [VII.2.7] — first ingress stage.
+  // Control-plane capsules for a REVOKED/EXPIRED relationship die here,
+  // pre-visibility, with an audit_log record. Formation capsules (no record
+  // yet) are admitted; the state machine below owns them.
+  const admission = admitInboundDelivery(db, {
+    handshakeId: input.handshake_id,
+    kind: 'handshake_capsule',
+    source: validated.provenance?.source_type ?? 'unknown',
+  })
+  if (!admission.admitted) {
+    return {
+      success: false,
+      reason: ReasonCode.INVALID_STATE_TRANSITION,
+      failedStep: 'ingress_admission',
+      pipelineDurationMs: Math.round(performance.now() - startTime),
+    }
+  }
+
   const capsuleObj = validated.capsule as Record<string, any>
   const senderPublicKey = typeof capsuleObj?.sender_public_key === 'string' ? capsuleObj.sender_public_key : ''
   const senderSignature = typeof capsuleObj?.sender_signature === 'string' ? capsuleObj.sender_signature : ''
@@ -298,6 +333,68 @@ export function processHandshakeCapsule(
     }
   }
 
+  // 0c. Canonical v3 envelope (Phase 2, version-gated wire) [VII.3, VII.6.1.3].
+  // Capsules carrying `wr_canonical_v3` verify the full-coverage canonical
+  // form FAIL-CLOSED on top of the legacy rules above; capsules without it
+  // verify under legacy rules alone and are marked 'legacy_v2' in evidence.
+  const wireFormat: WireFormatMarker = hasCanonicalEnvelope(capsuleObj) ? 'canonical_v3' : 'legacy_v2'
+  if (wireFormat === 'canonical_v3') {
+    const envelopeResult = verifyCanonicalEnvelope(capsuleObj, senderPublicKey)
+    if (!envelopeResult.ok) {
+      // Profile-dispatch refusals are fail-closed and NAME the profile
+      // [VII.4.2]; unknown critical entries name the namespace [VII.3.5].
+      const reason = envelopeResult.refusedNamespace
+        ? ReasonCode.UNKNOWN_CRITICAL_EXTENSION
+        : envelopeResult.refusedProfile
+          ? (envelopeResult.reason.startsWith('unknown_profile') ||
+             envelopeResult.reason.startsWith('unsupported_profile_version')
+              ? ReasonCode.UNKNOWN_PROFILE
+              : ReasonCode.PROFILE_SCHEMA_VIOLATION)
+          : ReasonCode.CANONICAL_ENVELOPE_INVALID
+      console.error('[HANDSHAKE] Canonical envelope refused:', {
+        handshake_id: input.handshake_id,
+        capsuleType: input.capsuleType,
+        reason: envelopeResult.reason,
+        refused_namespace: envelopeResult.refusedNamespace ?? null,
+        refused_profile: envelopeResult.refusedProfile ?? null,
+      })
+      try {
+        const entry = buildDenialAuditEntry(input, reason, 'canonical_envelope_verification', 0, wireFormat)
+        entry.metadata = {
+          ...entry.metadata,
+          envelope_reason: envelopeResult.reason,
+          ...(envelopeResult.refusedNamespace ? { refused_namespace: envelopeResult.refusedNamespace } : {}),
+          ...(envelopeResult.refusedProfile
+            ? { refused_profile: `${envelopeResult.refusedProfile.id}@${envelopeResult.refusedProfile.version}` }
+            : {}),
+        }
+        insertAuditLogEntry(db, entry)
+      } catch { /* audit must not mask */ }
+      return {
+        success: false,
+        reason,
+        failedStep: 'canonical_envelope_verification',
+        pipelineDurationMs: Math.round(performance.now() - startTime),
+      }
+    }
+
+    // Freshness/replay: a seen nonce arriving with a DIFFERENT capsule hash is
+    // a replayed core [VII.3.1]; identical redelivery falls through to the
+    // duplicate-capsule dedup step.
+    const nonceCheck = checkAndRecordNonce(db, WR_CORE_NONCE_SCOPE, input.nonce, input.capsule_hash)
+    if (!nonceCheck.ok) {
+      try {
+        insertAuditLogEntry(db, buildDenialAuditEntry(input, ReasonCode.NONCE_REPLAY, 'core_nonce_replay', 0, wireFormat))
+      } catch { /* audit must not mask */ }
+      return {
+        success: false,
+        reason: ReasonCode.NONCE_REPLAY,
+        failedStep: 'core_nonce_replay',
+        pipelineDurationMs: Math.round(performance.now() - startTime),
+      }
+    }
+  }
+
   // 1. Determine mode: create or update
 
   // 2. Pre-load lookups for pipeline
@@ -366,6 +463,43 @@ export function processHandshakeCapsule(
 
   const tierDecision = pipelineResult.context.tierDecision!
 
+  // 4b. Phase 4 (Q1) [IX.3.1 rules 1–4]: inbound initiate WITHOUT a consent
+  // event → Connect-offer staging store, NOT the relationship store. The
+  // full verification chain above has passed; a failed chain already
+  // returned (audit-logged) and therefore no offer is ever reachable for
+  // it. Context blocks land only after consent (pre-visibility).
+  if (input.capsuleType === 'handshake-initiate' && !opts?.formationConsent) {
+    const staging = stageInboundInitiate({
+      handshake_id: input.handshake_id,
+      capsule: capsuleObj,
+      capsule_hash: input.capsule_hash,
+      sender_email: input.senderIdentity?.email ?? null,
+      sender_iss: input.senderIdentity?.iss ?? null,
+      sender_sub: input.senderIdentity?.sub ?? null,
+      sender_wrdesk_user_id: input.sender_wrdesk_user_id ?? null,
+      receiver_email: input.receiver_email ?? null,
+      source_type: validated.provenance?.source_type ?? 'api',
+    })
+    if (!staging.staged && staging.reason !== 'duplicate') {
+      return {
+        success: false,
+        reason: ReasonCode.INTERNAL_ERROR,
+        failedStep: 'connect_offer_staging',
+        detail: staging.reason,
+        pipelineDurationMs: Math.round(performance.now() - startTime),
+      }
+    }
+    return {
+      success: true,
+      staged: true,
+      offerId: staging.offerId!,
+      handshakeRecord: null,
+      blocksStored: 0,
+      tierDecision,
+      pipelineDurationMs: Math.round(performance.now() - startTime),
+    }
+  }
+
   // 5. Compute record mutations
   let record: HandshakeRecord
   let blocksStored = 0
@@ -409,8 +543,26 @@ export function processHandshakeCapsule(
 
   const tx = db.transaction(() => {
     if (input.capsuleType === 'handshake-initiate') {
+      // Only reachable behind the consent gate (4b staged everything else).
       record = buildInitiateRecord(input, ssoSession, tierDecision, effectivePolicy, senderP2PEndpoint, senderP2PAuthToken, senderPublicKey, senderX25519, senderMlkem768)
-      insertHandshakeRecord(db, record)
+      const formationMeta = opts?.formationConsent?.formation
+      if (formationMeta) {
+        // Same-principal admission is a PROFILE-REGISTRY parameter (Q9) —
+        // the legacy row column is written FROM the profile record at this
+        // single persistence boundary (replaces the deleted force-internal
+        // UPDATE in the .beap import dialect).
+        const profileRes = resolveProfile(formationMeta.profile_id, formationMeta.profile_version)
+        if (profileRes.ok && profileRes.record.same_principal && record.same_principal !== true) {
+          record = { ...record, same_principal: true }
+        }
+      }
+      insertHandshakeRecord(db, record, formationMeta)
+      if (formationMeta) {
+        const profileRes = resolveProfile(formationMeta.profile_id, formationMeta.profile_version)
+        if (profileRes.ok && profileRes.record.same_principal) {
+          try { refreshInternalHandshakePersistenceFlags(db, record.handshake_id) } catch { /* flags refresh is best-effort */ }
+        }
+      }
     } else if (input.capsuleType === 'handshake-accept') {
       record = buildAcceptRecord(handshakeRecord!, input, ssoSession, tierDecision, effectivePolicy, senderP2PEndpoint, senderP2PAuthToken, senderPublicKey, senderX25519, senderMlkem768)
       updateHandshakeRecord(db, record)
@@ -580,14 +732,14 @@ export function processHandshakeCapsule(
     insertSeenCapsuleHash(db, input.handshake_id, input.capsule_hash)
 
     // Audit log
-    insertAuditLogEntry(db, buildSuccessAuditEntry(input, record!, durationMs, blocksStored))
+    insertAuditLogEntry(db, buildSuccessAuditEntry(input, record!, durationMs, blocksStored, wireFormat))
   })
 
   try {
     tx()
     if (input.capsuleType === 'handshake-accept') {
       const r = getHandshakeRecord(db, input.handshake_id)
-      if (r?.handshake_type === 'internal' && r.local_role === 'initiator' && r.state === HS.ACCEPTED) {
+      if (r?.same_principal === true && r.local_role === 'initiator' && r.state === HS.ACCEPTED) {
         scheduleInternalInitiatorPostAcceptCoordinationRepair(db, input.handshake_id, ssoSession)
       }
     }
@@ -627,6 +779,15 @@ export function processHandshakeCapsule(
       failedStep: isIngestionFailure ? 'context_ingestion' : 'atomic_transaction',
       detail: errMsg,
       pipelineDurationMs: durationMs,
+    }
+  }
+
+  // Consent-gated formation committed — consume the staged offer.
+  if (opts?.formationConsent) {
+    try {
+      completeFormationConsent(opts.formationConsent)
+    } catch (e: any) {
+      console.warn('[CONNECT_OFFER] completeFormationConsent failed (record committed):', e?.message)
     }
   }
 
@@ -804,9 +965,9 @@ function buildInitiateRecord(
     peer_x25519_public_key_b64: senderX25519,
     peer_mlkem768_public_key_b64: senderMlkem768,
     receiver_email: input.receiver_email || null,
-    ...(input.handshake_type === 'internal'
+    ...(wireDeclaresSamePrincipal(input)
       ? {
-          handshake_type: 'internal' as const,
+          same_principal: true,
           initiator_coordination_device_id: input.sender_device_id?.trim() || null,
           acceptor_coordination_device_id: input.receiver_device_id?.trim() || null,
           initiator_device_name: input.sender_computer_name?.trim() || null,
@@ -920,7 +1081,7 @@ function buildAcceptRecord(
       : (existing.peer_mlkem768_public_key_b64 ?? null),
   }
 
-  if (existing.handshake_type === 'internal' && existing.local_role === 'initiator') {
+  if (existing.same_principal === true && existing.local_role === 'initiator') {
     // Initiator row: on internal accept, wire `sender_*` is the acceptor’s coordination identity.
     const acceptorDev = input.sender_device_id?.trim() || undefined
     const acceptorRole = input.sender_device_role ?? undefined
@@ -957,7 +1118,7 @@ function scheduleInternalInitiatorPostAcceptCoordinationRepair(
         const getToken = () => ipc.getCoordinationOidcToken()
         const rec = getHandshakeRecord(db, handshakeId)
         if (!rec) return
-        if (rec.handshake_type !== 'internal' || rec.local_role !== 'initiator' || rec.state !== HS.ACCEPTED) {
+        if (rec.same_principal !== true || rec.local_role !== 'initiator' || rec.state !== HS.ACCEPTED) {
           return
         }
         if (!rec.acceptor) {
@@ -986,7 +1147,7 @@ function scheduleInternalInitiatorPostAcceptCoordinationRepair(
                 acceptor_email: rec.acceptor.email,
                 initiator_device_id: iid,
                 acceptor_device_id: aid,
-                handshake_type: 'internal',
+                same_principal: true,
               },
             )
             if (!reg.success) {
@@ -1009,7 +1170,7 @@ function scheduleInternalInitiatorPostAcceptCoordinationRepair(
 function inboundPeerP2pAuthTokenUpdate(existing: HandshakeRecord, input: VerifiedCapsuleInput): string | null {
   const tok = input.p2p_auth_token?.trim()
   if (!tok) return null
-  if (existing.handshake_type === 'internal') {
+  if (existing.same_principal === true) {
     const senderDev = input.sender_device_id?.trim() ?? ''
     if (!senderDev) return null
     const peerDev =

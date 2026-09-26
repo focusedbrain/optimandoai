@@ -11,10 +11,31 @@
  *   - Logs deletion counts per table (no sensitive content)
  *   - Idempotent and safe under concurrent invocation
  *   - Never deletes queued or processing sandbox tasks
+ *
+ * Phase 5 carve-out (H5): retention NEVER touches the Tier-L evidence chain
+ * (`wr_evidence_chain` — append-only by trigger) or the frozen handshake
+ * `audit_log`. Only the three ingestion tables named in RETENTION_TABLES are
+ * ever purged; adding a table requires updating that allowlist explicitly.
  */
 
 import type { RetentionConfig } from './retentionConfig'
 import { DEFAULT_RETENTION_CONFIG } from './retentionConfig'
+
+/**
+ * Explicit allowlist of purgeable tables (H5). The evidence chain and the
+ * handshake audit_log are structurally outside retention.
+ */
+export const RETENTION_TABLES = Object.freeze([
+  'ingestion_audit_log',
+  'ingestion_quarantine',
+  'sandbox_queue',
+] as const)
+
+/** Tables retention must never purge (documented carve-out, H5). */
+export const RETENTION_EXCLUDED_TABLES = Object.freeze([
+  'wr_evidence_chain',
+  'audit_log',
+] as const)
 
 export interface RetentionRunResult {
   readonly audit_log_deleted: number;

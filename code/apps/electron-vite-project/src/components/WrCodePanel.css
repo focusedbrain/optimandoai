@@ -1,0 +1,328 @@
+/* WR Code panel. Every surface sets its background and its text colour together. */
+
+.wrc-panel {
+  --wrc-bg: var(--bg-elevated, var(--bg-elevated-prof));
+  --wrc-surface: var(--bg-surface, var(--bg-surface-prof));
+  --wrc-fg: var(--text-primary, var(--text-primary-prof));
+  --wrc-fg-2: var(--text-secondary, var(--text-secondary-prof));
+  --wrc-border: var(--border, var(--border-prof));
+  --wrc-accent: var(--purple-accent, #9333ea);
+  --wrc-accent-hover: var(--purple-accent-hover, #7c3aed);
+  --wrc-warning: var(--warning, var(--warning-prof));
+  --wrc-danger: var(--danger, var(--danger-prof));
+  --wrc-success: var(--success, var(--success-prof));
+
+  margin: 0 0 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--wrc-border);
+  border-radius: 10px;
+  background: var(--wrc-bg);
+  color: var(--wrc-fg);
+}
+
+/* The mail pane is light in every theme (App.css `.inbox-detail-message`); follow it. */
+.inbox-detail-message-inner--premium .wrc-panel {
+  --wrc-bg: var(--bg-base-prof);
+  --wrc-surface: var(--bg-surface-prof);
+  --wrc-fg: var(--text-primary-prof);
+  --wrc-fg-2: var(--text-secondary-prof);
+  --wrc-border: var(--border-prof);
+  --wrc-warning: var(--warning-prof);
+  --wrc-danger: var(--danger-prof);
+  --wrc-success: var(--success-prof);
+}
+
+.wrc-panel__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.wrc-panel__title {
+  flex: 1;
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--wrc-fg);
+}
+
+.wrc-panel__test-badge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  background: color-mix(in srgb, var(--wrc-warning) 22%, var(--wrc-bg) 78%);
+  color: var(--wrc-fg);
+  border: 1px solid color-mix(in srgb, var(--wrc-warning) 60%, transparent);
+}
+
+.wrc-panel__close {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  border: 1px solid var(--wrc-border);
+  background: transparent;
+  color: var(--wrc-fg);
+  font-family: inherit;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.wrc-panel__label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--wrc-fg);
+}
+
+.wrc-panel__row {
+  display: flex;
+  gap: 8px;
+}
+
+.wrc-panel__input {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--wrc-border);
+  border-radius: 8px;
+  background: var(--wrc-surface);
+  color: var(--wrc-fg);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 14px;
+  letter-spacing: 0.02em;
+}
+
+.wrc-panel__input::placeholder {
+  color: var(--wrc-fg-2);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+  letter-spacing: normal;
+}
+
+.wrc-panel__btn {
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--wrc-border);
+  background: var(--wrc-surface);
+  color: var(--wrc-fg);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.wrc-panel__btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--wrc-fg) 7%, var(--wrc-surface) 93%);
+}
+
+.wrc-panel__btn--primary {
+  background: var(--wrc-accent);
+  border-color: color-mix(in srgb, #ffffff 30%, var(--wrc-accent) 70%);
+  color: #ffffff;
+}
+
+.wrc-panel__btn--primary:hover:not(:disabled) {
+  background: var(--wrc-accent-hover);
+}
+
+.wrc-panel__btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.wrc-panel__input:focus-visible,
+.wrc-panel__btn:focus-visible,
+.wrc-panel__close:focus-visible,
+.wrc-panel__candidate:focus-visible {
+  outline: 2px solid var(--wrc-accent);
+  outline-offset: 2px;
+}
+
+.wrc-panel__hint,
+.wrc-panel__note {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--wrc-fg-2);
+}
+
+.wrc-panel__code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  color: var(--wrc-fg);
+}
+
+.wrc-panel__scan {
+  margin-top: 12px;
+}
+
+.wrc-panel__candidates {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.wrc-panel__candidate {
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--wrc-accent) 45%, var(--wrc-border) 55%);
+  background: color-mix(in srgb, var(--wrc-accent) 10%, var(--wrc-bg) 90%);
+  color: var(--wrc-fg);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+/* ── Refusal ─────────────────────────────────────────────────────────────── */
+
+.wrc-refusal {
+  --wrc-tone: var(--wrc-accent);
+  margin-top: 14px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--wrc-tone) 45%, var(--wrc-border) 55%);
+  border-left-width: 4px;
+  border-left-color: var(--wrc-tone);
+  background: color-mix(in srgb, var(--wrc-tone) 9%, var(--wrc-surface) 91%);
+  color: var(--wrc-fg);
+}
+
+.wrc-refusal--input {
+  --wrc-tone: var(--wrc-warning);
+}
+
+.wrc-refusal--status {
+  --wrc-tone: var(--wrc-danger);
+}
+
+.wrc-refusal--warning {
+  --wrc-tone: var(--wrc-danger);
+  border-width: 2px;
+  border-left-width: 6px;
+  background: color-mix(in srgb, var(--wrc-tone) 16%, var(--wrc-surface) 84%);
+}
+
+.wrc-refusal__headline {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.45;
+  color: var(--wrc-fg);
+}
+
+.wrc-refusal__icon {
+  margin-right: 6px;
+}
+
+.wrc-refusal__detail {
+  margin: 4px 0 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--wrc-fg);
+}
+
+.wrc-refusal__code {
+  margin: 6px 0 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  color: var(--wrc-fg-2);
+}
+
+/* ── Offer ───────────────────────────────────────────────────────────────── */
+
+.wrc-offer {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--wrc-accent) 35%, var(--wrc-border) 65%);
+  background: var(--wrc-surface);
+  color: var(--wrc-fg);
+}
+
+.wrc-offer__class {
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--wrc-fg-2);
+}
+
+.wrc-offer__statement {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.4;
+  color: var(--wrc-fg);
+}
+
+.wrc-offer__description {
+  margin: 6px 0 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--wrc-fg);
+}
+
+.wrc-offer__facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 12px;
+  margin: 12px 0 0;
+  font-size: 12px;
+}
+
+.wrc-offer__facts dt {
+  font-weight: 600;
+  color: var(--wrc-fg-2);
+}
+
+.wrc-offer__facts dd {
+  margin: 0;
+  color: var(--wrc-fg);
+}
+
+.wrc-offer__facts dd.wrc-offer__responsible {
+  font-weight: 700;
+  color: var(--wrc-fg);
+}
+
+.wrc-offer__verified {
+  font-weight: 600;
+  color: color-mix(in srgb, var(--wrc-success) 70%, var(--wrc-fg) 30%);
+}
+
+.wrc-offer__steps-title {
+  margin: 12px 0 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--wrc-fg-2);
+}
+
+.wrc-offer__steps {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+  color: var(--wrc-fg);
+}
+
+.wrc-offer__actions,
+.wrc-offer__done {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.wrc-offer__done-text {
+  flex: 1;
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--wrc-fg);
+}

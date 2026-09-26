@@ -141,6 +141,8 @@ export interface AiClassificationResponse {
   suggestedAction: string
   confidence: number
   reasoning: string
+  /** Art. 50 provenance from host /api/llm/chat (or equivalent) generation boundary. */
+  provenance?: import('@shared/aiProvenance').AiProvenance
 }
 
 /** Outcome emitted per message as classification completes. */

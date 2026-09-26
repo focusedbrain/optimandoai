@@ -31,6 +31,7 @@ import {
 } from './p2pHealth'
 import { getInstanceId } from '../orchestrator/orchestratorModeStore'
 import { computeSamePrincipalCoordinationSkipOwn } from './coordinationSamePrincipalInbound'
+import { wireDeclaresSamePrincipal } from '../handshake/samePrincipalWire'
 import { requestCoordinationFlushQueued } from './coordinationFlushQueued'
 import {
   normalizeCoordinationUrlForLocalDial,
@@ -208,7 +209,7 @@ async function processCapsuleInternal(
       /* Vitest / non-Electron */
     }
 
-    let handshakeTypeForLog: string | null = null
+    let samePrincipalForLog: boolean | null = null
     let recordLookup: 'skipped' | 'found' | 'missing' = 'skipped'
     let senderDeviceForLog = ''
     let localDeviceForLog = ''
@@ -218,9 +219,9 @@ async function processCapsuleInternal(
       record = getHandshakeRecord(db, handshakeId)
       if (record) {
         recordLookup = 'found'
-        handshakeTypeForLog = record.handshake_type ?? null
+        samePrincipalForLog = record.same_principal === true
         localRoleForLog = record.local_role
-        if (record.handshake_type === 'internal') {
+        if (record.same_principal === true) {
           senderDeviceForLog = capDevice
           localDeviceForLog = localDevice
         }
@@ -229,10 +230,8 @@ async function processCapsuleInternal(
       }
     }
 
-    const wireHandshakeType =
-      typeof capObj.handshake_type === 'string' ? capObj.handshake_type.trim() : ''
-    const isInternalInboundContext =
-      record?.handshake_type === 'internal' || wireHandshakeType === 'internal'
+    const wireSamePrincipal = wireDeclaresSamePrincipal(capObj)
+    const isInternalInboundContext = record?.same_principal === true || wireSamePrincipal
 
     if (isInternalInboundContext && (!capDevice || !localDevice)) {
       const reasonCode = 'INTERNAL_WS_INBOUND_DEVICE_IDENTITY_INCOMPLETE'
@@ -247,8 +246,8 @@ async function processCapsuleInternal(
           relay_message_id: id,
           handshake_id: handshakeId,
           capsule_type: capsuleType,
-          record_handshake_type: record?.handshake_type ?? null,
-          wire_handshake_type: wireHandshakeType || null,
+          record_same_principal: record ? record.same_principal === true : null,
+          wire_same_principal: wireSamePrincipal,
           has_capsule_sender_device_id: Boolean(capDevice),
           has_local_orchestrator_device_id: Boolean(localDevice),
           decision: 'quarantine_no_ack',
@@ -268,8 +267,8 @@ async function processCapsuleInternal(
               relay_message_id: id,
               handshake_id: handshakeId,
               capsule_type: capsuleType,
-              record_handshake_type: record?.handshake_type ?? null,
-              wire_handshake_type: wireHandshakeType || null,
+              record_same_principal: record ? record.same_principal === true : null,
+              wire_same_principal: wireSamePrincipal,
             }),
           })
         } catch {
@@ -285,9 +284,9 @@ async function processCapsuleInternal(
       record,
       capsuleSenderDeviceId: capDevice,
       localDeviceId: localDevice,
-      capsuleHandshakeType: wireHandshakeType || null,
+      capsuleDeclaresSamePrincipal: wireSamePrincipal,
     })
-    if (handshakeTypeForLog === 'internal' || recordLookup !== 'found') {
+    if (samePrincipalForLog === true || recordLookup !== 'found') {
       console.log(
         '[Coordination][hs-trace]',
         JSON.stringify({
@@ -295,7 +294,7 @@ async function processCapsuleInternal(
           ts: new Date().toISOString(),
           relay_message_id: id,
           handshake_id: handshakeId,
-          handshake_type: handshakeTypeForLog,
+          same_principal: samePrincipalForLog,
           record_lookup: recordLookup,
           capsule_type: capsuleType,
           sender_wrdesk_user_id: capsuleSenderId || null,
@@ -504,6 +503,19 @@ async function processCapsuleInternal(
     }
     console.log('[Coordination] processHandshakeCapsule returned: success=', handshakeResult.success, 'reason=', (handshakeResult as any).reason ?? 'n/a')
 
+    if (handshakeResult.success && !handshakeResult.handshakeRecord) {
+      // Phase 4 (Q1): inbound initiate staged as a Connect offer — no
+      // relationship row exists until consent [IX.3.1].
+      console.log('[Coordination] Inbound initiate staged as Connect offer:', {
+        handshake_id: handshakeId,
+        offer_id: (handshakeResult as { offerId?: string }).offerId ?? null,
+      })
+      setP2PHealthCoordinationLastPush()
+      onHandshakeUpdated?.()
+      sendAckFn([id])
+      return
+    }
+
     if (handshakeResult.success) {
       const capRebuilt = rebuildResult.capsule as { capsule_type?: unknown; capsule_hash?: unknown }
       maybeEnqueueInitialContextSyncAfterInboundAccept(db, ssoSession, {
@@ -522,7 +534,7 @@ async function processCapsuleInternal(
 
       const record = handshakeResult.handshakeRecord!
 
-      if (record.handshake_type === 'internal') {
+      if (record.same_principal === true) {
         let ldIngest = ''
         try {
           ldIngest = getInstanceId()?.trim() ?? ''
@@ -539,7 +551,7 @@ async function processCapsuleInternal(
             ts: new Date().toISOString(),
             relay_message_id: id,
             handshake_id: record.handshake_id,
-            handshake_type: record.handshake_type,
+            same_principal: record.same_principal === true,
             capsule_type:
               typeof capIngest.capsule_type === 'string' ? capIngest.capsule_type : capsuleType,
             sender_wrdesk_user_id:
@@ -995,7 +1007,7 @@ export function createCoordinationWsClient(
                   : null)
               if (db && hidTrace) {
                 const trRec = getHandshakeRecord(db, hidTrace)
-                if (trRec?.handshake_type === 'internal') {
+                if (trRec?.same_principal === true) {
                   let ldRecv = ''
                   try {
                     ldRecv = getInstanceId()?.trim() ?? ''
@@ -1011,7 +1023,7 @@ export function createCoordinationWsClient(
                       ts: new Date().toISOString(),
                       relay_message_id: msg.id,
                       handshake_id: hidTrace,
-                      handshake_type: trRec.handshake_type,
+                      same_principal: trRec.same_principal === true,
                       capsule_type:
                         typeof cap.capsule_type === 'string' ? cap.capsule_type : null,
                       sender_wrdesk_user_id:

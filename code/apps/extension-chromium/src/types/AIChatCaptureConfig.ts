@@ -214,7 +214,9 @@ export interface SanitizationConfig {
   stripMarkdown: boolean;
   
   /**
-   * Remove common AI boilerplate phrases.
+   * Remove common layout boilerplate (e.g. repeated UI headers/footers).
+   * Does NOT remove AI self-disclosure phrases such as "As an AI..." —
+   * those are required under EU AI Act Art. 50 and must be preserved.
    * @default false
    */
   removeBoilerplate: boolean;
@@ -323,6 +325,7 @@ export function getDefaultAIChatCaptureConfig(): AIChatCaptureConfig {
     sanitization: {
       trim: true,
       stripMarkdown: false,
+      // Art. 50: even when true, AI self-disclosure phrases must not be stripped
       removeBoilerplate: false,
     },
   };

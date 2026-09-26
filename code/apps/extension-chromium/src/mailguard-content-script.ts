@@ -542,7 +542,7 @@ function showConnectionWarning(): void {
     box-shadow: 0 4px 15px rgba(0,0,0,0.3);
     border: 2px solid #f59e0b;
   `
-  warning.innerHTML = '<span style="font-size:16px">⚠️</span> Connection lost - Overlay may be inactive. Check if WR Desk™ is running.'
+  warning.innerHTML = '<span style="font-size:16px">⚠️</span> Connection lost - Overlay may be inactive. Check if Optirando™ is running.'
   document.body.appendChild(warning)
 }
 
@@ -1206,7 +1206,7 @@ async function activateMailGuard(): Promise<void> {
     align-items: center;
     gap: 10px;
   `
-  statusDiv.innerHTML = '<span style="animation: spin 1s linear infinite; display: inline-block;">⏳</span> Connecting to WR Desk™...'
+  statusDiv.innerHTML = '<span style="animation: spin 1s linear infinite; display: inline-block;">⏳</span> Connecting to Optirando™...'
   document.body.appendChild(statusDiv)
   
   // Add spin animation
@@ -1272,7 +1272,7 @@ async function activateMailGuard(): Promise<void> {
         
         // If it's a connection error, the background is already retrying
         // Wait a bit longer for it to succeed
-        if (lastError.includes('connect') || lastError.includes('WR Desk™')) {
+        if (lastError.includes('connect') || lastError.includes('Optirando™')) {
           await new Promise(r => setTimeout(r, 500))
         }
       }
@@ -1284,7 +1284,7 @@ async function activateMailGuard(): Promise<void> {
   
   // All retries failed
   statusDiv.remove()
-  showActivationError(lastError || 'Connection failed. Please ensure the WR Desk™ app is running and try again.')
+  showActivationError(lastError || 'Connection failed. Please ensure the Optirando™ app is running and try again.')
 }
 
 function showActivationError(message: string): void {
@@ -1309,7 +1309,7 @@ function showActivationError(message: string): void {
     <div style="font-weight: 600; margin-bottom: 8px;">⚠️ MailGuard Activation Failed</div>
     <div style="font-size: 12px; opacity: 0.9;">${message}</div>
     <div style="font-size: 11px; margin-top: 10px; opacity: 0.7;">
-      Make sure WR Desk™ (Electron app) is running and try reloading the extension.
+      Make sure Optirando™ (Electron app) is running and try reloading the extension.
     </div>
   `
   document.body.appendChild(errorDiv)
@@ -1824,7 +1824,7 @@ function showWRGuardProtectionOverlay(): void {
       <div class="header">
         <div class="header-icon">🛡️</div>
         <div class="header-text">
-          <div class="header-brand">WRDesk Orchestrator</div>
+          <div class="header-brand">Optirando Orchestrator</div>
           <div class="header-title">Protected Inbox Environment</div>
         </div>
         <button class="close-btn" id="close-overlay" title="Dismiss">×</button>
@@ -1850,8 +1850,8 @@ function showWRGuardProtectionOverlay(): void {
         <div class="section">
           <div class="section-title">Next steps</div>
           <div class="section-content">
-            <strong>Enterprise APIs:</strong> Connect Gmail, Outlook, WhatsApp Business, or other supported providers to receive validated capsules in the WRDesk Inbox.<br><br>
-            <strong>Links &amp; private content:</strong> Use your tablet or smartphone (WRDesk Sub-Orchestrator) to open external links and view original documents outside the protected session.
+            <strong>Enterprise APIs:</strong> Connect Gmail, Outlook, WhatsApp Business, or other supported providers to receive validated capsules in the Optirando Inbox.<br><br>
+            <strong>Links &amp; private content:</strong> Use your tablet or smartphone (Optirando Sub-Orchestrator) to open external links and view original documents outside the protected session.
           </div>
         </div>
         

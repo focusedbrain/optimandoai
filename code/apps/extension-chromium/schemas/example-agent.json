@@ -35,7 +35,6 @@
         "emails": "",
         "keywords": "",
         "websiteFilter": "",
-        "wrcodeMatch": "",
         "workflowId": "",
         "command": "",
         "parserTrigger": "button_click",

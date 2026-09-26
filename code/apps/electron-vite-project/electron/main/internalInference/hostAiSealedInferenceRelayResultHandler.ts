@@ -94,6 +94,7 @@ export async function tryHandleHostAiSealedInferenceResultRelayCapsule(
       output: wire.output,
       model: wire.model,
       duration_ms: wire.duration_ms,
+      ...(wire.provenance !== undefined ? { provenance: wire.provenance } : {}),
     }
   } else {
     pr = {

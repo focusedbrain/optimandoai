@@ -274,6 +274,7 @@ export async function runHostInternalInference(
         },
       }
     }
+    // Provenance was attached+logged exactly once in runInternalHostLocalLlmInference.
     return {
       wire: {
         type: 'internal_inference_result',
@@ -288,6 +289,7 @@ export async function runHostInternalInference(
         output: out.text,
         usage: out.usage,
         duration_ms: out.durationMs,
+        ...(out.provenance !== undefined ? { provenance: out.provenance } : {}),
       },
       log: {
         model: out.model,

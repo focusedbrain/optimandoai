@@ -12,7 +12,11 @@
  * runtime dependency on `emailDepackage`, so there is no import cycle.
  */
 
-import type { DisplayEnvelope, ThreadingHints } from './displayEnvelope'
+import type {
+  ChannelAuthenticationMaterial,
+  DisplayEnvelope,
+  ThreadingHints,
+} from './displayEnvelope'
 
 // ── Typed failure taxonomy (INV-7) ──────────────────────────────────────────
 
@@ -89,4 +93,10 @@ export interface ParseOut {
    * IMAP threading + MOVE relocation never depend on an orchestrator header parse.
    */
   threadingHints: ThreadingHints
+  /**
+   * Channel-authentication material for the CPR [IX.3.1], collected in-guest for
+   * the same reason as the envelope above. Absent means the producer had nothing
+   * to read — which the CPR records as `unverifiable`, never as a pass.
+   */
+  channelAuthentication?: ChannelAuthenticationMaterial
 }

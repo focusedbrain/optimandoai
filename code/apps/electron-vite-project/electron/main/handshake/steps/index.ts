@@ -19,7 +19,6 @@ import { verifyChainIntegrity } from './chainIntegrity'
 import { verifySharingMode } from './sharingMode'
 import { verifyExternalProcessing } from './externalProcessing'
 import { verifyContextBinding } from './contextBinding'
-import { verifyContextVersions } from './contextVersions'
 import { resolveEffectivePolicy } from './policyResolution'
 import { verifyScopePurpose } from './scopePurpose'
 import { verifyTimestamp } from './timestamp'
@@ -43,7 +42,6 @@ export const HANDSHAKE_PIPELINE: readonly PipelineStep[] = Object.freeze([
   verifySharingMode,
   verifyExternalProcessing,
   verifyContextBinding,
-  verifyContextVersions,
   resolveEffectivePolicy,
   verifyScopePurpose,
   verifyTimestamp,
@@ -70,7 +68,6 @@ export {
   verifySharingMode,
   verifyExternalProcessing,
   verifyContextBinding,
-  verifyContextVersions,
   resolveEffectivePolicy,
   verifyScopePurpose,
   verifyTimestamp,

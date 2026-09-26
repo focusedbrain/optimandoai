@@ -170,7 +170,7 @@ function sandboxToHostRecord(over: Partial<HandshakeRecord> = {}): HandshakeReco
     initiator_coordination_device_id: 'dev-sand-coord-1',
     acceptor_coordination_device_id: 'dev-host-coord-1',
     internal_coordination_identity_complete: true,
-    handshake_type: 'internal',
+    same_principal: true,
     p2p_endpoint: LOCAL_SANDBOX_MVP_DIRECT_BEAP,
     local_p2p_auth_token: 't',
     counterparty_p2p_token: 'pt',

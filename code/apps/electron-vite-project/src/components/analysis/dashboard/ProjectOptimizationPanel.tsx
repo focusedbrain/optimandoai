@@ -636,10 +636,10 @@ export const ProjectOptimizationPanel = forwardRef<ProjectOptimizationPanelHandl
       setSelectedField(field)
 
       // SET fresh insertion callback for this field
-      window.__wrdeskInsertDraft = (text: string, mode: 'append' | 'replace') => {
+      window.__wrdeskInsertDraft = (text: string, mode: 'append' | 'replace', provenance?) => {
         const trimmed = text.trim()
         if (!trimmed) return
-        console.log('[Insert Draft] field:', field, 'mode:', mode)
+        console.log('[Insert Draft] field:', field, 'mode:', mode, provenance ? `[prov:${provenance.model_id}]` : '')
 
         if (field === 'title') {
           const clean = trimmed
@@ -674,6 +674,12 @@ export const ProjectOptimizationPanel = forwardRef<ProjectOptimizationPanelHandl
             }))
           if (newMs.length > 0) setFormMilestones((prev) => [...prev, ...newMs])
         }
+        // Art. 50: broadcast provenance so any listener can persist it alongside the applied value
+        if (provenance) {
+          window.dispatchEvent(
+            new CustomEvent('wrdesk:field-ai-applied', { detail: { text: trimmed, mode, field, provenance } })
+          )
+        }
       }
 
       if (field === 'title' || field === 'description' || field === 'goals') {
@@ -704,10 +710,10 @@ export const ProjectOptimizationPanel = forwardRef<ProjectOptimizationPanelHandl
     setSelectedField('milestones')
 
     // Set the global callback — captures milestoneId right now (not stale)
-    window.__wrdeskInsertDraft = (text: string, mode: 'append' | 'replace') => {
+    window.__wrdeskInsertDraft = (text: string, mode: 'append' | 'replace', provenance?) => {
       const trimmed = text.trim()
       if (!trimmed) return
-      console.log('[Insert Draft] SPECIFIC milestone:', milestoneId, 'mode:', mode)
+      console.log('[Insert Draft] SPECIFIC milestone:', milestoneId, 'mode:', mode, provenance ? `[prov:${provenance.model_id}]` : '')
 
       const projectStore = useProjectStore.getState()
       const projectId = projectStore.activeProjectId
@@ -723,6 +729,12 @@ export const ProjectOptimizationPanel = forwardRef<ProjectOptimizationPanelHandl
         prev.map((m) => (m.id === milestoneId ? { ...m, title: newContent } : m))
       )
       flashMilestoneEl(milestoneId)
+      // Art. 50: broadcast provenance so any listener can persist it alongside the applied value
+      if (provenance) {
+        window.dispatchEvent(
+          new CustomEvent('wrdesk:field-ai-applied', { detail: { text: trimmed, mode, field: 'milestone', milestoneId, provenance } })
+        )
+      }
     }
 
     // Build milestone-specific pre-frame directly (no useEffect needed)

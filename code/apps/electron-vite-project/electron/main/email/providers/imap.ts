@@ -2118,6 +2118,19 @@ export class ImapProvider extends BaseEmailProvider {
         contentType: a.mimeType,
       }))
 
+      // Art. 50 Layer A — machine-readable headers when draft has AI provenance.
+      let art50Headers: Record<string, string> | undefined
+      try {
+        const { shouldApplyMachineMarking, serializeForMime } = await import(
+          '../../../../../../packages/shared/src/aiProvenance'
+        )
+        if (shouldApplyMachineMarking(payload.provenance)) {
+          art50Headers = serializeForMime(payload.provenance!)
+        }
+      } catch {
+        /* shared import failure must not block send */
+      }
+
       const info = await this.transporter.sendMail({
         from: this.config.email,
         to: payload.to.join(', '),
@@ -2128,6 +2141,7 @@ export class ImapProvider extends BaseEmailProvider {
         inReplyTo: payload.inReplyTo,
         references: payload.references?.join(' '),
         attachments: attachments.length > 0 ? attachments : undefined,
+        ...(art50Headers ? { headers: art50Headers } : {}),
       })
       
       return {

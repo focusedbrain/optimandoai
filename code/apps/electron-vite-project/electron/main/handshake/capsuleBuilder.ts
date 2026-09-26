@@ -31,6 +31,9 @@ import { randomUUID } from 'crypto'
 import type { SSOSession, SharingMode, TierSignals, ReceiverIdentity } from './types'
 import type { ContextBlockProof } from './canonicalRebuild'
 import { computeCapsuleHash, type CapsuleHashInput } from './capsuleHash'
+import { attachCanonicalEnvelope } from './canonicalCore'
+import type { CorePartyId, WrCanonicalEnvelope } from '@repo/ingestion-core'
+import type { PartyIdentity } from './types'
 import { computeContextHash, generateNonce, type ContextHashInput } from './contextHash'
 import { computeContextCommitment, stripContentFromBlocks, type ContextBlockForCommitment, type ContextBlockWireProof } from './contextCommitment'
 import { computePolicyHash, DEFAULT_POLICY_DESCRIPTOR, type PolicyDescriptor } from './policyHash'
@@ -259,6 +262,69 @@ export interface HandshakeCapsuleWire {
    * `receiver_device_id` instead.
    */
   readonly receiver_pairing_code?: string;
+  /**
+   * Phase 2 (version-gated wire): canonical v3 signed core envelope. The v2
+   * surface above stays byte-compatible for old peers; new receivers verify
+   * this envelope fail-closed on top [VII.3, VII.6.1.3].
+   */
+  readonly wr_canonical_v3?: WrCanonicalEnvelope;
+}
+
+// ── Canonical v3 emission (Phase 2) ──
+
+function sessionToCoreParty(session: SSOSession): CorePartyId {
+  return {
+    sub: session.sub,
+    iss: session.iss,
+    email: session.email,
+    wrdesk_user_id: session.wrdesk_user_id,
+  }
+}
+
+interface V3EmissionArgs {
+  session: SSOSession
+  /** Sender's role on the HANDSHAKE (not the message). */
+  localRole: 'initiator' | 'acceptor'
+  /** Counterparty full-claim identity when known; required when localRole is acceptor. */
+  counterpartyIdentity?: PartyIdentity | null
+  privateKeyHex: string
+  publicKeyHex: string
+}
+
+/**
+ * Attach the canonical v3 envelope to a fully built v2 capsule (dual-format
+ * emission). When the required party identities are not available (legacy
+ * call sites that have not plumbed the counterparty identity yet), the
+ * capsule is emitted legacy-only — never with fabricated identity claims.
+ * Canonicalization failures also fall back to legacy-only emission (logged):
+ * the transitional dual format must not break v2 interop.
+ */
+function attachV3IfPossible(capsule: HandshakeCapsuleWire, args: V3EmissionArgs): HandshakeCapsuleWire {
+  try {
+    const localParty = sessionToCoreParty(args.session)
+    let initiator: CorePartyId
+    let responder: CorePartyId | null
+    if (args.localRole === 'initiator') {
+      initiator = localParty
+      responder = args.counterpartyIdentity ?? null
+    } else {
+      if (!args.counterpartyIdentity) return capsule
+      initiator = args.counterpartyIdentity
+      responder = localParty
+    }
+    return attachCanonicalEnvelope(capsule as unknown as Record<string, unknown>, {
+      initiator,
+      responder,
+      createdAt: capsule.timestamp,
+      nonce: capsule.nonce,
+      privateKeyHex: args.privateKeyHex,
+      publicKeyHex: args.publicKeyHex,
+      signer: args.localRole === 'initiator' ? 'initiator' : 'responder',
+    }) as unknown as HandshakeCapsuleWire
+  } catch (e: any) {
+    console.error('[CAPSULE-BUILD] canonical v3 emission failed — sending legacy-only:', e?.message)
+    return capsule
+  }
 }
 
 // ── Options types ──
@@ -360,6 +426,12 @@ export interface AcceptOptions {
   /** Internal accept: wire receiver_* (initiator peer). Required with isInternalHandshake. */
   receiverDeviceRole?: 'host' | 'sandbox';
   receiverComputerName?: string;
+  /**
+   * Phase 2 (canonical v3 emission): initiator's full-claim identity from the
+   * received initiate capsule. Required to bind initiator_id in the signed
+   * core; without it the accept is emitted legacy-only (never fabricated).
+   */
+  initiatorIdentity?: PartyIdentity | null;
 }
 
 /**
@@ -415,6 +487,10 @@ export interface RefreshOptions {
   receiverComputerName?: string;
   /** Local P2P Bearer for the peer to store (symmetric auth). */
   p2p_auth_token?: string | null;
+  /** Phase 2 (canonical v3 emission): sender's handshake role. */
+  localHandshakeRole?: 'initiator' | 'acceptor';
+  /** Phase 2 (canonical v3 emission): counterparty full-claim identity when known. */
+  counterpartyIdentity?: PartyIdentity | null;
 }
 
 export interface RevokeOptions {
@@ -446,6 +522,10 @@ export interface RevokeOptions {
   senderComputerName?: string;
   receiverComputerName?: string;
   p2p_auth_token?: string | null;
+  /** Phase 2 (canonical v3 emission): sender's handshake role. */
+  localHandshakeRole?: 'initiator' | 'acceptor';
+  /** Phase 2 (canonical v3 emission): counterparty full-claim identity when known. */
+  counterpartyIdentity?: PartyIdentity | null;
 }
 
 /** Options for context_sync — first post-activation capsule delivering context blocks. */
@@ -490,6 +570,8 @@ export interface ContextSyncOptions {
   peerX25519PublicKeyB64?: string | null;
   /** This device's role on the handshake — used only as an AAD label for content sealing. */
   localRole?: 'initiator' | 'acceptor';
+  /** Phase 2 (canonical v3 emission): counterparty full-claim identity when known. */
+  counterpartyIdentity?: PartyIdentity | null;
 }
 
 // ── Builder functions ──
@@ -607,7 +689,16 @@ function buildInitiateCapsuleCore(
     ...(opts.sender_mlkem768_public_key_b64 ? { sender_mlkem768_public_key_b64: opts.sender_mlkem768_public_key_b64 } : {}),
     ...internalWire,
   }
-  return { capsule, keypair }
+  return {
+    capsule: attachV3IfPossible(capsule, {
+      session,
+      localRole: 'initiator',
+      counterpartyIdentity: null,
+      privateKeyHex: keypair.privateKey,
+      publicKeyHex: keypair.publicKey,
+    }),
+    keypair,
+  }
 }
 
 /**
@@ -777,7 +868,16 @@ export function buildAcceptCapsule(
     ...(opts.sender_mlkem768_public_key_b64 ? { sender_mlkem768_public_key_b64: opts.sender_mlkem768_public_key_b64 } : {}),
     ...internalCoord,
   }
-  return { capsule, keypair }
+  return {
+    capsule: attachV3IfPossible(capsule, {
+      session,
+      localRole: 'acceptor',
+      counterpartyIdentity: opts.initiatorIdentity ?? null,
+      privateKeyHex: keypair.privateKey,
+      publicKeyHex: keypair.publicKey,
+    }),
+    keypair,
+  }
 }
 
 /** Result of buildAcceptCapsule including keypair for persistence (same shape for accept) */
@@ -896,6 +996,15 @@ export function buildRefreshCapsule(
     }),
     ...(opts.p2p_auth_token ? { p2p_auth_token: opts.p2p_auth_token } : {}),
   }
+  if (opts.localHandshakeRole) {
+    return attachV3IfPossible(wire, {
+      session,
+      localRole: opts.localHandshakeRole,
+      counterpartyIdentity: opts.counterpartyIdentity ?? null,
+      privateKeyHex: opts.local_private_key,
+      publicKeyHex: opts.local_public_key,
+    })
+  }
   return wire
 }
 
@@ -961,7 +1070,7 @@ export function buildContextSyncCapsule(
   const capsuleHash = computeCapsuleHash(hashInput)
   const senderSignature = signCapsuleHash(capsuleHash, opts.local_private_key)
 
-  return {
+  const contextSyncWire: HandshakeCapsuleWire = {
     schema_version: 2,
     capsule_type: 'context_sync',
     handshake_id: opts.handshake_id,
@@ -1005,6 +1114,16 @@ export function buildContextSyncCapsule(
     }),
     ...(opts.p2p_auth_token ? { p2p_auth_token: opts.p2p_auth_token } : {}),
   }
+  if (opts.localRole) {
+    return attachV3IfPossible(contextSyncWire, {
+      session,
+      localRole: opts.localRole,
+      counterpartyIdentity: opts.counterpartyIdentity ?? null,
+      privateKeyHex: opts.local_private_key,
+      publicKeyHex: opts.local_public_key,
+    })
+  }
+  return contextSyncWire
 }
 
 /**
@@ -1042,10 +1161,23 @@ export function buildContextSyncCapsuleWithContent(
   if (!sealed.ok) {
     throw new Error(`CONTEXT_SYNC_SEAL_FAILED: ${sealed.code}: ${sealed.message}`)
   }
-  return {
-    ...base,
+  // Re-attach the canonical envelope so it covers context_blocks_sealed
+  // (full coverage — the envelope signed by buildContextSyncCapsule predates
+  // the sealed field and must not survive on the extended capsule).
+  const { wr_canonical_v3: _staleEnvelope, ...baseWithoutEnvelope } = base as HandshakeCapsuleWire & {
+    wr_canonical_v3?: unknown
+  }
+  const withSealed = {
+    ...(baseWithoutEnvelope as HandshakeCapsuleWire),
     context_blocks_sealed: sealed.envelope,
   }
+  return attachV3IfPossible(withSealed, {
+    session,
+    localRole,
+    counterpartyIdentity: opts.counterpartyIdentity ?? null,
+    privateKeyHex: opts.local_private_key,
+    publicKeyHex: opts.local_public_key,
+  })
 }
 
 /**

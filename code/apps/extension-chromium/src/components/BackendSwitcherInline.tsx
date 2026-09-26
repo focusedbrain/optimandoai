@@ -425,11 +425,11 @@ export function BackendSwitcherInline({ theme = 'standard', onLogout }: BackendS
             {electronNotRunning && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '8px', paddingTop: '8px', borderTop: effectiveTheme === 'standard' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.15)' }}>
                 <p style={{ margin: 0, fontSize: '11px', color: effectiveTheme === 'standard' ? '#dc2626' : '#f87171' }}>
-                  WR Desk Orchestrator is not running.
+                  Optirando Orchestrator is not running.
                 </p>
                 {launchTimedOut && (
                   <p style={{ margin: 0, fontSize: '10px', color: effectiveTheme === 'standard' ? '#dc2626' : '#f87171' }}>
-                    Could not connect. Please make sure WR Desk is running and try again.
+                    Could not connect. Please make sure Optirando is running and try again.
                   </p>
                 )}
                 <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
@@ -706,64 +706,40 @@ export function BackendSwitcherInline({ theme = 'standard', onLogout }: BackendS
               ))}
             </div>
 
-            {/* Hero Section with Logo */}
+            {/* Hero — stacked Optirando logo (symbol + wordmark) at full size */}
             <div style={{ textAlign: 'center', marginBottom: '4px' }}>
-              {/* Original WR Desk Logo */}
               <div style={{
                 display: 'inline-block',
-                marginBottom: '12px'
+                marginBottom: '12px',
+                width: '100%',
+                maxWidth: '320px'
               }}>
-                <img 
-                  src={chrome.runtime.getURL('wrdesk-logo.png')}
-                  alt="WR Desk Logo"
+                <img
+                  src={chrome.runtime.getURL('optirando-logo.png')}
+                  alt="Optirando"
                   style={{
-                    width: '256px',
+                    width: '100%',
                     height: 'auto',
-                    maxWidth: '100%'
+                    maxWidth: '320px',
+                    objectFit: 'contain',
+                    display: 'block',
+                    margin: '0 auto'
+                  }}
+                  onError={(e) => {
+                    ;(e.currentTarget as HTMLImageElement).src = chrome.runtime.getURL('optirando-symbol.png')
                   }}
                 />
               </div>
-              
-              {/* Main Title */}
-              <h1 style={{
-                fontSize: scaledSize(17),
-                fontWeight: '700',
-                color: textColor,
-                margin: '0 0 6px 0',
-                lineHeight: '1.3',
-                letterSpacing: '-0.02em'
-              }}>
-                Workflow-Ready Desk
-              </h1>
-              
-              {/* Subtitle */}
               <h2 style={{
                 fontSize: scaledSize(13),
-                fontWeight: '500',
+                fontWeight: 700,
                 color: textColor,
-                margin: '0 0 10px 0',
-                lineHeight: '1.4',
-                letterSpacing: '-0.01em',
-                opacity: 0.9
-              }}>
-                Transport-agnostic automation for communication, documents, and actions.
-              </h2>
-              <p style={{
-                fontSize: scaledSize(11),
-                color: mutedColor,
-                margin: '0 0 6px 0',
-                lineHeight: '1.5'
-              }}>
-                WR Desk enables automation across heterogeneous channels without relying on transport-layer trust.
-              </p>
-              <p style={{
-                fontSize: scaledSize(11),
-                color: mutedColor,
                 margin: 0,
-                lineHeight: '1.5'
+                lineHeight: '1.4',
+                letterSpacing: '-0.01em'
               }}>
-                Security, integrity, and policy enforcement are embedded at the protocol level, not delegated to infrastructure assumptions.
-              </p>
+                Make Everything Smart.
+              </h2>
             </div>
 
             {/* Divider */}
@@ -1112,7 +1088,7 @@ export function BackendSwitcherInline({ theme = 'standard', onLogout }: BackendS
                 margin: 0,
                 lineHeight: '1.65'
               }}>
-                As automation becomes pervasive, security can no longer be retrofitted; it must be embedded at the level where workflows, documents, and actions are defined. While WR Desk and BEAP are designed to meet enterprise-grade requirements, the same architecture enables equivalent security guarantees for individual users, independent of automation or business workflows.
+                As automation becomes pervasive, security can no longer be retrofitted; it must be embedded at the level where workflows, documents, and actions are defined. While Optirando and BEAP are designed to meet enterprise-grade requirements, the same architecture enables equivalent security guarantees for individual users, independent of automation or business workflows.
               </p>
             </div>
           </div>

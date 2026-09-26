@@ -17,6 +17,7 @@
  * @version 1.0.0
  */
 
+import type { ChannelProvenanceAlertRecord } from '@repo/shared-beap-ui'
 import type { ProcessingEventOffer } from './services/processingEvents'
 
 // =============================================================================
@@ -272,6 +273,29 @@ export interface BeapMessage {
    * Set via `setDraftReply`; absent when no draft has been started.
    */
   draftReply?: DraftReply
+
+  /**
+   * Art. 50 machine-readable content provenance from inbound capsule
+   * (`content_provenance`), when the sender embedded it.
+   */
+  contentProvenance?: Record<string, unknown>
+
+  /**
+   * Channel Provenance Record projection — the two verdicts the §IX.3.1 rule-8
+   * alert reads. Phase 5, named item "extension CPR plumbing": before this the
+   * extension had the alert component but no data to trigger it, because
+   * `beapInbox.list` did not return `depackaged_metadata`.
+   *
+   * Absent (not `null`) when the row carries no CPR: the shared component
+   * treats absence as "do not render", never as a pass.
+   *
+   * Typed as the shared record, imported rather than redeclared. A local copy
+   * with `verdict: string` is what this field originally was, and it widened
+   * the verdict away from the union the component requires — the field then no
+   * longer proved anything about what it carried, and the mismatch was
+   * invisible to the rig because `vite build` does not typecheck.
+   */
+  channelProvenance?: ChannelProvenanceAlertRecord | null
 
   // -------------------------------------------------------------------------
   // Deletion scheduling

@@ -338,3 +338,7 @@ apps/extension-chromium/build179/
 apps/extension-chromium/build180/
 apps/extension-chromium/build181/
 apps/extension-chromium/build182/
+
+# Accidental vitest JSON dumps (not source)
+phase2-before-native.json
+*-before-native.json

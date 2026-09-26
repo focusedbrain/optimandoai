@@ -196,7 +196,7 @@ export const InitiateHandshakeDialog: React.FC<InitiateHandshakeDialogProps> = (
           ...opts,
           ...(isInternal
             ? {
-                handshake_type: 'internal',
+                profile_id: 'internal_device',
                 device_name: deviceName.trim(),
                 device_role: deviceRole,
                 counterparty_device_id: counterpartyDeviceId.trim(),
@@ -379,7 +379,7 @@ export const InitiateHandshakeDialog: React.FC<InitiateHandshakeDialogProps> = (
               }}>
                 <strong style={{ fontSize: '11.5px' }}>What to expect next (Sandbox):</strong>{' '}
                 After the handshake activates, you will be prompted to connect a{' '}
-                <strong>read-only</strong> email account on this device so WR Desk can fetch
+                <strong>read-only</strong> email account on this device so Optirando can fetch
                 mail safely. That account <strong>cannot send mail</strong> — credentials stay
                 only on this device. Your BEAP inbox and outbound mail remain on the Host.
               </div>

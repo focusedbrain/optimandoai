@@ -361,7 +361,7 @@ export async function pullFromRelay(
                       localRelayDev = ''
                     }
                     const reverseInternalWire = internalRelayCapsuleWireOptsFromRecord(record, localRelayDev)
-                    if (record.handshake_type === 'internal' && !reverseInternalWire) {
+                    if (record.same_principal === true && !reverseInternalWire) {
                       console.warn(
                         '[Relay] Skipping reverse context_sync — internal relay identity incomplete, handshake:',
                         record.handshake_id,
@@ -379,6 +379,8 @@ export async function pullFromRelay(
                       local_private_key: localPriv,
                       peerX25519PublicKeyB64: record.peer_x25519_public_key_b64,
                       localRole: record.local_role,
+                      counterpartyIdentity:
+                        record.local_role === 'initiator' ? record.acceptor : record.initiator,
                       ...(reverseInternalWire ?? {}),
                     })
                     const enqRev = enqueueOutboundCapsule(db, record.handshake_id, targetEndpoint.trim(), contextSyncCapsule)

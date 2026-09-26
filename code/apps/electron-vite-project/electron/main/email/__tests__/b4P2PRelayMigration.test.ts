@@ -24,6 +24,14 @@
 import { createRequire } from 'module'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { randomUUID, createHash, createHmac } from 'crypto'
+
+// The vault capability gate (outer-vault/SSO active) is exercised by its own
+// tests (capabilityBroker.test.ts); allow it here so the P2P path reaches the
+// ingress admission filter and the inbox/quarantine writes under test.
+vi.mock('../../vault/capabilityBroker', () => ({
+  canPerform: () => ({ allowed: true, reasonCode: 'ok', userMessage: '', retryStrategy: 'transient' }),
+}))
+
 import {
   bindKeyProvider,
   unbindKeyProvider,
@@ -52,9 +60,23 @@ function makeEmptyDb() {
   return new Database(':memory:')
 }
 
-function makeTestDb() {
+/**
+ * Phase 1 [VII.2.7]: the ingress admission filter is the first inbox stage;
+ * message deliveries need an ACTIVE relationship row to be admitted.
+ */
+async function seedActiveHandshake(db: any, hsId: string) {
+  const { insertHandshakeRecord } = await import('../../handshake/db')
+  const { buildActiveHandshakeRecord } = await import('../../handshake/__tests__/helpers')
+  insertHandshakeRecord(db, buildActiveHandshakeRecord({ handshake_id: hsId, relationship_id: `rel-${hsId}` }))
+}
+
+async function makeTestDb() {
   if (!Database) return null
   const db = new Database(':memory:')
+  // Real handshake schema (handshakes + audit_log) so the ingress admission
+  // filter (Phase 1, [VII.2.7]) can resolve relationships and log blocks.
+  const { migrateHandshakeTables } = await import('../../handshake/db')
+  migrateHandshakeTables(db)
   db.exec(`
     CREATE TABLE IF NOT EXISTS inbox_messages (
       id TEXT PRIMARY KEY,
@@ -121,12 +143,16 @@ function buildValidSealForRowId(canonicalJson: string, rowId: string): { seal: s
 }
 
 function setupSealGate() {
-  bindKeyProvider(() => TEST_DEK)
+  // Bind both slots: the non-confidential inbox write seals with the OUTER
+  // provider (computeSeal(..., 'outer')); confidential/quarantine use inner.
+  bindKeyProvider(() => TEST_DEK, 'inner')
+  bindKeyProvider(() => TEST_DEK, 'outer')
   clearTamperingEvents()
 }
 
 function teardownSealGate() {
-  unbindKeyProvider()
+  unbindKeyProvider('inner')
+  unbindKeyProvider('outer')
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -166,8 +192,8 @@ function makeQBeapPackage(handshakeId: string): string {
 describe.skipIf(!Database)('B-4 §1 — processBeapPackageInline', () => {
   let db: ReturnType<NonNullable<typeof Database>>
 
-  beforeEach(() => {
-    db = makeTestDb()!
+  beforeEach(async () => {
+    db = (await makeTestDb())!
     setupSealGate()
   })
 
@@ -178,6 +204,7 @@ describe.skipIf(!Database)('B-4 §1 — processBeapPackageInline', () => {
 
   it('§1.1 valid pBEAP with known handshake → sealed inbox row (outcome: inbox)', async () => {
     const handshakeId = randomUUID()
+    await seedActiveHandshake(db, handshakeId)
 
     const { processBeapPackageInline } = await import('../beapEmailIngestion')
 
@@ -214,54 +241,70 @@ describe.skipIf(!Database)('B-4 §1 — processBeapPackageInline', () => {
     validateSpy.mockRestore()
   })
 
-  it('§1.2 pBEAP with unknown/no handshake → sealed quarantine row (outcome: quarantine)', async () => {
+  it('§1.2 pBEAP with unknown relationship → blocked pre-visibility by ingress admission [VII.2.7]', async () => {
     const unknownHandshakeId = 'unknown-handshake-' + randomUUID()
     const { processBeapPackageInline } = await import('../beapEmailIngestion')
 
-    // First call: inbox validator rejects (unknown handshake / ARTEFACT_UNKNOWN_KEY).
-    // Second call: quarantine validator approves with a valid seal (writeP2PQuarantineRow
-    // calls validatorOrchestrator.validate once more and requires ok: true).
+    // Phase 1: an unknown relationship dies at the ingress admission filter —
+    // no inbox row, no quarantine row, no validator invocation. Only an
+    // audit_log record remains.
     const orchestratorMod = await import('../../validator-process/orchestrator')
-    let callCount = 0
-    vi.spyOn(orchestratorMod.validatorOrchestrator, 'validate').mockImplementation(async (args: any) => {
-      callCount++
-      if (callCount === 1) {
-        return {
-          outcome: {
-            ok: false,
-            sealed_quarantine: {
-              rejection_reason: 'ARTEFACT_UNKNOWN_KEY',
-              validated_at: new Date().toISOString(),
-              validator_version: 'b4-test',
-            },
-          },
-        } as any
-      }
-      // Quarantine write call — build a valid seal
-      const rowId = String(args.target_row_id ?? '')
-      const canonicalJson = typeof args.plaintext_or_encrypted?.content === 'string'
-        ? args.plaintext_or_encrypted.content : '{}'
-      const { seal, seal_input_json } = buildValidSealForRowId(canonicalJson, rowId)
-      return {
-        outcome: {
-          ok: true,
-          sealed: { seal, seal_input_json, canonical_json: canonicalJson, validated_at: new Date().toISOString(), validator_version: 'b4-test' },
-        },
-      } as any
-    })
+    const validateSpy = vi.spyOn(orchestratorMod.validatorOrchestrator, 'validate')
 
     const pkg = makePBeapPackage(unknownHandshakeId)
     const result = await processBeapPackageInline(db, pkg, unknownHandshakeId, {
       sourceType: 'p2p',
     })
 
-    expect(['quarantine', 'inbox']).toContain(result.outcome)
+    expect(result.outcome).toBe('error')
+    expect(result.reasonCode).toBe('ingress_admission_unknown_relationship')
+    expect(result.retryable).toBe(false)
+    expect(validateSpy).not.toHaveBeenCalled()
+
+    // Pre-visibility: nothing reached a user-visible surface.
+    expect(db.prepare('SELECT COUNT(*) AS c FROM inbox_messages').get()).toMatchObject({ c: 0 })
+    expect(db.prepare('SELECT COUNT(*) AS c FROM quarantine_messages').get()).toMatchObject({ c: 0 })
+
+    // Logged record exists.
+    const audit = db.prepare(
+      "SELECT * FROM audit_log WHERE action = 'INGRESS_ADMISSION_BLOCKED' AND handshake_id = ?",
+    ).get(unknownHandshakeId) as any
+    expect(audit).toBeTruthy()
+    expect(audit.reason_code).toBe('unknown_relationship')
 
     vi.restoreAllMocks()
   })
 
+  it('§1.2b pBEAP for a REVOKED relationship → blocked pre-visibility [VII.2.7]', async () => {
+    const handshakeId = randomUUID()
+    const { insertHandshakeRecord } = await import('../../handshake/db')
+    const { buildActiveHandshakeRecord } = await import('../../handshake/__tests__/helpers')
+    const { HandshakeState } = await import('../../handshake/types')
+    insertHandshakeRecord(db, buildActiveHandshakeRecord({
+      handshake_id: handshakeId,
+      relationship_id: `rel-${handshakeId}`,
+      state: HandshakeState.REVOKED,
+    }))
+
+    const { processBeapPackageInline } = await import('../beapEmailIngestion')
+    const result = await processBeapPackageInline(db, makePBeapPackage(handshakeId), handshakeId, {
+      sourceType: 'p2p',
+    })
+
+    expect(result.outcome).toBe('error')
+    expect(result.reasonCode).toBe('ingress_admission_relationship_revoked')
+    expect(db.prepare('SELECT COUNT(*) AS c FROM inbox_messages').get()).toMatchObject({ c: 0 })
+    expect(db.prepare('SELECT COUNT(*) AS c FROM quarantine_messages').get()).toMatchObject({ c: 0 })
+    const audit = db.prepare(
+      "SELECT * FROM audit_log WHERE action = 'INGRESS_ADMISSION_BLOCKED' AND handshake_id = ?",
+    ).get(handshakeId) as any
+    expect(audit).toBeTruthy()
+    expect(audit.reason_code).toBe('relationship_revoked')
+  })
+
   it('§1.3 corrupted / non-JSON bytes → quarantine with parse error, not thrown to caller', async () => {
     const { processBeapPackageInline } = await import('../beapEmailIngestion')
+    await seedActiveHandshake(db, '__corrupt__')
 
     // Corrupted input: no first call succeeds since there's no canonical JSON to validate.
     // The code goes directly to writeP2PQuarantineRow which calls validate once (ok: true required).
@@ -296,8 +339,8 @@ describe.skipIf(!Database)('B-4 §1 — processBeapPackageInline', () => {
 describe.skipIf(!Database)('B-4 §2 — processSandboxQuarantineReceive', () => {
   let db: ReturnType<NonNullable<typeof Database>>
 
-  beforeEach(() => {
-    db = makeTestDb()!
+  beforeEach(async () => {
+    db = (await makeTestDb())!
     setupSealGate()
   })
 

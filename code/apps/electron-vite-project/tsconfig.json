@@ -23,6 +23,7 @@
     "paths": {
       "@shared/*": ["../../packages/shared/src/*"],
       "@repo/shared-beap-ui": ["../../packages/shared-beap-ui/src/index.ts"],
+      "@repo/ingestion-core": ["../../packages/ingestion-core/src/index.ts"],
       "@ext/*": ["../extension-chromium/src/*"],
       "@ext/handshake/handshakeRpc": ["src/shims/handshakeRpc"],
       "@ext/vault/hsContextProfilesRpc": ["src/shims/hsContextProfilesRpc"],

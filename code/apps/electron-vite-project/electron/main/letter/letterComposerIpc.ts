@@ -427,7 +427,7 @@ export function registerLetterComposerIpcHandlers(): void {
 
   ipcMain.handle('letter:extractFields', async (_e, html: string) => {
     if (typeof html !== 'string') {
-      return []
+      return { fields: [], provenance: null }
     }
     const slice = html.slice(0, 8000)
     try {
@@ -435,7 +435,7 @@ export function registerLetterComposerIpcHandlers(): void {
       const modelId = await localLlmManager.getEffectiveChatModelName()
       if (!modelId) {
         console.warn('[letter:extractFields] No effective Ollama model')
-        return []
+        return { fields: [], provenance: null }
       }
       const messages: ChatMessage[] = [
         { role: 'system', content: FIELD_SYSTEM_PROMPT },
@@ -452,17 +452,17 @@ export function registerLetterComposerIpcHandlers(): void {
         .trim()
       const parsed = JSON.parse(cleaned) as unknown
       if (!Array.isArray(parsed)) {
-        return []
+        return { fields: [], provenance: response?.provenance ?? null }
       }
       const out: ReturnType<typeof normalizeExtractedField>[] = []
       for (const item of parsed) {
         const n = normalizeExtractedField(item)
         if (n) out.push(n)
       }
-      return out
+      return { fields: out, provenance: response?.provenance ?? null }
     } catch (e) {
       console.warn('[letter:extractFields] failed:', e instanceof Error ? e.message : e)
-      return []
+      return { fields: [], provenance: null }
     }
   })
 

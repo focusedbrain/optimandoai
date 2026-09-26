@@ -18,6 +18,7 @@ import {
   SendEmailPayload,
   SendResult,
 } from '../types'
+import { shouldApplyMachineMarking, encodeProvenancePayload } from '../../../../../../packages/shared/src/aiProvenance'
 import type {
   OrchestratorRemoteOperation,
   OrchestratorRemoteApplyResult,
@@ -571,12 +572,21 @@ export class ZohoProvider extends BaseEmailProvider {
       if (!fromAddr) {
         return { success: false, error: 'Zoho: missing account email for From address' }
       }
+
+      // Art. 50 Layer A: prepend structured plaintext marker block when provenance requires machine marking.
+      // Zoho Mail API does not support custom MIME headers via REST; prepend as a parseable comment block.
+      let bodyText = payload.bodyText
+      if (payload.provenance && shouldApplyMachineMarking(payload.provenance)) {
+        const encoded = encodeProvenancePayload(payload.provenance)
+        bodyText = `[X-AI-Generated: true]\n[X-AI-Provenance: ${encoded}]\n\n${bodyText}`
+      }
+
       await this.zohoApiRequest('POST', `/api/accounts/${aid}/messages`, {
         fromAddress: fromAddr,
         toAddress: payload.to.join(','),
         ccAddress: payload.cc?.length ? payload.cc.join(',') : undefined,
         subject: payload.subject,
-        content: payload.bodyText,
+        content: bodyText,
         mailFormat: 'plaintext',
       })
       return { success: true }

@@ -9,7 +9,7 @@
  * are always interactive (no vault needed).
  */
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Fragment } from 'react'
 import { HandshakeContextProfilePicker } from '@ext/handshake/components/HandshakeContextProfilePicker'
 import { acceptHandshake } from '@ext/handshake/handshakeRpc'
 import { computeBlockHashClient } from '../utils/contextBlockHash'
@@ -17,6 +17,11 @@ import VaultStatusIndicator from './VaultStatusIndicator'
 import PolicyRadioGroup, { DEFAULT_AI_POLICY, type PolicySelection } from './PolicyRadioGroup'
 import type { ProfileContextItem, ContextBlockWithPolicy } from '../../../../packages/shared/src/handshake/types'
 import { validateReceiverEmail, isSameAccountHandshakeEmails } from '@shared/handshake/receiverEmailValidation'
+import {
+  connectOfferConsentErrorCopy,
+  connectOfferPreviewRows,
+  readConnectOfferPreview,
+} from '@shared/handshake/connectOfferPreview'
 
 interface HandshakeRecord {
   handshake_id: string
@@ -25,12 +30,14 @@ interface HandshakeRecord {
   acceptor: { email: string; wrdesk_user_id: string } | null
   local_role: 'initiator' | 'acceptor'
   receiver_email?: string | null
-  handshake_type?: 'internal' | 'standard' | null
+  same_principal?: boolean | null
   initiator_device_role?: 'host' | 'sandbox' | null
   /** 6-digit pairing code from the initiate capsule's `receiver_pairing_code`. New
    *  internal capsules carry this; legacy capsules omit it (acceptance falls back
    *  to UUID equality on `internal_peer_device_id`). */
   internal_peer_pairing_code?: string | null
+  /** Staged Connect offer only: the preview main hashed; its hash goes back with the accept. */
+  connect_offer_preview?: unknown
 }
 
 interface Props {
@@ -69,7 +76,7 @@ export default function AcceptHandshakeModal({
   const [localPairingCodeHint, setLocalPairingCodeHint] = useState<string | null>(null)
 
   const isInternal =
-    record.handshake_type === 'internal' ||
+    record.same_principal === true ||
     isSameAccountHandshakeEmails(record.initiator?.email, record.receiver_email)
 
   // Pairing-code-routed capsules carry receiver_pairing_code; legacy capsules don't.
@@ -82,6 +89,9 @@ export default function AcceptHandshakeModal({
     : normalizedTypedCode
 
   const counterpartyEmail = record.initiator?.email ?? '(unknown)'
+
+  const offerPreview = readConnectOfferPreview(record.connect_offer_preview)
+  const offerPreviewRows = offerPreview ? connectOfferPreviewRows(offerPreview) : []
 
   // LAYER 4 — Receiver email guard (defense in depth)
   const receiverCheck = validateReceiverEmail(record.receiver_email, currentUserEmail)
@@ -225,9 +235,11 @@ export default function AcceptHandshakeModal({
         device_name?: string
         device_role?: 'host' | 'sandbox'
         local_pairing_code_typed?: string
+        expected_preview_hash?: string
       } = {
         policy_selections: policies,
       }
+      if (offerPreview) contextOpts.expected_preview_hash = offerPreview.preview_hash
       if (context_blocks.length > 0) contextOpts.context_blocks = context_blocks
       if (selectedProfileItems.length > 0) {
         contextOpts.profile_ids = selectedProfileItems.map((i) => i.profile_id)
@@ -257,7 +269,11 @@ export default function AcceptHandshakeModal({
       } else {
         const reason = (result as any)?.reason
         const msg = (result as any)?.error ?? (result as any)?.local_result?.error ?? 'Accept failed.'
-        setError(reason === 'VAULT_LOCKED' ? 'Please unlock your vault to accept. Use the Vault section to unlock, then try again.' : msg)
+        setError(
+          reason === 'VAULT_LOCKED'
+            ? 'Please unlock your vault to accept. Use the Vault section to unlock, then try again.'
+            : connectOfferConsentErrorCopy(reason) ?? msg,
+        )
       }
     } catch (err: any) {
       setError(err?.message ?? 'Accept failed.')
@@ -305,6 +321,41 @@ export default function AcceptHandshakeModal({
             From {counterpartyEmail}
           </div>
         </div>
+
+        {offerPreviewRows.length > 0 && (
+          <section
+            aria-label="What you are agreeing to"
+            data-testid="connect-offer-preview"
+            style={{
+              margin: '12px 16px',
+              padding: '10px 14px',
+              background: '#f8fafc',
+              color: '#0f172a',
+              border: `1px solid ${borderColor}`,
+              borderRadius: '10px',
+            }}
+          >
+            <div style={{ fontSize: '12px', fontWeight: 700, marginBottom: '6px' }}>What you are agreeing to</div>
+            <dl
+              style={{
+                margin: 0,
+                display: 'grid',
+                gridTemplateColumns: 'max-content 1fr',
+                columnGap: '12px',
+                rowGap: '4px',
+                fontSize: '12px',
+                lineHeight: 1.45,
+              }}
+            >
+              {offerPreviewRows.map((row) => (
+                <Fragment key={row.label}>
+                  <dt style={{ color: '#475569', fontWeight: 600 }}>{row.label}</dt>
+                  <dd style={{ margin: 0, color: '#0f172a', overflowWrap: 'anywhere' }}>{row.value}</dd>
+                </Fragment>
+              ))}
+            </dl>
+          </section>
+        )}
 
         {receiverEmailMismatch && (
           <div

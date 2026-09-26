@@ -178,7 +178,8 @@ export async function initiateHandshake(
     profile_ids?: string[]
     profile_items?: Array<{ profile_id: string; policy_mode?: 'inherit' | 'override'; policy?: PolicySelectionInput }>
     policy_selections?: PolicySelectionInput
-    handshake_type?: 'internal' | 'standard'
+    /** Phase 4 (Q9): formation profile — 'internal_device' for same-principal Cross-Device pairing. */
+    profile_id?: string
     device_name?: string
     device_role?: 'host' | 'sandbox'
     counterparty_device_id?: string
@@ -211,7 +212,7 @@ export async function initiateHandshake(
     ...(options?.profile_ids?.length ? { profile_ids: options.profile_ids } : {}),
     ...(options?.profile_items?.length ? { profile_items: options.profile_items } : {}),
     ...(options?.policy_selections ? { policy_selections: options.policy_selections } : {}),
-    handshake_type: options?.handshake_type,
+    profile_id: options?.profile_id,
     device_name: options?.device_name,
     device_role: options?.device_role,
     ...(options?.counterparty_device_id?.trim()
@@ -247,7 +248,8 @@ export async function buildHandshakeForDownload(
     profile_ids?: string[]
     profile_items?: Array<{ profile_id: string; policy_mode?: 'inherit' | 'override'; policy?: PolicySelectionInput }>
     policy_selections?: PolicySelectionInput
-    handshake_type?: 'internal' | 'standard'
+    /** Phase 4 (Q9): formation profile — see {@link initiateHandshake}. */
+    profile_id?: string
     device_name?: string
     device_role?: 'host' | 'sandbox'
     counterparty_device_id?: string
@@ -275,7 +277,7 @@ export async function buildHandshakeForDownload(
     ...(options?.profile_ids?.length ? { profile_ids: options.profile_ids } : {}),
     ...(options?.profile_items?.length ? { profile_items: options.profile_items } : {}),
     ...(options?.policy_selections ? { policy_selections: options.policy_selections } : {}),
-    handshake_type: options?.handshake_type,
+    profile_id: options?.profile_id,
     device_name: options?.device_name,
     device_role: options?.device_role,
     ...(options?.counterparty_device_id?.trim()
@@ -317,6 +319,8 @@ export async function acceptHandshake(
      * for legacy capsules (acceptance falls back to UUID-equality check).
      */
     local_pairing_code_typed?: string
+    /** Staged Connect offer: hash of the preview the dialog rendered (required by main). */
+    expected_preview_hash?: string
   },
 ): Promise<HandshakeAcceptResponse> {
   const x25519FromStorage = await getPersistedDeviceX25519PublicKeyB64FromChromeStorage()
@@ -339,6 +343,7 @@ export async function acceptHandshake(
     ...(contextOpts?.local_pairing_code_typed
       ? { local_pairing_code_typed: contextOpts.local_pairing_code_typed }
       : {}),
+    ...(contextOpts?.expected_preview_hash ? { expected_preview_hash: contextOpts.expected_preview_hash } : {}),
   })
 
   // ML-KEM secret stored in Electron DB — no chrome.storage copy.
@@ -451,6 +456,13 @@ export interface BeapInboxRow {
   subject: string | null
   body_text: string | null
   depackaged_json: string | null
+  /**
+   * Phase 5 — "extension CPR plumbing". Carries the Channel Provenance Record
+   * (and any pBEAP trust verdict) so the extension can render the rule-8 alert
+   * from the same verdict Electron uses, instead of a surface that can never
+   * alert.
+   */
+  depackaged_metadata: string | null
   received_at: number
   read_status: number
   archived: number
@@ -791,7 +803,7 @@ export function normalizeRecord(raw: any): HandshakeRecord {
     ...keyMat,
     p2pEndpoint: raw.p2p_endpoint ?? raw.p2pEndpoint ?? undefined,
     receiver_email: raw.receiver_email ?? null,
-    handshake_type: raw.handshake_type || null,
+    same_principal: raw.same_principal === true,
     initiator_device_name: raw.initiator_device_name || null,
     acceptor_device_name: raw.acceptor_device_name || null,
     initiator_device_role: raw.initiator_device_role || null,
@@ -807,6 +819,8 @@ export function normalizeRecord(raw: any): HandshakeRecord {
       raw.internal_coordination_identity_complete === true || raw.internal_coordination_identity_complete === 1,
     internal_coordination_repair_needed:
       raw.internal_coordination_repair_needed === true || raw.internal_coordination_repair_needed === 1,
+    connect_offer_id: typeof raw.connect_offer_id === 'string' ? raw.connect_offer_id : null,
+    connect_offer_preview: raw.connect_offer_preview ?? null,
   } as HandshakeRecord
 }
 

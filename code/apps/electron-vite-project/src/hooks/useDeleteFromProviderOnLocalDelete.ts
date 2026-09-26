@@ -21,7 +21,7 @@ export function useDeleteFromProviderOnLocalDelete<T extends SmartSyncProviderAc
       if (
         enabled &&
         !window.confirm(
-          'Enable Smart Sync for this account?\n\nOn this host device, local delete, archive, and sorting will be mirrored to Gmail, Outlook, or your IMAP mailbox so your provider stays consistent with WRDesk. Deletes move to Trash / Deleted Items (recoverable there). Off by default.',
+          'Enable Smart Sync for this account?\n\nOn this host device, local delete, archive, and sorting will be mirrored to Gmail, Outlook, or your IMAP mailbox so your provider stays consistent with Optirando. Deletes move to Trash / Deleted Items (recoverable there). Off by default.',
         )
       ) {
         return

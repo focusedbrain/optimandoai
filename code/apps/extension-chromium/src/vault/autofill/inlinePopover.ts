@@ -256,7 +256,7 @@ function buildHeader(): HTMLElement {
   brand.appendChild(logo)
   const title = document.createElement('span')
   title.className = 'wrv-pop-title'
-  title.textContent = 'WR Desk'
+  title.textContent = 'Optirando'
   brand.appendChild(title)
   header.appendChild(brand)
 
@@ -1233,7 +1233,7 @@ function cleanupPopover(): void {
 // §12  SVG Icons
 // ============================================================================
 
-// Mini WR Desk logo for popover header
+// Mini Optirando logo for popover header
 const SHIELD_SM_SVG = `<svg width="14" height="16" viewBox="0 0 64 72" fill="none">
   <path d="M32 2 L6 16 V38 C6 54 18 66 32 70 C46 66 58 54 58 38 V16 Z" fill="currentColor"/>
   <text x="32" y="36" text-anchor="middle" font-family="Arial,sans-serif" font-weight="900" font-size="22" fill="white">WR</text>

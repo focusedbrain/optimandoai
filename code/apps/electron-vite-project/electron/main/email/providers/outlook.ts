@@ -730,6 +730,21 @@ export class OutlookProvider extends BaseEmailProvider {
           contentBytes: a.contentBase64
         }))
       }
+      // Art. 50 Layer A — Graph internetMessageHeaders when AI provenance present.
+      try {
+        const { shouldApplyMachineMarking, serializeForMime } = await import(
+          '../../../../../../packages/shared/src/aiProvenance'
+        )
+        if (shouldApplyMachineMarking(payload.provenance)) {
+          const mimeHeaders = serializeForMime(payload.provenance!)
+          message.internetMessageHeaders = Object.entries(mimeHeaders).map(([name, value]) => ({
+            name,
+            value,
+          }))
+        }
+      } catch {
+        /* shared import failure must not block send */
+      }
       
       await this.graphApiRequest('POST', '/me/sendMail', {
         message,

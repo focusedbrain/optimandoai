@@ -25,7 +25,7 @@ describe('verifyInternalCapsuleRouting', () => {
         receiver_device_id: null,
       }),
       handshakeRecord: buildHandshakeRecord({
-        handshake_type: 'internal',
+        same_principal: true,
         state: HandshakeState.ACCEPTED,
       }),
     })
@@ -44,7 +44,7 @@ describe('verifyInternalCapsuleRouting', () => {
         sender_device_id: 'dev-a',
         receiver_device_id: 'dev-b',
       }),
-      handshakeRecord: buildHandshakeRecord({ handshake_type: 'internal', state: HandshakeState.ACCEPTED }),
+      handshakeRecord: buildHandshakeRecord({ same_principal: true, state: HandshakeState.ACCEPTED }),
     })
     expect(verifyInternalCapsuleRouting.execute(ctx).passed).toBe(true)
   })
@@ -56,7 +56,7 @@ describe('verifyHandshakeOwnership internal routing duplicate', () => {
       handshake_id: 'hs-old',
       relationship_id: 'rel:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
       state: HandshakeState.PENDING_ACCEPT,
-      handshake_type: 'internal',
+      same_principal: true,
       internal_routing_key: 'internal:owner-1:alpha:zebra',
       initiator: { email: 'm@e.com', wrdesk_user_id: 'owner-1', iss: 'i', sub: 's' },
     })
@@ -95,7 +95,7 @@ describe('verifyHandshakeOwnership internal routing duplicate', () => {
 describe('context_sync wire opts', () => {
   test('internalRelayCapsuleWireOptsFromRecord yields distinct sender and receiver coordination ids', () => {
     const record = {
-      handshake_type: 'internal' as const,
+      same_principal: true as const,
       local_role: 'initiator' as const,
       internal_coordination_identity_complete: true as const,
       initiator_coordination_device_id: 'local-orch-99',

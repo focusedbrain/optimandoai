@@ -109,7 +109,6 @@
         "emails": "",
         "keywords": "",
         "websiteFilter": "",
-        "wrcodeMatch": "",
         
         "sensorWorkflows": [],
         "allowedActions": []

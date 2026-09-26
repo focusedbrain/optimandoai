@@ -36,6 +36,160 @@ export type {
   SandboxEgressCapsuleClass,
   SandboxContextSyncRateLimiter,
 } from './sandboxEgressClassification.js';
+export {
+  ALL_IDENTITY_CLAIMS,
+  fullClaimIdentityMatch,
+  isPartialIdentityCollision,
+  samePrincipalFullClaim,
+} from './identityGuard.js';
+export type {
+  IdentityClaimName,
+  IdentityClaimSet,
+  FullClaimGuardResult,
+  FullClaimGuardOk,
+  FullClaimGuardFail,
+  FullClaimGuardFailReason,
+  SamePrincipalResult,
+} from './identityGuard.js';
+// Phase 2 — canonical core (A8, A1–A7, V3) [VII.3, VII.6.1.3]
+export {
+  canonicalJsonString,
+  canonicalJsonBytes,
+  domainTag,
+  signingBytes,
+  CanonicalizationError,
+} from './canonical.js';
+export type { CanonicalJsonValue } from './canonical.js';
+export {
+  parseContainer,
+  evaluateContainerCriticality,
+  isReservedNamespace,
+  isImplementedNamespace,
+  IMPLEMENTED_NAMESPACES,
+  RESERVED_NAMESPACES,
+} from './containers.js';
+export type { ContainerEntry, ContainerParseResult, CriticalityVerdict } from './containers.js';
+export {
+  parseCanonicalEnvelope,
+  coreSigningValue,
+  WR_CORE_OBJECT_TYPE,
+  WR_CANONICAL_SCHEMA_VERSION,
+} from './coreRecord.js';
+export type {
+  WrHandshakeCore,
+  WrCanonicalEnvelope,
+  CorePartyId,
+  CoreProfileRef,
+  CoreSignature,
+  CoreSignatureMode,
+  EnvelopeParseResult,
+} from './coreRecord.js';
+// Phase 3 — profile registry with fail-closed dispatch (B1–B4, B7) [VII.4.1–4.2]
+export {
+  resolveProfile,
+  listProfileRecords,
+  checkProfileContainerRules,
+  PUBLISHER_ATTESTATION_NS,
+  RETIRED_FORMATION_DIALECTS,
+} from './profileRegistry.js';
+export type { WrProfileRecord, ProfileResolution, ProfileContainerVerdict } from './profileRegistry.js';
+// Phase 3 — ingress_path registry (Q4 groundwork) [VII.4.6]
+export {
+  INGRESS_PATH_REGISTRY,
+  isRegisteredIngressPath,
+  isRecordableIngressPath,
+} from './ingressRegistry.js';
+export type { IngressPathEntry } from './ingressRegistry.js';
+// Phase 4 — capture methods + invitation classes (V2, C1–C3) [IX.3.1, IX.3.2]
+export {
+  CAPTURE_METHOD_REGISTRY,
+  INVITATION_CLASS_REGISTRY,
+  resolveCaptureMethodForFormation,
+  resolveInvitationClassForFormation,
+  captureMethodPermitsIngressPath,
+} from './captureMethods.js';
+export type {
+  CaptureMethodId,
+  CaptureMethodEntry,
+  InvitationClassId,
+  InvitationClassEntry,
+  CaptureMethodResolution,
+  InvitationClassResolution,
+} from './captureMethods.js';
+// WR Code check arithmetic — Damm/GF(2^5) core, transcribed check profile v1.4,
+// ratified upstream Annex XVI v1.95 Appendix A. Framing lives in wrCodeGrammar.
+export { ALPHABET, normalize, computeCheck, verifyCheck } from './wrCode.js';
+// WR Code reference grammar v2 — Annex XVI v1.95 [XVI.5.1–5.5, 5.8, 5.11]
+export {
+  WR_CODE_GRAMMAR_VERSION,
+  WR_CODE_CLASSES,
+  WR_CODE_CLASS_SPECS,
+  WR_CODE_CLASS_VALUES,
+  WR_CODE_DETECTION_MAX_TEXT_LENGTH,
+  classifyWrCodePrefix,
+  wrCodeBodyLength,
+  captureWrCodeReference,
+  formatWrCodeReferenceForDisplay,
+  computeWrCodeCheckSymbol,
+  buildWrCodeReference,
+  detectWrCodeReferences,
+  classifyStoredWrCodeValue,
+} from './wrCodeGrammar.js';
+export type {
+  WrCodeClass,
+  WrCodeFieldRole,
+  WrCodeFieldSpec,
+  WrCodeClassSpec,
+  WrCodePrefixState,
+  WrCodeCaptureFailureReason,
+  WrCodeCaptureFailure,
+  WrCodeReference,
+  WrCodeCaptureResult,
+  WrCodeDetection,
+  StoredWrCodeShape,
+} from './wrCodeGrammar.js';
+// Channel Provenance Record [IX.3.1, IX.11]
+export {
+  CHANNEL_PROVENANCE_SCHEME,
+  CHANNEL_PROVENANCE_PRODUCER_VERSION,
+  evaluateChannelAuthentication,
+  computeChannelPass,
+  channelAlertRequired,
+  createChannelProvenanceRecord,
+  unverifiableChannelProvenanceRecord,
+  decodeChannelProvenanceRecord,
+  ratchetChannelProvenance,
+  channelProvenanceMetadata,
+  readChannelProvenanceMetadata,
+  domainWithinOrigin,
+  evaluatePublisherDomainAlignment,
+  applyPublisherDomainAlignment,
+} from './channelProvenance.js';
+export type {
+  ChannelAuthVerdict,
+  DiscoveryRecordState,
+  ChannelMechanismResult,
+  ChannelProvenanceRecord,
+  ChannelAuthenticationMaterial,
+  ChannelAuthenticationEvaluation,
+  CreateChannelProvenanceInput,
+  PublisherBoundOriginSet,
+  PublisherDomainAlignment,
+} from './channelProvenance.js';
+// Phase 5 — capability-token schema (T4, Q13) [XII.12.6 annex-number-provisional]
+export {
+  parseCapabilityToken,
+  serializeCapabilityToken,
+  buildCapabilityTokenWire,
+  CAPABILITY_TOKEN_TYPES,
+  UNDERSTOOD_LIMIT_EXTENSIONS,
+} from './capabilityToken.js';
+export type {
+  CapabilityToken,
+  CapabilityTokenType,
+  CapabilityLimitExtension,
+  CapabilityTokenParseResult,
+} from './capabilityToken.js';
 export { ingestInput } from './ingestor.js';
 export { validateCapsule, validateSessionImportArtefact } from './validator.js';
 export { validateDecryptedBeapContent, CONTENT_VALIDATOR_VERSION } from './contentValidator.js';

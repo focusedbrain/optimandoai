@@ -13,6 +13,7 @@ import {
 } from './types'
 import { ocrService } from './ocr-service'
 import { isSandboxMode } from '../orchestrator/orchestratorModeStore'
+import { attachAndLogProvenance } from '../aiProvenance/attachProvenance'
 
 /**
  * Vision-capable providers and their capabilities
@@ -208,6 +209,23 @@ export class OCRRouter {
       }
 
       onProgress?.({ status: 'complete', progress: 100, message: 'Processing complete' })
+
+      const cloudProviderMap: Record<VisionProvider, string> = {
+        OpenAI: 'cloud:openai',
+        Claude: 'cloud:anthropic',
+        Gemini: 'cloud:google',
+        Grok: 'cloud:grok',
+      }
+      const cloudModelMap: Record<VisionProvider, string> = {
+        OpenAI: 'gpt-4o-mini',
+        Claude: 'claude-3-haiku-20240307',
+        Gemini: 'gemini-1.5-flash',
+        Grok: 'grok-vision-beta',
+      }
+      attachAndLogProvenance(result.text, {
+        model_id: cloudModelMap[provider] ?? provider.toLowerCase(),
+        provider: cloudProviderMap[provider] ?? `cloud:${provider.toLowerCase()}`,
+      })
 
       return {
         text: result.text,

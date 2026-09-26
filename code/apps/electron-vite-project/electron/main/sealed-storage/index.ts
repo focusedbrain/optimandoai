@@ -580,7 +580,36 @@ export function sealedQuery<T extends SealedRow>(
   sql: string,
   bindArgs: unknown[],
   canonicalJsonColumn: string,
-  options?: { forceKeySource?: KeySource },
+  options?: {
+    forceKeySource?: KeySource
+    /**
+     * Optional ordered list of key sources to TRY for every row (opt-in).
+     *
+     * Why this exists: `rowKeySource` derives a single provider from the row's
+     * `seal_key_source` tag, which is a historical fact about how the row was
+     * written. It is exactly the field that is stale on legacy rows — a
+     * non-confidential row written before outer tagging carries `vmk` and can
+     * only be verified with the inner key. Callers that know the row's content
+     * class (see `inboxRowSealPolicy.verificationKeySourcesForInboxRow`) can
+     * pass the providers policy permits, and a row verifies if ANY of them
+     * verifies it.
+     *
+     * Crucially, tamper telemetry is recorded only when EVERY listed source
+     * fails. Recording a tamper event because the first candidate key did not
+     * match would be a false positive about an untampered row.
+     *
+     * Absent ⇒ unchanged behaviour: `forceKeySource ?? rowKeySource(row)`, one
+     * provider, exactly as before. No existing call site changes until it opts
+     * in.
+     *
+     * A RESOLVER rather than a flat list, because policy is per row: a batch
+     * read mixes confidential rows (inner only) with non-confidential ones
+     * (outer, then inner). Passing one union list for the whole batch would let
+     * a confidential row verify against the outer key, which is the opposite of
+     * what this option is for.
+     */
+    keySources?: (row: SealedRow) => readonly KeySource[]
+  },
 ): T[] {
   const ctx = `sealedQuery (${sql.slice(0, 60)})`
   const innerProviderBound = _providers.inner != null
@@ -630,14 +659,29 @@ export function sealedQuery<T extends SealedRow>(
       continue
     }
 
-    // ── Determine which key source this row uses ─────────────────────────────
-    const source = options?.forceKeySource ?? rowKeySource(row)
+    // ── Determine which key source(s) this row may be verified with ──────────
+    // Opt-in list first; otherwise the historical single-source derivation.
+    const policySources = options?.keySources?.(row)
+    const usingList = Array.isArray(policySources) && policySources.length > 0
+    const candidateSources: readonly KeySource[] = usingList
+      ? (policySources as readonly KeySource[])
+      : [options?.forceKeySource ?? rowKeySource(row)]
 
-    // ── No key provider for this row's seal_key_source ───────────────────────
-    if (!_providers[source]) {
+    // The provider for a single-source read is decided here, as before. For a
+    // candidate LIST the decision moves into the HMAC step, because "this
+    // provider is unbound" is not a verdict about the row while other
+    // permitted providers remain untried.
+    const source = candidateSources[0]!
+    if (!usingList && !_providers[source]) {
       recordTamper('missing_seal', ctx, `no_key_provider source='${source}'`)
       if (SEALED_STORAGE_MODE === 'reject') continue
       console.warn(`[SEALED_STORAGE:log-only] ${ctx}: no key provider bound (source='${source}'), skipping seal verification`)
+      verified.push(row)
+      continue
+    }
+    if (usingList && !candidateSources.some((s) => _providers[s] != null)) {
+      recordTamper('missing_seal', ctx, `no_key_provider sources='${candidateSources.join(',')}'`)
+      if (SEALED_STORAGE_MODE === 'reject') continue
       verified.push(row)
       continue
     }
@@ -671,22 +715,47 @@ export function sealedQuery<T extends SealedRow>(
     }
 
     // ── HMAC check ───────────────────────────────────────────────────────────
-    const key = sealKeyCopy(source)
-    if (!key) {
-      recordTamper('missing_seal', ctx, `key_provider_null source='${source}'`)
-      if (SEALED_STORAGE_MODE === 'reject') continue
-      console.warn(`[SEALED_STORAGE:log-only] ${ctx}: vault locked (source='${source}'), skipping HMAC check`)
-      verified.push(row)
-      continue
+    const tryHmac = (s: KeySource): boolean => {
+      const k = sealKeyCopy(s)
+      if (!k) return false
+      try {
+        const recomputed = createHmac('sha256', k).update(row.seal_input_json!, 'utf8').digest('base64')
+        const a = Buffer.from(recomputed, 'base64')
+        const b = Buffer.from(row.seal!, 'base64')
+        return a.length === b.length ? (timingSafeEqual(a, b) as boolean) : false
+      } finally {
+        k.fill(0)
+      }
     }
+
     let hmacValid = false
-    try {
-      const recomputed = createHmac('sha256', key).update(row.seal_input_json!, 'utf8').digest('base64')
-      const a = Buffer.from(recomputed, 'base64')
-      const b = Buffer.from(row.seal!, 'base64')
-      if (a.length === b.length) hmacValid = timingSafeEqual(a, b) as boolean
-    } finally {
-      key.fill(0)
+    if (usingList) {
+      // Any permitted provider verifying the row is a pass. Tamper is recorded
+      // below only if every one of them failed.
+      for (const s of candidateSources) {
+        if (_providers[s] == null) continue
+        if (tryHmac(s)) {
+          hmacValid = true
+          break
+        }
+      }
+    } else {
+      const key = sealKeyCopy(source)
+      if (!key) {
+        recordTamper('missing_seal', ctx, `key_provider_null source='${source}'`)
+        if (SEALED_STORAGE_MODE === 'reject') continue
+        console.warn(`[SEALED_STORAGE:log-only] ${ctx}: vault locked (source='${source}'), skipping HMAC check`)
+        verified.push(row)
+        continue
+      }
+      try {
+        const recomputed = createHmac('sha256', key).update(row.seal_input_json!, 'utf8').digest('base64')
+        const a = Buffer.from(recomputed, 'base64')
+        const b = Buffer.from(row.seal!, 'base64')
+        if (a.length === b.length) hmacValid = timingSafeEqual(a, b) as boolean
+      } finally {
+        key.fill(0)
+      }
     }
 
     if (!hmacValid) {

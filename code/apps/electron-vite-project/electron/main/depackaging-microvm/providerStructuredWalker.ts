@@ -27,7 +27,25 @@ import {
   type Leaf,
   type ParseOut,
 } from './depackageModel'
-import { buildEnvelopeFromFields, threadingFromProvider, type RawProviderAddress, type RawProviderEnvelopeFields } from './displayEnvelope'
+import { buildEnvelopeFromFields, channelAuthenticationMaterial, threadingFromProvider, type RawProviderAddress, type RawProviderEnvelopeFields } from './displayEnvelope'
+
+/**
+ * Graph exposes raw headers as `internetMessageHeaders: [{name, value}]` only
+ * when the message was fetched with that field. Absent means we have nothing to
+ * evaluate, which the CPR records as `unverifiable` — never as a pass.
+ */
+function graphAuthenticationResults(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  const out: string[] = []
+  for (const entry of value) {
+    if (typeof entry !== 'object' || entry === null) continue
+    const header = entry as Record<string, unknown>
+    if (typeof header.name !== 'string' || typeof header.value !== 'string') continue
+    if (header.name.trim().toLowerCase() !== 'authentication-results') continue
+    out.push(header.value)
+  }
+  return out
+}
 
 // ── C4 structural guards over untrusted JSON ─────────────────────────────────
 
@@ -147,6 +165,11 @@ const outlookAdapter: ProviderStructuredAdapter = {
       threadingHints: threadingFromProvider({
         messageId: typeof obj.internetMessageId === 'string' ? obj.internetMessageId : undefined,
       }),
+      // CPR material [IX.3.1]; empty when Graph did not return raw headers.
+      channelAuthentication: channelAuthenticationMaterial(
+        graphAuthenticationResults(obj.internetMessageHeaders),
+        displayEnvelope,
+      ),
     }
 
     const body = obj.body

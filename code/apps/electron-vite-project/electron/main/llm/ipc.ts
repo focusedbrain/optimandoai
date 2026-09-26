@@ -482,7 +482,7 @@ export function registerLlmHandlers() {
         modelId = resolved
       }
       const response = await localLlmManager.chat(modelId, request.messages)
-      return { ok: true, data: response }
+      return { ok: true, data: response, ...(response.provenance !== undefined ? { provenance: response.provenance } : {}) }
     } catch (error: any) {
       console.error('[LLM IPC] Chat failed:', error)
       return { ok: false, error: error.message }

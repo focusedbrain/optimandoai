@@ -26,7 +26,12 @@ function sixDigitPairingCodeForUi(raw: string | null | undefined): string | null
 
 /** Minimal shape for deriving peer/local orchestrator display (matches ledger + rpcTypes). */
 export interface InternalIdentitySource {
-  handshake_type?: 'internal' | 'standard' | null
+  /**
+   * Phase 4 (Q9): same-principal admission situation — profile-registry
+   * parameter (internal_device profile; "Cross-Device" is the UI label).
+   * Replaces the eliminated `handshake_type` discriminator.
+   */
+  same_principal?: boolean | null
   local_role: 'initiator' | 'acceptor'
   initiator_device_role?: OrchestratorKind | null
   acceptor_device_role?: OrchestratorKind | null
@@ -67,7 +72,7 @@ const ACTIVE = 'ACTIVE'
  * User-facing: computer/device name + 6-digit pairing code — not raw UUIDs.
  */
 export function deriveInternalHandshakeRoles(record: InternalHandshakeRoleSource): DerivedInternalHandshakeRoles {
-  const isInternal = record.handshake_type === 'internal'
+  const isInternal = record.same_principal === true
   const localRole = record.local_role
 
   let localDeviceRole: 'host' | 'sandbox' | null = null
@@ -108,8 +113,8 @@ export function deriveInternalHandshakeRoles(record: InternalHandshakeRoleSource
   }
 }
 
-export function isInternalHandshake(r: Pick<InternalIdentitySource, 'handshake_type'>): boolean {
-  return r.handshake_type === 'internal'
+export function isInternalHandshake(r: Pick<InternalIdentitySource, 'same_principal'>): boolean {
+  return r.same_principal === true
 }
 
 export function localOrchestratorKind(r: InternalIdentitySource): OrchestratorKind | null {

@@ -86,7 +86,7 @@ function csTheme() {
     errorText:    '#F09595', warnText: '#fbbf24', infoText: '#a5b4fc',
     isLight:      false,
   }
-  // ── Standard: light — matches the WR Desk app screenshot palette ──
+  // ── Standard: light — matches the Optirando app screenshot palette ──
   if (t === 'standard') return {
     panelBg:      '#f8f9fb',
     headerGrad:   '#ffffff',
@@ -1544,7 +1544,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     console.warn('⚠️ [CONTENT] User should start the app manually from Start Menu')
     sendResponse({ 
       success: false, 
-      error: 'Protocol launch disabled. Please start WR Desk from the Start Menu.',
+      error: 'Protocol launch disabled. Please start Optirando from the Start Menu.',
       reason: 'custom_protocol_disabled'
     })
   }
@@ -8248,71 +8248,9 @@ function initializeExtension() {
 
       <h2 style="margin: 0; font-size: 18px; display: flex; align-items: center; gap: 10px;">
 
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="flex-shrink: 0;">
+        <img src="${typeof chrome !== 'undefined' && chrome.runtime?.getURL ? chrome.runtime.getURL('wrdesk-logo.png') : 'wrdesk-logo.png'}" width="24" height="24" alt="" style="flex-shrink:0;width:24px;height:24px;object-fit:contain" />
 
-          <!-- Giraffe Body -->
-
-          <ellipse cx="12" cy="17" rx="3" ry="2.5" fill="currentColor" opacity="0.9"/>
-
-          <!-- Giraffe Neck -->
-
-          <rect x="11" y="7" width="2" height="10" rx="1" fill="currentColor"/>
-
-          <!-- Giraffe Head -->
-
-          <ellipse cx="12" cy="5.5" rx="2.2" ry="1.8" fill="currentColor"/>
-
-          <!-- Giraffe Muzzle -->
-
-          <ellipse cx="12" cy="6.8" rx="1" ry="0.6" fill="currentColor" opacity="0.8"/>
-
-          <!-- Giraffe Eyes -->
-
-          <circle cx="11.2" cy="5" r="0.25" fill="currentColor" opacity="0.6"/>
-
-          <circle cx="12.8" cy="5" r="0.25" fill="currentColor" opacity="0.6"/>
-
-          <!-- Giraffe Horns -->
-
-          <circle cx="11.2" cy="3.8" r="0.3" fill="currentColor" opacity="0.8"/>
-
-          <circle cx="12.8" cy="3.8" r="0.3" fill="currentColor" opacity="0.8"/>
-
-          <line x1="11.2" y1="4.1" x2="11.2" y2="3.5" stroke="currentColor" stroke-width="0.4" opacity="0.8"/>
-
-          <line x1="12.8" y1="4.1" x2="12.8" y2="3.5" stroke="currentColor" stroke-width="0.4" opacity="0.8"/>
-
-          <!-- Giraffe Spots -->
-
-          <circle cx="10.5" cy="5.5" r="0.3" fill="currentColor" opacity="0.4"/>
-
-          <circle cx="13.5" cy="5.2" r="0.25" fill="currentColor" opacity="0.4"/>
-
-          <circle cx="11.2" cy="9" r="0.4" fill="currentColor" opacity="0.4"/>
-
-          <circle cx="12.8" cy="11" r="0.35" fill="currentColor" opacity="0.4"/>
-
-          <circle cx="11.5" cy="13.5" r="0.3" fill="currentColor" opacity="0.4"/>
-
-          <circle cx="12.2" cy="15.5" r="0.4" fill="currentColor" opacity="0.4"/>
-
-          <circle cx="10.8" cy="16.5" r="0.3" fill="currentColor" opacity="0.4"/>
-
-          <circle cx="13.2" cy="17.2" r="0.35" fill="currentColor" opacity="0.4"/>
-
-          <!-- Giraffe Legs -->
-
-          <rect x="10.2" y="19" width="0.8" height="2.5" rx="0.4" fill="currentColor" opacity="0.8"/>
-
-          <rect x="11.6" y="19" width="0.8" height="2.5" rx="0.4" fill="currentColor" opacity="0.8"/>
-
-          <rect x="12.6" y="19" width="0.8" height="2.5" rx="0.4" fill="currentColor" opacity="0.8"/>
-
-          <rect x="13.4" y="19" width="0.8" height="2.5" rx="0.4" fill="currentColor" opacity="0.8"/>
-
-        </svg>
-
-        <span class="title-text">WR Login</span>
+        <span class="title-text">Optirando Login</span>
 
       </h2>
 
@@ -8482,11 +8420,11 @@ function initializeExtension() {
 
 
 
-    <!-- WR Login Connection -->
+    <!-- Optirando Login Connection -->
 
     <div id="wr-card" style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px; margin-bottom: 20px; text-align: center;">
 
-      <h3 style="margin: 0 0 15px 0; font-size: 14px;" class="section-title">📱 WR Login</h3>
+      <h3 style="margin: 0 0 15px 0; font-size: 14px;" class="section-title">📱 Optirando Login</h3>
 
       
 
@@ -8510,7 +8448,7 @@ function initializeExtension() {
 
       <button id="wr-connect-btn" style="width: 100%; padding: 12px 16px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 4px; cursor: pointer; font-size: 14px; font-weight: 600; min-height: 44px; margin-bottom: 10px;">
 
-        🔗 WR Login
+        🔗 Optirando Login
 
       </button>
 
@@ -12809,12 +12747,6 @@ function initializeExtension() {
                   // Build structured eventTagConditions array
                   const eventTagConditions: any[] = []
                   
-                  // WRCode condition
-                  const wrcodeChecked = row.querySelector('.trigger-wrcode')?.checked
-                  if (wrcodeChecked) {
-                    eventTagConditions.push({ type: 'wrcode_valid', required: true })
-                  }
-                  
                   // Sender whitelist condition
                   const senderWhitelist = row.querySelector('.trigger-sender-whitelist')?.value?.trim() || ''
                   if (senderWhitelist) {
@@ -14266,12 +14198,6 @@ function initializeExtension() {
                 
                 // Build structured eventTagConditions array
                 const eventTagConditions: any[] = []
-                
-                // WRCode condition
-                const wrcodeChecked = row.querySelector('.trigger-wrcode')?.checked
-                if (wrcodeChecked) {
-                  eventTagConditions.push({ type: 'wrcode_valid', required: true })
-                }
                 
                 // Sender whitelist condition
                 const senderWhitelist = row.querySelector('.trigger-sender-whitelist')?.value?.trim() || ''
@@ -16739,7 +16665,6 @@ function initializeExtension() {
               
               // Get existing conditions
               const existingConditions = init?.eventTagConditions || []
-              const wrcodeCondition = existingConditions.find((c: any) => c.type === 'wrcode_valid')
               const senderCondition = existingConditions.find((c: any) => c.type === 'sender_whitelist')
               
               securitySection.innerHTML = `
@@ -16747,12 +16672,9 @@ function initializeExtension() {
                   <span style="font-size:14px">🔒</span> Source & Security
                 </div>
                 <div style="display:flex;flex-direction:column;gap:8px">
-                  <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
-                    <input type="checkbox" class="trigger-wrcode" ${wrcodeCondition?.required ? 'checked' : ''} style="width:16px;height:16px;cursor:pointer">
-                    <span style="font-size:12px;color:#0f172a">Only accept WRCode-stamped emails</span>
-                  </label>
-                  <div style="font-size:12px;color:#475569;padding-left:24px;margin-bottom:4px">
-                    Requires cryptographic verification of sender authenticity.
+                  <div style="font-size:12px;color:#0f172a;background:#fff;border:1px solid #bbf7d0;border-radius:6px;padding:8px 10px">
+                    Sender authentication (SPF, DKIM, DMARC) runs automatically on every incoming
+                    message before it is depackaged. It is mandatory, so there is nothing to turn on here.
                   </div>
                   
                   <div style="margin-top:4px">
@@ -17436,8 +17358,8 @@ function initializeExtension() {
                       </label>
                       <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
                         <input type="checkbox" class="trigger-sanitize-remove-boilerplate" ${init?.sanitizeRemoveBoilerplate ? 'checked' : ''} style="margin:0">
-                        <span style="font-size:10px;color:#0f172a">Remove boilerplate</span>
-                        <span title="Try to remove common AI boilerplate phrases like 'As an AI language model...' or 'I hope this helps!'" style="font-size:8px;opacity:0.5;cursor:help;background:rgba(255,255,255,.1);padding:0 3px;border-radius:50%">?</span>
+                        <span style="font-size:10px;color:#0f172a">Remove layout boilerplate</span>
+                        <span title="Remove repeated UI layout boilerplate (headers/footers). Does NOT remove AI self-disclosure phrases like 'As an AI...' — those are required under EU AI Act Art. 50." style="font-size:8px;opacity:0.5;cursor:help;background:rgba(255,255,255,.1);padding:0 3px;border-radius:50%">?</span>
                       </label>
                     </div>
                   </div>
@@ -20314,10 +20236,6 @@ function initializeExtension() {
                       // Restore eventTagConditions
                       if (trigger.eventTagConditions) {
                         trigger.eventTagConditions.forEach((cond: any) => {
-                          if (cond.type === 'wrcode_valid') {
-                            const wrcodeCheck = row.querySelector('.trigger-wrcode') as HTMLInputElement
-                            if (wrcodeCheck) wrcodeCheck.checked = true
-                          }
                           if (cond.type === 'sender_whitelist' && cond.allowedSenders) {
                             const senderInput = row.querySelector('.trigger-sender-whitelist') as HTMLInputElement
                             if (senderInput) senderInput.value = cond.allowedSenders.join(', ')
@@ -23992,7 +23910,6 @@ function initializeExtension() {
             trigger.emails = row.querySelector('.trigger-emails')?.value || ''
             trigger.keywords = row.querySelector('.trigger-keywords')?.value || ''
             trigger.websiteFilter = row.querySelector('.trigger-website')?.value || ''
-            trigger.wrcodeMatch = row.querySelector('.trigger-wrcode')?.value || ''
             trigger.workflowId = row.querySelector('.trigger-workflow')?.value || ''
             trigger.command = row.querySelector('.trigger-command')?.value || ''
             
@@ -25772,7 +25689,7 @@ function initializeExtension() {
 
             <h3 style="margin: 0 0 15px 0; font-size: 16px; color: ${csTheme().muted};">Trusted URLs</h3>
 
-            <p style="margin: 0 0 20px 0; font-size: 12px; opacity: 0.8;">Add URLs that you trust and want to enable WR Desk features on. Use HTTPS URLs for security.</p>
+            <p style="margin: 0 0 20px 0; font-size: 12px; opacity: 0.8;">Add URLs that you trust and want to enable Optirando features on. Use HTTPS URLs for security.</p>
 
             
 
@@ -25802,7 +25719,7 @@ function initializeExtension() {
 
             <div style="font-size: 12px; opacity: 0.8; line-height: 1.6;">
 
-              <p style="margin: 0 0 10px 0;">• Only URLs in this whitelist will have WR Desk features enabled</p>
+              <p style="margin: 0 0 10px 0;">• Only URLs in this whitelist will have Optirando features enabled</p>
 
               <p style="margin: 0 0 10px 0;">• Wildcard patterns are supported (e.g., https://*.example.com)</p>
 
@@ -27863,11 +27780,23 @@ ${pageText}
 
       const download = (name: string, content: string, mime='application/octet-stream') => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([content], {type:mime})); a.download=name; a.click(); URL.revokeObjectURL(a.href) }
 
-      ;(drawer.querySelector('#export-json') as HTMLButtonElement)?.addEventListener('click', ()=> download(`session-${item.id}.json`, JSON.stringify(item, null, 2), 'application/json'))
+      ;(drawer.querySelector('#export-json') as HTMLButtonElement)?.addEventListener('click', ()=> {
+        const exportItem: Record<string, unknown> = { ...item }
+        if (item.aiRootCause || item.aiSteps) {
+          // Carrier-only: never invent model_id / generated_at / content_sha256 at export time.
+          exportItem._aiProvenance = {
+            marking_scheme: 'optirando-prov/1-carrier-only',
+            synthetic: true,
+            modality: 'text',
+            fields: ['aiRootCause', 'aiSteps'],
+          }
+        }
+        download(`session-${item.id}.json`, JSON.stringify(exportItem, null, 2), 'application/json')
+      })
 
       ;(drawer.querySelector('#export-md') as HTMLButtonElement)?.addEventListener('click', ()=> {
 
-        const md = `# ${item.title}\n\n- Type: ${item.type}\n- Status: ${item.status}\n- Duration: ${fmtDur(item.durationSec)}\n- Confidence: ${item.confidencePct ?? '-'}%\n\n## Root Cause\n${item.aiRootCause||''}\n\n## Steps\n${item.aiSteps||''}`
+        const md = `<!-- AI-generated content (EU AI Act Art. 50) -->\n# ${item.title}\n\n- Type: ${item.type}\n- Status: ${item.status}\n- Duration: ${fmtDur(item.durationSec)}\n- Confidence: ${item.confidencePct ?? '-'}%\n\n> [AI-generated] The Root Cause and Steps below were generated by an AI system.\n\n## Root Cause\n${item.aiRootCause||''}\n\n## Steps\n${item.aiSteps||''}`
 
         download(`session-${item.id}.md`, md, 'text/markdown')
 
@@ -27879,7 +27808,8 @@ ${pageText}
 
         if (!w) return
 
-        w.document.write(`<pre style="font-family:ui-monospace, SFMono-Regular, Menlo, monospace; white-space:pre-wrap;">${(item.title||'')+"\n\n"+(item.aiRootCause||'')+"\n\n"+(item.aiSteps||'')}</pre>`)
+        const aiLabel = '[AI-generated]\n'
+        w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="ai-generated" content="true"><title>${item.title||'Session'}</title></head><body><pre style="font-family:ui-monospace, SFMono-Regular, Menlo, monospace; white-space:pre-wrap;">${aiLabel}${(item.title||'')+"\n\n"+(item.aiRootCause||'')+"\n\n"+(item.aiSteps||'')}</pre></body></html>`)
 
         w.document.close(); w.focus(); w.print()
 
@@ -32159,7 +32089,7 @@ ${pageText}
                   type: 'VAULT_RPC',
                   id,
                   method: 'handshake.list',
-                  params: { filter: { state: 'ACTIVE', handshake_type: 'internal' } },
+                  params: { filter: { state: 'ACTIVE', same_principal: true } },
                 },
                 (response) => {
                   resolve((response as Record<string, unknown>) ?? null)
@@ -41306,8 +41236,8 @@ ${pageText}
     }
     
     // Build YAML
-    addLine('# WR Desk Session Export')
-    addLine('# Generated by WR Desk™ Extension')
+    addLine('# Optirando Session Export')
+    addLine('# Generated by Optirando™ Extension')
     addLine('')
     
     Object.entries(data).forEach(([key, value]) => {
@@ -41323,7 +41253,7 @@ ${pageText}
   function convertToMarkdown(data: any): string {
     const md: string[] = []
     
-    md.push('# WR Desk Session Export')
+    md.push('# Optirando Session Export')
     md.push('')
     md.push(`**Session Name:** ${data.sessionName}`)
     md.push(`**Export Date:** ${data.exportDate}`)
@@ -41379,7 +41309,7 @@ ${pageText}
     md.push('')
     
     md.push('---')
-    md.push('*Exported from WR Desk™ Extension*')
+    md.push('*Exported from Optirando™ Extension*')
     
     return md.join('\n')
   }

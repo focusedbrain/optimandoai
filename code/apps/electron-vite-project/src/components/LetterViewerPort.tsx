@@ -508,7 +508,7 @@ export function LetterViewerPort() {
         !api?.processLetterImagePaths ||
         !api?.processLetterImage
       ) {
-        setError('Letter upload requires WR Desk (Electron).')
+        setError('Letter upload requires Optirando (Electron).')
         return
       }
 

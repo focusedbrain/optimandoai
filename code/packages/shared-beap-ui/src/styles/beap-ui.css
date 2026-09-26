@@ -335,3 +335,47 @@
 .beap-ui--compact .beap-ui-attachment-picker {
   gap: 2px;
 }
+
+/* ── Channel provenance alert (§IX.3.1 rule 8) ──
+   One appearance for every channel-consequential surface. Explicit foreground
+   with every background so the alert cannot come out low-contrast or invisible
+   on a surface whose parent theme differs. */
+
+.beap-ui-provenance-alert {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  margin: 8px 0;
+  background: #fef3c7;
+  color: #451a03;
+  border: 1px solid #f59e0b;
+  border-left-width: 4px;
+  border-radius: 6px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.beap-ui-provenance-alert-icon {
+  flex: 0 0 auto;
+  font-size: 16px;
+  line-height: 1.3;
+  color: #92400e;
+}
+
+.beap-ui-provenance-alert-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.beap-ui-provenance-alert-title {
+  color: #451a03;
+  font-weight: 600;
+}
+
+.beap-ui-provenance-alert-text {
+  margin: 0;
+  color: #451a03;
+}

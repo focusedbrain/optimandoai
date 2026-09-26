@@ -101,6 +101,8 @@ type GenerateChatOpts = {
   stream?: boolean
   send?: (channel: string, payload: unknown) => void
   temperature?: number
+  /** Art. 50: filled at generation boundary; callers must not remint. */
+  provenanceOut?: { value?: import('../../../../../packages/shared/src/aiProvenance').AiProvenance }
 }
 
 /** Minimal provider shape used by handshake RAG. */
@@ -133,6 +135,7 @@ export async function runOllamaGenerateChatWithSandboxRouting(
       stream,
       send: stream ? send : undefined,
       ...(typeof opts.temperature === 'number' ? { temperature: opts.temperature } : {}),
+      ...(opts.provenanceOut ? { provenanceOut: opts.provenanceOut } : {}),
     })
 
   if (provider.id && provider.id !== 'ollama') {
@@ -183,6 +186,9 @@ export async function runOllamaGenerateChatWithSandboxRouting(
     throw new Error(msg)
   }
   const text = r.output
+  if (opts.provenanceOut && r.provenance) {
+    opts.provenanceOut.value = r.provenance
+  }
   if (stream && send) {
     send('handshake:chatStreamToken', { token: text })
   }

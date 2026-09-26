@@ -1,14 +1,19 @@
 /**
- * Canonical Tool Execution Entry Point
+ * Canonical Tool Execution Entry Point (Phase 5 — V4)
  *
  * Every tool invocation MUST pass through executeToolRequest(). There is no
  * alternate runner. Steps (ordered, fail on first error):
  *
  *   1. Validate request shape
  *   2. Resolve governance context (handshake record, active + not revoked)
- *   3. Authorize via authorizeToolInvocation() — deny → fail-closed
- *   4. Execute tool handler with timeout + parameter sanitization
- *   5. Audit (request_id, tool_name, handshake_id, allow/deny, duration)
+ *   3. Authorize via authorizeToolInvocation() — which requires a fresh,
+ *      single-use, Intent-Hash-bound human consent record [VII.10.1,
+ *      IX.19.2]; deny → fail-closed. Intent-hash divergence is a deviation
+ *      and produces a deviation PoAE record.
+ *   4. Consume the consent record (single use), execute the tool handler
+ *      with timeout + parameter sanitization
+ *   5. Audit + PoAE evidence record carrying the Intent Hash and the
+ *      consent reference [IX.19.1]
  *
  * Any exception → caught → { success: false }.
  * No tool code executes if authorization fails.
@@ -19,6 +24,8 @@ import { EXECUTION_CONSTANTS } from './types'
 import { getToolHandler } from './toolRegistry'
 import { authorizeToolInvocation } from '../enforcement/authorizeToolInvocation'
 import { insertAuditLogEntry } from '../handshake/db'
+import { consumeExecutionConsent, paramsDigest } from './executionConsent'
+import { appendEvidenceBestEffort, poaeExecutionPayload } from '../handshake/evidenceChain'
 
 const POISONED_KEYS = new Set(['__proto__', 'constructor', 'prototype'])
 
@@ -95,35 +102,91 @@ export async function executeToolRequest(
       return fail('MISSING_HANDSHAKE', 'handshake_id is required for tool execution', startTime)
     }
 
-    // Step 3: Authorize
+    // Step 3: Authorize — per-tap consent with Intent Hash (V4). There is no
+    // standing execution right; a missing/mismatching consent record refuses.
     const authResult = authorizeToolInvocation(db, {
+      request_id: req.request_id,
       handshake_id: req.handshake_id,
       tool_name: req.tool_name,
       parameters: req.parameters,
       requested_scope: req.scope_id ?? '*',
       requested_purpose: req.purpose_id ?? 'general',
+      origin: req.origin,
+      consent_ref: req.consent_ref ?? null,
     })
 
     if (!authResult.authorized) {
       auditExecution(db, req, false, authResult.reason, startTime)
+      // Intent-hash divergence is a deviation [IX.19.2] — evidence it.
+      if (authResult.deviation) {
+        appendEvidenceBestEffort({
+          chainId: req.handshake_id,
+          recordType: 'poae',
+          payload: poaeExecutionPayload({
+            handshake_id: req.handshake_id,
+            request_id: req.request_id,
+            tool_name: req.tool_name,
+            intent_hash: '',
+            consent_id: req.consent_ref ?? '',
+            outcome: 'refused_deviation',
+            params_digest: paramsDigest(req.parameters),
+          }),
+        })
+      }
       return fail(authResult.reason, authResult.details ?? 'Authorization denied', startTime)
     }
+    const consent = authResult.consent
 
-    // Step 4: Execute tool handler
+    // Step 4: Execute tool handler — consent is consumed FIRST (single use):
+    // even a crashing handler never leaves a reusable consent behind.
     const handler = getToolHandler(req.tool_name)
     if (!handler) {
       auditExecution(db, req, false, 'TOOL_NOT_FOUND', startTime)
       return fail('TOOL_NOT_FOUND', `No handler registered for tool "${req.tool_name}"`, startTime)
     }
 
-    const sanitized = sanitizeParameters(req.parameters)
-    const result = await withTimeout(
-      handler(sanitized),
-      EXECUTION_CONSTANTS.TOOL_TIMEOUT_MS,
-    )
+    consumeExecutionConsent(db, consent.consent_id)
 
-    // Step 5: Audit success
+    let result: unknown
+    try {
+      const sanitized = sanitizeParameters(req.parameters)
+      result = await withTimeout(
+        handler(sanitized),
+        EXECUTION_CONSTANTS.TOOL_TIMEOUT_MS,
+      )
+    } catch (execErr) {
+      appendEvidenceBestEffort({
+        chainId: req.handshake_id,
+        recordType: 'poae',
+        payload: poaeExecutionPayload({
+          handshake_id: req.handshake_id,
+          request_id: req.request_id,
+          tool_name: req.tool_name,
+          intent_hash: consent.intent_hash,
+          consent_id: consent.consent_id,
+          outcome: 'failure',
+          params_digest: consent.params_digest,
+        }),
+      })
+      throw execErr
+    }
+
+    // Step 5: Audit + PoAE — Intent Hash and consent reference bound into
+    // the execution's evidence record [IX.19.1/19.2].
     auditExecution(db, req, true, 'OK', startTime)
+    appendEvidenceBestEffort({
+      chainId: req.handshake_id,
+      recordType: 'poae',
+      payload: poaeExecutionPayload({
+        handshake_id: req.handshake_id,
+        request_id: req.request_id,
+        tool_name: req.tool_name,
+        intent_hash: consent.intent_hash,
+        consent_id: consent.consent_id,
+        outcome: 'success',
+        params_digest: consent.params_digest,
+      }),
+    })
 
     return {
       success: true,

@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@noble/curves": "^1.4.0",
+    "@repo/shared-beap-ui": "workspace:*",
     "@noble/ed25519": "^2.1.0",
     "@tensorflow/tfjs": "^4.22.0",
     "react": "^18.2.0",

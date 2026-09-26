@@ -77,8 +77,9 @@ import { classifyLivePbeapTrust } from '../../depackaging-microvm/livePbeapTrust
 import { processBeapPackageInline } from '../beapEmailIngestion'
 import { detectAndRouteMessageInline } from '../messageRouter'
 import { depackagedFormatFromJson } from '../../../../src/lib/inboxBeapRowEligibility'
-import { migrateHandshakeTables } from '../../handshake/db'
+import { migrateHandshakeTables, insertHandshakeRecord } from '../../handshake/db'
 import { migrateIngestionTables } from '../../ingestion/persistenceDb'
+import { buildActiveHandshakeRecord } from '../../handshake/__tests__/helpers'
 
 const TEST_DEK = Buffer.from('00'.repeat(32), 'hex')
 
@@ -101,6 +102,14 @@ function makeTestDb() {
   migrateHandshakeTables(db)
   migrateIngestionTables(db)
   return db
+}
+
+/**
+ * Phase 1 [VII.2.7]: the ingress admission filter is the first inbox stage;
+ * deliveries need an ACTIVE relationship row to be admitted at all.
+ */
+function seedActiveHandshake(db: any, hsId: string) {
+  insertHandshakeRecord(db, buildActiveHandshakeRecord({ handshake_id: hsId, relationship_id: `rel-${hsId}` }))
 }
 
 function makePBeapPackage(handshakeId: string): string {
@@ -161,6 +170,7 @@ describe.skipIf(!Database)('pBEAP trust verdict persists to inbox_messages.depac
   describe('P2P relay path', () => {
     it('persists a verified_bound verdict', async () => {
       const hsId = randomUUID()
+      seedActiveHandshake(db, hsId)
       vi.mocked(classifyLivePbeapTrust).mockReturnValue(VERIFIED_BOUND(hsId))
       const result = await processBeapPackageInline(db, makePBeapPackage(hsId), hsId, { sourceType: 'p2p', receivedAt: new Date().toISOString() })
       expect(result.outcome).toBe('inbox')
@@ -171,6 +181,7 @@ describe.skipIf(!Database)('pBEAP trust verdict persists to inbox_messages.depac
 
     it('persists a lesser (unverified_public) verdict', async () => {
       const hsId = randomUUID()
+      seedActiveHandshake(db, hsId)
       vi.mocked(classifyLivePbeapTrust).mockReturnValue(LESSER)
       const result = await processBeapPackageInline(db, makePBeapPackage(hsId), hsId, { sourceType: 'p2p', receivedAt: new Date().toISOString() })
       expect(result.outcome).toBe('inbox')
@@ -191,12 +202,17 @@ describe.skipIf(!Database)('pBEAP trust verdict persists to inbox_messages.depac
         text: makePBeapPackage(hsId),
         date: new Date().toISOString(),
         attachments: [],
+        // [Order 02 / 2A] BEAP detection runs only for a channel-authenticated
+        // message. These cases are about the pBEAP trust verdict, which only
+        // exists on the BEAP route, so the fixture carries an aligned DKIM pass.
+        headers: { authenticationResults: ['mx.test; dkim=pass header.d=dev.test'] },
       }
       return detectAndRouteMessageInline(db, 'acc', raw as any, null, true)
     }
 
     it('persists a verified_bound verdict and preserves format routing', async () => {
       const hsId = randomUUID()
+      seedActiveHandshake(db, hsId)
       vi.mocked(classifyLivePbeapTrust).mockReturnValue(VERIFIED_BOUND(hsId))
       const res = await ingestEmail(hsId)
       expect(res.type).toBe('beap')
@@ -212,6 +228,7 @@ describe.skipIf(!Database)('pBEAP trust verdict persists to inbox_messages.depac
 
     it('persists a lesser (unverified_public) verdict', async () => {
       const hsId = randomUUID()
+      seedActiveHandshake(db, hsId)
       vi.mocked(classifyLivePbeapTrust).mockReturnValue(LESSER)
       const res = await ingestEmail(hsId)
       expect(res.type).toBe('beap')
@@ -229,6 +246,7 @@ describe.skipIf(!Database)('pBEAP trust verdict persists to inbox_messages.depac
 
     it('P2P: an unaltered row verifies; editing depackaged_metadata is rejected', async () => {
       const hsId = randomUUID()
+      seedActiveHandshake(db, hsId)
       vi.mocked(classifyLivePbeapTrust).mockReturnValue(LESSER)
       const result = await processBeapPackageInline(db, makePBeapPackage(hsId), hsId, { sourceType: 'p2p', receivedAt: new Date().toISOString() })
       expect(result.outcome).toBe('inbox')
@@ -251,10 +269,12 @@ describe.skipIf(!Database)('pBEAP trust verdict persists to inbox_messages.depac
 
     it('email: an unaltered row verifies; editing depackaged_metadata is rejected', async () => {
       const hsId = randomUUID()
+      seedActiveHandshake(db, hsId)
       vi.mocked(classifyLivePbeapTrust).mockReturnValue(LESSER)
       const raw = {
         messageId: `mail-tamper-${hsId}`, from: { address: 'a@dev.test' }, to: [], subject: 'pBEAP',
         text: makePBeapPackage(hsId), date: new Date().toISOString(), attachments: [],
+        headers: { authenticationResults: ['mx.test; dkim=pass header.d=dev.test'] },
       }
       const res = await detectAndRouteMessageInline(db, 'acc', raw as any, null, true)
       expect(res.type).toBe('beap')

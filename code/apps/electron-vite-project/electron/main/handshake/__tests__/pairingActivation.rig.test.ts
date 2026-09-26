@@ -19,14 +19,18 @@
  * Run under Electron's Node ABI: `pnpm test:native-db <thisFile>`.
  */
 
-import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest'
 import Database from 'better-sqlite3'
 import WebSocket from 'ws'
 
 import { startRelayHarness, type RelayHarness } from './rig/coordinationRelayHarness'
 import { migrateHandshakeTables, updateHandshakeSigningKeys, updateHandshakeCounterpartyKey, updateHandshakeContextSyncEnqueued } from '../db'
 import { migrateIngestionTables } from '../../ingestion/persistenceDb'
-import { handleIngestionRPC } from '../../ingestion/ipc'
+import {
+  installInMemoryConnectOffers,
+  uninstallInMemoryConnectOffers,
+  submitCapsuleThroughConsentGate,
+} from './connectOfferConsentTestKit'
 import { setEmailSendFn, _resetEmailSendFn } from '../emailTransport'
 import { buildInitiateCapsuleWithKeypair, buildAcceptCapsule, buildContextSyncCapsule } from '../capsuleBuilder'
 import { buildTestSession } from '../sessionFactory'
@@ -50,17 +54,13 @@ function makeDb(): any {
   return db
 }
 
+// Phase 4 [IX.3.1]: inbound initiates stage a Connect offer; the kit consents
+// and re-runs the one pipeline behind the consent gate.
+beforeEach(() => installInMemoryConnectOffers())
+afterEach(() => uninstallInMemoryConnectOffers())
+
 function ingest(capsuleJson: string, db: any, asSession: SSOSession) {
-  return handleIngestionRPC(
-    'ingestion.ingest',
-    {
-      rawInput: { body: capsuleJson, mime_type: 'application/vnd.beap+json' },
-      sourceType: 'email',
-      transportMeta: { channel_id: 'relay:test', mime_type: 'application/vnd.beap+json' },
-    },
-    db,
-    asSession,
-  )
+  return submitCapsuleThroughConsentGate(capsuleJson, db, asSession, { channelId: 'relay:test' })
 }
 
 describe('pairing → ACTIVE over a real relay (two real instances)', () => {

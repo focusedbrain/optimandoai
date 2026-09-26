@@ -14,7 +14,7 @@ import { deriveInternalHostAiPeerRoles, handshakeSamePrincipal } from './policy'
  */
 export function isHostSandboxPairEligible(r: HandshakeRecord): boolean {
   if (r.state !== HandshakeState.ACTIVE) return false
-  if (r.handshake_type !== 'internal') return false
+  if (r.same_principal !== true) return false
   if (!handshakeSamePrincipal(r)) return false
   const ini = (r.initiator_coordination_device_id ?? '').trim()
   const acc = (r.acceptor_coordination_device_id ?? '').trim()
@@ -61,9 +61,9 @@ export function listActiveInternalHandshakesForHostAi(db: unknown): HandshakeRec
   if (!db) return []
   const rows = listHandshakeRecords(db as Parameters<typeof listHandshakeRecords>[0], {
     state: HandshakeState.ACTIVE,
-    handshake_type: 'internal',
+    same_principal: true,
   })
-  return rows.filter((r) => r.handshake_type === 'internal' && r.state === HandshakeState.ACTIVE)
+  return rows.filter((r) => r.same_principal === true && r.state === HandshakeState.ACTIVE)
 }
 
 /** Any ACTIVE internal row proves local Host with peer Sandbox. */

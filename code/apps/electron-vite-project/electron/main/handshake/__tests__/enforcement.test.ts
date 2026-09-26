@@ -58,10 +58,17 @@ describe('Duplicate Capsule', () => {
 })
 
 describe('Handshake Ownership', () => {
+  const senderParty = {
+    email: 'sender@example.com',
+    wrdesk_user_id: 'sender-user-001',
+    iss: 'https://auth.wrdesk.com',
+    sub: 'sub-sender-001',
+  }
+
   test('capsule from correct counterparty → passes', () => {
     const ctx = buildCtx({
       input: buildVerifiedCapsuleInput({ capsuleType: 'handshake-refresh', sender_wrdesk_user_id: 'sender-user-001', seq: 1, prev_hash: 'h' }),
-      handshakeRecord: buildActiveHandshakeRecord({ initiator: { email: 'sender@example.com', wrdesk_user_id: 'sender-user-001', iss: 'i', sub: 's' } }),
+      handshakeRecord: buildActiveHandshakeRecord({ initiator: { ...senderParty } }),
       localUserId: 'local-user-001',
     })
     expect(verifyHandshakeOwnership.execute(ctx).passed).toBe(true)
@@ -69,8 +76,42 @@ describe('Handshake Ownership', () => {
 
   test('capsule from unrelated user → HANDSHAKE_OWNERSHIP_VIOLATION', () => {
     const ctx = buildCtx({
-      input: buildVerifiedCapsuleInput({ capsuleType: 'handshake-refresh', sender_wrdesk_user_id: 'unknown-user' }),
+      input: buildVerifiedCapsuleInput({
+        capsuleType: 'handshake-refresh',
+        sender_wrdesk_user_id: 'unknown-user',
+        sender_email: 'unknown@example.com',
+        senderIdentity: { email: 'unknown@example.com', iss: 'https://auth.wrdesk.com', sub: 'sub-unknown', email_verified: true, wrdesk_user_id: 'unknown-user' },
+      }),
       handshakeRecord: buildActiveHandshakeRecord(),
+      localUserId: 'local-user-001',
+    })
+    const r = verifyHandshakeOwnership.execute(ctx)
+    expect(r.passed).toBe(false)
+    if (!r.passed) expect(r.reason).toBe(ReasonCode.HANDSHAKE_OWNERSHIP_VIOLATION)
+  })
+
+  test('cross-SSO refresh: matching sub/wrdesk under a different issuer → HANDSHAKE_OWNERSHIP_VIOLATION [VII.3.8/3.10]', () => {
+    const ctx = buildCtx({
+      input: buildVerifiedCapsuleInput({
+        capsuleType: 'handshake-refresh',
+        sender_wrdesk_user_id: 'sender-user-001',
+        senderIdentity: { ...senderParty, iss: 'https://evil-idp.example.com', email_verified: true },
+      }),
+      handshakeRecord: buildActiveHandshakeRecord({ initiator: { ...senderParty } }),
+      localUserId: 'local-user-001',
+    })
+    const r = verifyHandshakeOwnership.execute(ctx)
+    expect(r.passed).toBe(false)
+    if (!r.passed) expect(r.reason).toBe(ReasonCode.HANDSHAKE_OWNERSHIP_VIOLATION)
+  })
+
+  test('routing fields disagreeing with senderIdentity claims → HANDSHAKE_OWNERSHIP_VIOLATION', () => {
+    const ctx = buildCtx({
+      input: buildVerifiedCapsuleInput({
+        capsuleType: 'handshake-refresh',
+        sender_wrdesk_user_id: 'someone-else',
+      }),
+      handshakeRecord: buildActiveHandshakeRecord({ initiator: { ...senderParty } }),
       localUserId: 'local-user-001',
     })
     const r = verifyHandshakeOwnership.execute(ctx)
@@ -82,7 +123,7 @@ describe('Handshake Ownership', () => {
     const ctx = buildCtx({
       input: buildVerifiedCapsuleInput({ capsuleType: 'handshake-accept', sender_wrdesk_user_id: 'sender-user-001' }),
       handshakeRecord: buildHandshakeRecord({
-        initiator: { email: 's@e.com', wrdesk_user_id: 'sender-user-001', iss: 'i', sub: 's' },
+        initiator: { ...senderParty },
         receiver_email: 'other@e.com',
       }),
       localUserId: 'local-user-001',
@@ -96,12 +137,30 @@ describe('Handshake Ownership', () => {
     const ctx = buildCtx({
       input: buildVerifiedCapsuleInput({ capsuleType: 'handshake-accept', sender_wrdesk_user_id: 'sender-user-001' }),
       handshakeRecord: buildHandshakeRecord({
-        initiator: { email: 'same@e.com', wrdesk_user_id: 'sender-user-001', iss: 'i', sub: 's' },
-        receiver_email: 'same@e.com',
+        initiator: { ...senderParty },
+        receiver_email: 'sender@example.com',
       }),
       localUserId: 'local-user-001',
     })
     expect(verifyHandshakeOwnership.execute(ctx).passed).toBe(true)
+  })
+
+  test('cross-SSO accept: initiator claims under a different issuer → HANDSHAKE_OWNERSHIP_VIOLATION [VII.3.8/3.10]', () => {
+    const ctx = buildCtx({
+      input: buildVerifiedCapsuleInput({
+        capsuleType: 'handshake-accept',
+        sender_wrdesk_user_id: 'sender-user-001',
+        senderIdentity: { ...senderParty, iss: 'https://evil-idp.example.com', email_verified: true },
+      }),
+      handshakeRecord: buildHandshakeRecord({
+        initiator: { ...senderParty },
+        receiver_email: 'sender@example.com',
+      }),
+      localUserId: 'local-user-001',
+    })
+    const r = verifyHandshakeOwnership.execute(ctx)
+    expect(r.passed).toBe(false)
+    if (!r.passed) expect(r.reason).toBe(ReasonCode.HANDSHAKE_OWNERSHIP_VIOLATION)
   })
 
   test('self-handshake initiate → HANDSHAKE_OWNERSHIP_VIOLATION', () => {
@@ -111,6 +170,7 @@ describe('Handshake Ownership', () => {
         sender_wrdesk_user_id: 'local-user-001',
         sender_email: 'a@e.com',
         receiver_email: 'b@e.com',
+        senderIdentity: { email: 'a@e.com', iss: 'https://auth.wrdesk.com', sub: 'sub-local-001', email_verified: true, wrdesk_user_id: 'local-user-001' },
       }),
       handshakeRecord: null,
       localUserId: 'local-user-001',
@@ -120,18 +180,36 @@ describe('Handshake Ownership', () => {
     if (!r.passed) expect(r.reason).toBe(ReasonCode.HANDSHAKE_OWNERSHIP_VIOLATION)
   })
 
-  test('internal same-account initiate (same wrdesk id + same email) → passes', () => {
+  test('internal same-account initiate (full session claims + same email) → passes', () => {
     const ctx = buildCtx({
       input: buildVerifiedCapsuleInput({
         capsuleType: 'handshake-initiate',
         sender_wrdesk_user_id: 'local-user-001',
-        sender_email: 'me@e.com',
-        receiver_email: 'me@e.com',
+        sender_email: 'local@wrdesk.com',
+        receiver_email: 'local@wrdesk.com',
+        senderIdentity: { email: 'local@wrdesk.com', iss: 'https://auth.wrdesk.com', sub: 'sub-local-001', email_verified: true, wrdesk_user_id: 'local-user-001' },
       }),
       handshakeRecord: null,
       localUserId: 'local-user-001',
     })
     expect(verifyHandshakeOwnership.execute(ctx).passed).toBe(true)
+  })
+
+  test('cross-SSO initiate: local wrdesk id claimed under a different issuer → HANDSHAKE_OWNERSHIP_VIOLATION [VII.3.8/3.10]', () => {
+    const ctx = buildCtx({
+      input: buildVerifiedCapsuleInput({
+        capsuleType: 'handshake-initiate',
+        sender_wrdesk_user_id: 'local-user-001',
+        sender_email: 'local@wrdesk.com',
+        receiver_email: 'local@wrdesk.com',
+        senderIdentity: { email: 'local@wrdesk.com', iss: 'https://evil-idp.example.com', sub: 'sub-local-001', email_verified: true, wrdesk_user_id: 'local-user-001' },
+      }),
+      handshakeRecord: null,
+      localUserId: 'local-user-001',
+    })
+    const r = verifyHandshakeOwnership.execute(ctx)
+    expect(r.passed).toBe(false)
+    if (!r.passed) expect(r.reason).toBe(ReasonCode.HANDSHAKE_OWNERSHIP_VIOLATION)
   })
 })
 

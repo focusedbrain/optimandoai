@@ -16,7 +16,7 @@
  * Constraints: no tests here mutate X25519/ML-KEM agreement, ACTIVE gate invariants, or accept/build capsule crypto.
  */
 
-import { describe, test, expect } from 'vitest'
+import { describe, test, expect, vi } from 'vitest'
 import {
   mapSendResultToQueueOutcome,
   type SendCapsuleSuccessShape,
@@ -29,6 +29,11 @@ import type { SSOSession } from '../types'
 import { getNextStateAfterInboundContextSync } from '../contextSyncActiveGate'
 import { assertVaultOwnerMatchesSession, VAULT_ACCOUNT_ERROR } from '../../vault/vaultOwnerIdentity'
 import { extractBeapRedirectSourceFromRow } from '../../email/beapRedirectSource'
+
+vi.mock('../../orchestrator/orchestratorModeStore', async (importOriginal) => {
+  const a = await importOriginal<typeof import('../../orchestrator/orchestratorModeStore')>()
+  return { ...a, getInstanceId: () => 'dev-host-1' }
+})
 
 const sessionUserA: SSOSession = {
   wrdesk_user_id: 'user-a',
@@ -54,16 +59,28 @@ function baseInternalHostSandboxRecord(overrides: Partial<HandshakeRecord> = {})
   return {
     handshake_id: 'hs-sbx-1',
     state: HandshakeState.ACTIVE,
-    handshake_type: 'internal',
+    same_principal: true,
     local_role: 'initiator',
     initiator_device_role: 'host',
     acceptor_device_role: 'sandbox',
+    initiator_coordination_device_id: 'dev-host-1',
+    acceptor_coordination_device_id: 'dev-sand-1',
     internal_coordination_identity_complete: true,
     p2p_endpoint: 'https://coord.example/beap',
     local_x25519_public_key_b64: 'dGVzdC1sb2NhbC14MjU1MTktcHViLWtleQ==',
     relationship_id: 'rel-1',
-    initiator: { email: 'a@example.com', wrdesk_user_id: 'user-a' },
-    acceptor: { email: 'a@example.com', wrdesk_user_id: 'user-a' },
+    initiator: {
+      email: 'a@example.com',
+      wrdesk_user_id: 'user-a',
+      iss: 'https://id.example',
+      sub: 'sub-a',
+    },
+    acceptor: {
+      email: 'a@example.com',
+      wrdesk_user_id: 'user-a',
+      iss: 'https://id.example',
+      sub: 'sub-a',
+    },
     ...overrides,
   } as HandshakeRecord
 }
@@ -125,7 +142,7 @@ describe('regressionMatrix — same-principal skip (§7)', () => {
       computeSamePrincipalCoordinationSkipOwn({
         hasDb: true,
         handshakeId: 'x',
-        record: { handshake_type: 'internal' },
+        record: { same_principal: true },
         capsuleSenderDeviceId: 'DEV-A',
         localDeviceId: 'DEV-A',
       }),
@@ -134,7 +151,7 @@ describe('regressionMatrix — same-principal skip (§7)', () => {
       computeSamePrincipalCoordinationSkipOwn({
         hasDb: true,
         handshakeId: 'x',
-        record: { handshake_type: 'internal' },
+        record: { same_principal: true },
         capsuleSenderDeviceId: 'DEV-SANDBOX',
         localDeviceId: 'DEV-HOST',
       }),

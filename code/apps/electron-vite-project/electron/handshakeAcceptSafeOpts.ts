@@ -1,8 +1,8 @@
 /**
  * Pure builder for `handshake:accept` IPC options — shared with preload tests.
  * Forwards an explicit allowlist only (no pass-through of arbitrary objects).
- * Internal vs normal and X25519 requirements are decided in main using persisted
- * `record.handshake_type` — this module does not use `device_role` as proof of internal.
+ * Internal vs normal and X25519 requirements are decided in main using the persisted
+ * `record.same_principal` flag — this module does not use `device_role` as proof of internal.
  */
 
 const MAX_B64 = 8192
@@ -93,6 +93,10 @@ export function buildHandshakeAcceptSafeOpts(contextOpts: unknown): Record<strin
 
   if (typeof opts.local_pairing_code_typed === 'string' && /^\d{6}$/.test(opts.local_pairing_code_typed.trim())) {
     out.local_pairing_code_typed = opts.local_pairing_code_typed.trim()
+  }
+
+  if (typeof opts.expected_preview_hash === 'string' && /^[0-9a-f]{64}$/.test(opts.expected_preview_hash.trim())) {
+    out.expected_preview_hash = opts.expected_preview_hash.trim()
   }
 
   return out

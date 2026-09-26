@@ -22,12 +22,10 @@ import { AutomationSessionRestrictionsSchema } from './session-restrictions'
  */
 export const HandshakeAutomationPermissionsSchema = z.object({
   // Override mode for this handshake (null = use global)
-  // 'automation_partner' = Full bidirectional automation without consent (API-like mode)
+  // NOTE [VII.10.5.5]: no blanket consent-skip / auto-accept control may exist.
+  // Every automation_partner action still goes through the consent surface;
+  // alwaysRequireConsentFor below narrows, never widens, what is consentable.
   mode: z.enum(['strict', 'restrictive', 'standard', 'permissive', 'automation_partner']).nullable().default(null),
-  
-  // For automation_partner mode: Skip consent for all automation actions
-  // Still respects allowlists, rate limits, and other restrictions
-  skipConsentForAutomation: z.boolean().default(false),
   
   // Specific capability overrides (true = allow, false = deny, null = use mode default)
   capabilities: z.object({
@@ -175,7 +173,6 @@ export function createHandshakeOverride(
     isActive: true,
     automation: {
       mode: null,
-      skipConsentForAutomation: false,
       capabilities: {
         aiAnalysis: null,
         smartSearch: null,

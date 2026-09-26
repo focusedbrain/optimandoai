@@ -765,12 +765,12 @@ export const TriggerElementsSchema: Record<string, SchemaNode> = {
     parentId: 'agent.listening.trigger',
   },
   
-  /** Remove common boilerplate text */
+  /** Remove common layout boilerplate (e.g. repeated headers, footers). Does NOT strip AI self-disclosure phrases. */
   sanitizeRemoveBoilerplate: {
     id: 'agent.listening.trigger.sanitizeRemoveBoilerplate',
     humanLabel: 'Remove Boilerplate',
     machineKey: 'sanitizeRemoveBoilerplate',
-    description: 'Attempt to remove common boilerplate (disclaimers, "As an AI...", etc.) from captured response.',
+    description: 'Attempt to remove common layout boilerplate (e.g. repeated UI headers/footers). Does NOT remove AI self-disclosure phrases such as "As an AI..." — those are required under EU AI Act Art. 50 and must be preserved.',
     type: 'boolean',
     required: false,
     default: false,

@@ -153,6 +153,7 @@ export async function tryHandleHostAiSealedInferenceRequestRelayCapsule(
       model: wire.model,
       output: wire.output,
       duration_ms: wire.duration_ms,
+      ...(wire.provenance !== undefined ? { provenance: wire.provenance } : {}),
     })
     if (!assertInferencePayloadWithinCapsuleLimit(outputJson)) {
       outcome = {
@@ -178,6 +179,7 @@ export async function tryHandleHostAiSealedInferenceRequestRelayCapsule(
         model: wire.model,
         output: wire.output,
         duration_ms: wire.duration_ms,
+        ...(wire.provenance !== undefined ? { provenance: wire.provenance } : {}),
       }
     }
   } else {

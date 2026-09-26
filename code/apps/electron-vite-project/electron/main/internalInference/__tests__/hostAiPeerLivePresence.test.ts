@@ -23,14 +23,21 @@ import {
   tryRecordHostPeerLivePresenceFromPolicyResponse,
 } from '../hostAiPeerLivePresence'
 
+/**
+ * Session whose full claim set matches the record parties built by
+ * `internalRecord()` — 'user-a' ↔ iss-a/sub-a. Under the Phase-1 full-claim
+ * guard [VII.3.8] a session only "matches" when issuer+subject+email+id all
+ * line up; an email-only overlap (the old OR-logic) must deny.
+ */
 function sessionForId(id: string): SSOSession {
-  return { email: `${id}@wrdesk.com`, wrdesk_user_id: `${id}-id`, iss: `iss-${id}`, sub: `sub-${id}` } as SSOSession
+  const realm = id.split('-').pop()
+  return { email: `${id}@wrdesk.com`, wrdesk_user_id: `${id}-id`, iss: `iss-${realm}`, sub: `sub-${realm}` } as SSOSession
 }
 
 function internalRecord(overrides: Partial<HandshakeRecord> = {}): HandshakeRecord {
   return {
     handshake_id: 'hs-live-1',
-    handshake_type: 'internal',
+    same_principal: true,
     state: HandshakeState.ACTIVE,
     initiator_device_role: 'host',
     acceptor_device_role: 'sandbox',
@@ -126,6 +133,17 @@ describe('assertHostMachineSessionMatchesHandshakeHostParty (§2 per-handshake g
     expect(assertHostMachineSessionMatchesHandshakeHostParty(r).ok).toBe(true)
   })
 
+  it('cross-SSO regression [VII.3.8]: same email/wrdesk id under a different issuer is denied', () => {
+    getCurrentSessionMock.mockReturnValue({
+      email: 'user-a@wrdesk.com',
+      wrdesk_user_id: 'user-a-id',
+      iss: 'iss-other-realm',
+      sub: 'sub-other-realm',
+    } as SSOSession)
+    const res = assertHostMachineSessionMatchesHandshakeHostParty(internalRecord())
+    expect(res.ok).toBe(false)
+  })
+
   it('denies a different SSO identity (HOST_AI_PEER_IDENTITY_OFFLINE) — §2', () => {
     getCurrentSessionMock.mockReturnValue(sessionForId('user-b'))
     const res = assertHostMachineSessionMatchesHandshakeHostParty(internalRecord())
@@ -136,7 +154,7 @@ describe('assertHostMachineSessionMatchesHandshakeHostParty (§2 per-handshake g
   it('denies a non-internal handshake (HOST_AI_IDENTITY_INCOMPLETE) — §2', () => {
     getCurrentSessionMock.mockReturnValue(sessionForId('user-a'))
     const res = assertHostMachineSessionMatchesHandshakeHostParty(
-      internalRecord({ handshake_type: 'standard' as any }),
+      internalRecord({ same_principal: false as any }),
     )
     expect(res.ok).toBe(false)
     expect((res as { code: string }).code).toBe(InternalInferenceErrorCode.HOST_AI_IDENTITY_INCOMPLETE)
