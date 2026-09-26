@@ -15,6 +15,7 @@ import LinkWarningDialog from './LinkWarningDialog'
 import SandboxLinkInfoDialog from './SandboxLinkInfoDialog'
 import { openAppExternalUrl } from '../lib/openAppExternalUrl'
 import BeapMessageSafeLinkParts from './BeapMessageSafeLinkParts'
+import { WrCodePanel } from './WrCodePanel'
 import { beapInboxMessageBodyToLinkParts, extractLinkParts } from '../utils/safeLinks'
 import { deriveInboxMessageKind } from '../lib/inboxMessageKind'
 import {
@@ -380,6 +381,8 @@ export default function EmailMessageDetail({
   } | null>(null)
   const [hostSandboxBusy, setHostSandboxBusy] = useState(false)
   const [hostSandboxInlineFeedback, setHostSandboxInlineFeedback] = useState<SandboxCloneFeedbackView | null>(null)
+  const [wrCodeOpen, setWrCodeOpen] = useState(false)
+  useEffect(() => setWrCodeOpen(false), [message?.id])
   const {
     selectedAttachmentId: storeSelectedAttachmentId,
     selectAttachment,
@@ -1375,6 +1378,15 @@ export default function EmailMessageDetail({
               >
                 Remove
               </button>
+              <button
+                type="button"
+                onClick={() => setWrCodeOpen((open) => !open)}
+                className="inbox-detail-toolbar-text-btn"
+                aria-expanded={wrCodeOpen}
+                title="Enter a WR Code, or find WR Codes in this message"
+              >
+                WR Code
+              </button>
             </div>
             {showDetailActionEnd ? (
               <div
@@ -1443,6 +1455,8 @@ export default function EmailMessageDetail({
           record={channelProvenanceAlertRecord}
           surface="electron-email-message-detail"
         />
+
+        {wrCodeOpen ? <WrCodePanel messageId={message.id} onClose={() => setWrCodeOpen(false)} /> : null}
 
         {/* Body — pBEAP/qBEAP split only for real native BEAP; sandbox clones use depackaged-style body like Host depackaged rows */}
         <div style={{ marginBottom: 20 }}>

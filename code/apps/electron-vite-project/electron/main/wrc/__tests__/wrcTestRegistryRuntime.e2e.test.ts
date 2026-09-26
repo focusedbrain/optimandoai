@@ -6,7 +6,8 @@
  *  - release ignores the WRC environment variables and stays unconfigured;
  *  - only the unbundled dev flavor reads them;
  *  - wrc-test resolves against the built-in registry, keeps its state in
- *    separate files, and spends the one-time offering exactly once.
+ *    separate files, and spends the one-time offering exactly once;
+ *  - declining releases the reservation at once and spends the token.
  */
 import { existsSync, mkdtempSync, rmSync, statSync } from 'node:fs'
 import { createRequire } from 'node:module'
@@ -15,6 +16,8 @@ import { join } from 'node:path'
 import { app } from 'electron'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { setWrcBuildFlavorForTests } from '../wrcBuildFlavor'
+import { createMemoryUseLimitStore } from '../useLimitStore'
+import { createWrcTestRegistry } from '../wrcTestRegistry'
 
 const _require = createRequire(import.meta.url)
 let Database: any = null
@@ -118,5 +121,37 @@ describe.skipIf(!Database)('WRC composition root per build flavor', () => {
     expect(again.success).toBe(true)
     if (!again.success || again.result.ok) throw new Error('second submission must be refused')
     expect({ gate: again.result.gate, reason: again.result.reason }).toEqual({ gate: 3, reason: 'CONSUMED' })
+    expect(again.view).toMatchObject({ kind: 'refusal', headline: 'This one-time offer has already been used.' })
+  })
+
+  it('declining releases the reservation at once and spends the token', async () => {
+    const rt = await import('../wrcRuntime')
+    setWrcBuildFlavorForTests('wrc-test')
+    await rt.initWrcClient()
+    // A fresh use-limit store with the registry's own declarations, so the
+    // reservation state can be read directly.
+    const useLimits = createMemoryUseLimitStore()
+    createWrcTestRegistry().seedUseLimits(useLimits)
+    rt.setWrcUseLimitStoreForTests(useLimits)
+    try {
+      const first = await rt.handleWrcSubmitReference({ raw: 'P-TEST01-10005X', requestInstanceId: 'req-d1' })
+      if (!first.success || !first.result.ok || !first.acceptanceToken) {
+        throw new Error(`first submission: ${JSON.stringify(first)}`)
+      }
+      expect(first.view.kind).toBe('offer')
+      expect(useLimits.read('TEST01', '10005')?.state).toBe('claimed')
+
+      expect(await rt.handleWrcDeclineReference({ acceptanceToken: first.acceptanceToken })).toEqual({
+        success: true,
+        result: { declined: true },
+      })
+      expect(useLimits.read('TEST01', '10005')).toMatchObject({ state: 'active', uses_taken: 0 })
+      expect(await rt.handleWrcDeclineReference({ acceptanceToken: first.acceptanceToken })).toEqual({
+        success: false,
+        error: 'acceptance_unknown',
+      })
+    } finally {
+      rt.setWrcUseLimitStoreForTests(null)
+    }
   })
 })

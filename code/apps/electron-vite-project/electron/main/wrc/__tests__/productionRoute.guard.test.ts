@@ -39,12 +39,14 @@ describe('wrc.* product route', () => {
     }
   })
 
-  it('routes to the six WR Code methods the dispatcher implements', () => {
+  it('routes to the eight WR Code methods the dispatcher implements', () => {
     for (const method of [
       'wrc.captureReference',
       'wrc.detectReferences',
+      'wrc.scanMessage',
       'wrc.submitReference',
       'wrc.acceptReference',
+      'wrc.declineReference',
       'wrc.resolvePublisher',
       'wrc.runtimeStatus',
     ]) {

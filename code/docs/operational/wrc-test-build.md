@@ -21,6 +21,15 @@ This runs the normal build with the test registry compiled in. The app goes to i
 
 Both builds are the same app with the same user data (account, handshakes, vault). Only WR Code differs. Every screen of the test build shows the banner "WR Code test build: every WR Code resolves against built-in test publishers, not real ones", and it cannot be dismissed. The main-process log shows `[WRC] TEST REGISTRY ACTIVE` on first use, and `wrc.runtimeStatus` reports `testRegistry: true`.
 
+## Where WR Codes are entered
+
+Open any message in the inbox and click **WR Code** in the message toolbar. The panel opens above the message body:
+
+- **Enter a WR Code:** type or paste a code. While you type, a local format check shows the recognized code ("Valid format: …"); nothing is looked up yet. **Check** runs the six gates.
+- **Find WR Codes in this message:** shown only when the message's sender is authenticated by the mail channel (DKIM or SPF aligned pass). The app decides this in the main process from the message's sealed provenance record; for any other message the panel says it is not scanned, and you can still type a code. Found codes appear as buttons; clicking one checks it.
+- **Result:** either the offer (the publisher's signed value statement, publisher, verified domain, code, next steps) with **Accept** and **Decline**, or a status explaining why the code cannot be used, with the gate and reason code as a secondary line.
+- Checking another code, closing the panel or opening another message declines an offer you left open, so a one-time offer is not held for the 10-minute claim timeout.
+
 ## Who you are in the test build
 
 - You act for **Test Publisher B** (`TEST02`), the own test publisher, as party `test-party-1` on device `test-party-1:this-device`.

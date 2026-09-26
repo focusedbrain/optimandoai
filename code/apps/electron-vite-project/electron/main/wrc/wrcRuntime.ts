@@ -65,6 +65,7 @@ import {
 import { wrcBuildFlavor, type WrcBuildFlavor } from './wrcBuildFlavor'
 import { WRC_RELEASE_TRUST, WRC_TEST_KID_PREFIX, type WrcPinnedTrust } from './wrcTrustAnchors'
 import { createWrcTestRegistry, type WrcTestRegistry } from './wrcTestRegistry'
+import { buildWrcSubmissionView, type WrcSubmissionView } from './wrcSubmissionView'
 import { createDbAdmissionReplayStore, type WrcAdmissionReplayStore } from './capsuleAdmission'
 import { readRuntimeIdentityFromEnvironment, type WrcRuntimeIdentity } from './wrcIdentity'
 import { createDbDeviceRegistry, type WrcDeviceRegistry } from './deviceRegistry'
@@ -412,7 +413,7 @@ export async function handleWrcSubmitReference(params: {
   raw?: unknown
   requestInstanceId?: unknown
 }): Promise<
-  | { success: true; result: WrCodeGateOutcome; acceptanceToken?: string }
+  | { success: true; result: WrCodeGateOutcome; view: WrcSubmissionView; acceptanceToken?: string }
   | { success: false; error: string }
 > {
   if (typeof params?.raw !== 'string' || !params.raw.trim()) {
@@ -433,13 +434,14 @@ export async function handleWrcSubmitReference(params: {
       { raw: params.raw, receiver, requestInstanceId },
       createWrcGateDeps(client, await currentGateOptions()),
     )
-    if (!outcome.ok) return { success: true, result: outcome }
+    const view = buildWrcSubmissionView(outcome)
+    if (!outcome.ok) return { success: true, result: outcome, view }
     // Run 5 Slice 9 — mint the acceptance binding INSIDE the trust boundary:
     // the token is the only path to consumption, and it references what THIS
     // admission established (entry, claimant, request, capsule), never what a
     // later caller asserts.
     const acceptanceToken = mintAcceptance(outcome, receiver, requestInstanceId)
-    return { success: true, result: outcome, acceptanceToken }
+    return { success: true, result: outcome, view, acceptanceToken }
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : String(e) }
   }
@@ -589,6 +591,33 @@ export async function handleWrcAcceptReference(params: {
     // Infrastructure failure (DB unavailable): fail closed, but the decision
     // was never made — restore the token so a recovered store can decide.
     _pendingAcceptances.set(token, pending)
+    return { success: false, error: e instanceof Error ? e.message : String(e) }
+  }
+}
+
+/**
+ * `wrc.declineReference` — the user declines an admitted offer. The token is
+ * spent, and the §XVI.8.4 reservation reverts to ACTIVE now instead of at the
+ * claim timeout: a declined offer never consumes a use.
+ */
+export async function handleWrcDeclineReference(params: {
+  acceptanceToken?: unknown
+}): Promise<{ success: true; result: { declined: true } } | { success: false; error: string }> {
+  const token = typeof params?.acceptanceToken === 'string' ? params.acceptanceToken : ''
+  if (!token) return { success: false, error: 'acceptanceToken is required' }
+  prunePendingAcceptances(Date.now())
+  const pending = _pendingAcceptances.get(token)
+  if (!pending) return { success: false, error: 'acceptance_unknown' }
+  _pendingAcceptances.delete(token)
+  try {
+    if (pending.claimant) {
+      const useLimits = await resolveUseLimitStore()
+      if (useLimits.read(pending.publisherPart, pending.entryKey)) {
+        useLimits.release(pending.publisherPart, pending.entryKey, pending.claimant)
+      }
+    }
+    return { success: true, result: { declined: true } }
+  } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : String(e) }
   }
 }

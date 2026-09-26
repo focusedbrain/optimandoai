@@ -3613,6 +3613,20 @@ export async function handleHandshakeRPC(
       return handleWrcAcceptReference((params ?? {}) as Record<string, unknown>)
     }
 
+    // "Find WR Codes in this message": main decides whether the message may be
+    // scanned (verified seal + channel_pass) before anything is scanned.
+    case 'wrc.scanMessage': {
+      const { handleWrcScanMessage } = await import('../wrc/wrcMessageScan')
+      return handleWrcScanMessage(db, (params ?? {}) as Record<string, unknown>)
+    }
+
+    // WR Code decline: spends the acceptance token and releases the §XVI.8.4
+    // reservation at once, so a declined offer never consumes a use.
+    case 'wrc.declineReference': {
+      const { handleWrcDeclineReference } = await import('../wrc/wrcRuntime')
+      return handleWrcDeclineReference((params ?? {}) as Record<string, unknown>)
+    }
+
     // Build flavor and configuration, so a surface can mark test-registry
     // material as test data before rendering it.
     case 'wrc.runtimeStatus': {
