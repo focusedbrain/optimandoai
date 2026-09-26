@@ -208,6 +208,25 @@ export function decodeOperatorRollover(value: unknown): WrcOperatorRollover | nu
   }
 }
 
+/**
+ * The `GET /v1/directory/operator-rollovers` body, `{ rollovers: [...] }`.
+ * Each link is decoded before folding, so it is verified as a closed object.
+ * A link that does not decode ends the list there, as a broken link ends the
+ * fold; null when the body itself is not the expected shape.
+ */
+export function decodeOperatorRolloverList(value: unknown): WrcOperatorRollover[] | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null
+  const list = (value as Record<string, unknown>).rollovers
+  if (!Array.isArray(list)) return null
+  const out: WrcOperatorRollover[] = []
+  for (const item of list) {
+    const r = decodeOperatorRollover(item)
+    if (!r) break
+    out.push(r)
+  }
+  return out
+}
+
 // ── Operator key resolution (pinned anchor + verified rollovers) ──────────────
 
 /**
@@ -446,27 +465,83 @@ export interface WrcDirectoryClientOptions {
    * lower the effective floor.
    */
   generationFloors?: WrcGenerationFloorStore
+  /**
+   * C6: the operator-rollover channel (`decodeOperatorRolloverList` over
+   * `transport.operatorRollovers`). Consulted only when a record names an
+   * operator key the folded chain does not know, at most once per
+   * {@link WRC_ROLLOVER_REFRESH_MIN_S}; concurrent lookups share one fetch.
+   */
+  fetchRollovers?: () => Promise<readonly WrcOperatorRollover[] | null>
+}
+
+export const WRC_ROLLOVER_REFRESH_MIN_S = 60
+
+/** The runtime's rollover source over a transport. */
+export function transportRolloverSource(
+  transport: WrcTransport,
+): () => Promise<readonly WrcOperatorRollover[] | null> {
+  return async () => {
+    const res = await transport.operatorRollovers()
+    return res.ok ? decodeOperatorRolloverList(res.value) : null
+  }
 }
 
 /**
  * The Gate-2 verification client. Every lookup is live (a use-limited entry
  * FORCES live resolution per §XVI.8.4, and Gate 2 re-runs per submission);
- * the only state kept is the monotonic generation floor per part, so a
+ * the only state kept is the folded operator key chain (which only grows,
+ * from the pinned anchor) and the monotonic generation floor per part, so a
  * rolled-back record can never be served as current — within this process
  * always, and across restarts when the durable floor store is injected
  * (Run 5 production composition).
  */
 export class WrcDirectoryClient {
   private readonly transport: WrcTransport
+  private readonly operator: WrcOperatorAnchor
   private readonly operatorKeys: Map<string, string>
   private readonly now: () => number
   private readonly generationFloors: WrcGenerationFloorStore
+  private readonly fetchRollovers: WrcDirectoryClientOptions['fetchRollovers']
+  private lastRolloverFetchS = Number.NEGATIVE_INFINITY
+  private rolloverRefresh: Promise<boolean> | null = null
 
   constructor(options: WrcDirectoryClientOptions) {
     this.transport = options.transport
+    this.operator = options.operator
     this.operatorKeys = resolveOperatorKeys(options.operator, options.rollovers ?? [])
     this.now = options.now ?? (() => Math.floor(Date.now() / 1000))
     this.generationFloors = options.generationFloors ?? createMemoryGenerationFloorStore()
+    this.fetchRollovers = options.fetchRollovers
+  }
+
+  /**
+   * Fetch the rollover chain and fold it from the pinned anchor again. Keys
+   * already trusted stay trusted: both folds start at the same anchor and
+   * accept only dual-signed links. True when a new key became trusted.
+   */
+  private refreshOperatorKeys(): Promise<boolean> {
+    if (this.rolloverRefresh) return this.rolloverRefresh
+    const fetchRollovers = this.fetchRollovers
+    if (!fetchRollovers || this.now() - this.lastRolloverFetchS < WRC_ROLLOVER_REFRESH_MIN_S) {
+      return Promise.resolve(false)
+    }
+    this.lastRolloverFetchS = this.now()
+    this.rolloverRefresh = (async () => {
+      try {
+        const rollovers = await fetchRollovers()
+        if (!rollovers) return false
+        const before = this.operatorKeys.size
+        for (const [kid, pub] of resolveOperatorKeys(this.operator, rollovers)) {
+          if (!this.operatorKeys.has(kid)) this.operatorKeys.set(kid, pub)
+        }
+        return this.operatorKeys.size > before
+      } catch {
+        return false
+      } finally {
+        this.rolloverRefresh = null
+      }
+    })()
+    return this.rolloverRefresh
   }
 
   async getVerifiedRecord(publisherPart: string): Promise<WrcDirectoryLookup> {
@@ -499,13 +574,18 @@ export class WrcDirectoryClient {
       }
     }
 
-    const verdict = verifyDirectoryRecord({
-      value: res.value,
-      expectedPart: publisherPart,
-      operatorKeys: this.operatorKeys,
-      nowS: this.now(),
-      generationFloor: floor,
-    })
+    const verify = () =>
+      verifyDirectoryRecord({
+        value: res.value,
+        expectedPart: publisherPart,
+        operatorKeys: this.operatorKeys,
+        nowS: this.now(),
+        generationFloor: floor,
+      })
+    let verdict = verify()
+    if (!verdict.ok && verdict.leg === 'operator_key_unknown' && (await this.refreshOperatorKeys())) {
+      verdict = verify()
+    }
     if (!verdict.ok) {
       return { ok: false, reason: 'unverified', leg: verdict.leg, detail: verdict.detail }
     }

@@ -4,7 +4,7 @@ import {
   connectOfferPreviewRows,
   formatPreviewInstant,
   readConnectOfferPreview,
-} from './connectOfferPreviewView'
+} from './connectOfferPreview'
 
 const HASH = 'ab'.repeat(32)
 

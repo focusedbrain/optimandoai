@@ -319,6 +319,8 @@ export async function acceptHandshake(
      * for legacy capsules (acceptance falls back to UUID-equality check).
      */
     local_pairing_code_typed?: string
+    /** Staged Connect offer: hash of the preview the dialog rendered (required by main). */
+    expected_preview_hash?: string
   },
 ): Promise<HandshakeAcceptResponse> {
   const x25519FromStorage = await getPersistedDeviceX25519PublicKeyB64FromChromeStorage()
@@ -341,6 +343,7 @@ export async function acceptHandshake(
     ...(contextOpts?.local_pairing_code_typed
       ? { local_pairing_code_typed: contextOpts.local_pairing_code_typed }
       : {}),
+    ...(contextOpts?.expected_preview_hash ? { expected_preview_hash: contextOpts.expected_preview_hash } : {}),
   })
 
   // ML-KEM secret stored in Electron DB — no chrome.storage copy.
@@ -816,6 +819,8 @@ export function normalizeRecord(raw: any): HandshakeRecord {
       raw.internal_coordination_identity_complete === true || raw.internal_coordination_identity_complete === 1,
     internal_coordination_repair_needed:
       raw.internal_coordination_repair_needed === true || raw.internal_coordination_repair_needed === 1,
+    connect_offer_id: typeof raw.connect_offer_id === 'string' ? raw.connect_offer_id : null,
+    connect_offer_preview: raw.connect_offer_preview ?? null,
   } as HandshakeRecord
 }
 

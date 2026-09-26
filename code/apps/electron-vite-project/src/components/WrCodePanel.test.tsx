@@ -37,11 +37,13 @@ const OFFER = {
 let calls: Array<{ method: string; params: Record<string, unknown> }>
 let scanAllowed: boolean
 let tokens: number
+let responsible: string | null
 
 beforeEach(() => {
   calls = []
   scanAllowed = true
   tokens = 0
+  responsible = 'brand-a.test'
   ;(window as unknown as { handshakeView: unknown }).handshakeView = {
     vaultRpc: async ({ method, params }: { method: string; params: Record<string, unknown> }) => {
       calls.push({ method, params })
@@ -53,7 +55,12 @@ beforeEach(() => {
         case 'wrc.captureReference':
           return { success: true, result: { ok: false, reason: 'wrong_length' } }
         case 'wrc.submitReference':
-          return { success: true, result: {}, view: OFFER, acceptanceToken: `tok-${++tokens}` }
+          return {
+            success: true,
+            result: {},
+            view: { ...OFFER, offer: { ...OFFER.offer, responsible_domain: responsible } },
+            acceptanceToken: `tok-${++tokens}`,
+          }
         case 'wrc.acceptReference':
           return { success: true, result: { accepted: true, consumed: false } }
         case 'wrc.declineReference':
@@ -115,6 +122,21 @@ describe('WrCodePanel', () => {
     await typeAndCheck('P-TEST01-10001N')
     expect(container.querySelector('.wrc-offer__statement')?.textContent).toBe('Signed value statement.')
     expect(container.textContent).toContain('publisher-a.test')
+  })
+
+  it('shows the responsible domain from the view model as plain text, never a link [XVI.9.4]', async () => {
+    await mount()
+    await typeAndCheck('P-TEST01-10001N')
+    expect(container.querySelector('.wrc-offer__responsible')?.textContent).toBe('brand-a.test')
+    expect(container.querySelector('.wrc-offer a')).toBeNull()
+  })
+
+  it('renders no responsible-domain row when main has none', async () => {
+    responsible = null
+    await mount()
+    await typeAndCheck('P-TEST01-10001N')
+    expect(container.querySelector('.wrc-offer__responsible')).toBeNull()
+    expect(container.querySelector('.wrc-offer')?.textContent).not.toContain('Responsible')
   })
 
   it('a new check declines the offer still open', async () => {

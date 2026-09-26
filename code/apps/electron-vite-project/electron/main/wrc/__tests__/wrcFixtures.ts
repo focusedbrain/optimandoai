@@ -685,6 +685,7 @@ export interface FixtureTransportOverrides {
   publisherManifest?: WrcTransportResult
   txt?: WrcTxtResult
   directoryRecord?: WrcTransportResult
+  operatorRollovers?: WrcTransportResult
   /** Called on every transport method — lets a test prove what was NOT called. */
   onCall?: (method: string) => void
 }
@@ -737,6 +738,10 @@ export function createFixtureTransport(
       note('directoryRecord')
       return overrides.directoryRecord ?? { ok: true, value: fx.directoryRecord }
     },
+    async operatorRollovers() {
+      note('operatorRollovers')
+      return overrides.operatorRollovers ?? { ok: true, value: { rollovers: [] } }
+    },
   }
 }
 
@@ -788,6 +793,9 @@ export function createMultiFixtureTransport(fixtures: readonly WrcPublisherFixtu
     async directoryRecord(part) {
       const fx = byPart.get(part)
       return fx ? { ok: true, value: fx.directoryRecord } : notFound
+    },
+    async operatorRollovers() {
+      return { ok: true, value: { rollovers: [] } }
     },
   }
 }

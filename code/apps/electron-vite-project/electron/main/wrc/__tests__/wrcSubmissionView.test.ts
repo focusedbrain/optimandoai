@@ -10,7 +10,7 @@
 import { describe, expect, it } from 'vitest'
 import { runWrCodeGatePipeline, type WrCodeGateRefusal } from '../gatePipeline'
 import { createWrcGateDeps } from '../gatePipelineAdapter'
-import { WrcDirectoryClient } from '../namespaceDirectory'
+import { WrcDirectoryClient, transportRolloverSource } from '../namespaceDirectory'
 import { WrcResolutionClient } from '../resolutionClient'
 import { WrcResolvedRecordStore, createMemoryPersistence } from '../resolvedRecordStore'
 import { createMemoryUseLimitStore } from '../useLimitStore'
@@ -32,6 +32,7 @@ async function viewFor(raw: string): Promise<WrcSubmissionView> {
     transport: registry.transport,
     operator: { kid: registry.config.directoryOperatorKid, pub: registry.config.directoryOperatorPub },
     now: () => NOW,
+    fetchRollovers: transportRolloverSource(registry.transport),
   })
   const useLimits = createMemoryUseLimitStore()
   registry.seedUseLimits(useLimits)
@@ -56,6 +57,7 @@ describe('offers are EVP-first [A2]', () => {
       publisher_part: 'TEST01',
       verified_domain: 'publisher-a.test',
       publisher_domain_verified: true,
+      responsible_domain: 'publisher-a.test',
       entry_local_part: '10001',
       code_display: 'P-TEST01-10001N',
       value_statement: 'Published offering. Built-in test data from Test Publisher A; not a real publisher.',

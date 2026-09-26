@@ -105,6 +105,16 @@ describe.skipIf(!Database)('WRC composition root per build flavor', () => {
     expect(mtime(releaseCache)).toBe(releaseBefore)
   })
 
+  it('the composed directory client follows the operator rollover channel (C6)', async () => {
+    const rt = await import('../wrcRuntime')
+    setWrcBuildFlavorForTests('wrc-test')
+    await rt.initWrcClient()
+    const rolled = createWrcTestRegistry().codes.find((c) => c.canonical.startsWith('PTEST03'))!
+    const r = await rt.handleWrcSubmitReference({ raw: rolled.canonical, requestInstanceId: 'req-rolled' })
+    if (!r.success || r.result.ok) throw new Error(`expected a status refusal: ${JSON.stringify(r)}`)
+    expect({ gate: r.result.gate, reason: r.result.reason }).toEqual({ gate: 2, reason: 'namespace_inactive' })
+  })
+
   it('wrc-test spends the one-time offering exactly once', async () => {
     const rt = await import('../wrcRuntime')
     setWrcBuildFlavorForTests('wrc-test')

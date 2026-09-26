@@ -37,7 +37,10 @@ import { isIP, type LookupFunction } from 'node:net'
 // ── Result contract ───────────────────────────────────────────────────────────
 
 export type WrcHttpErrorCode =
-  /** Not an absolute https: URL, or it carries credentials / a non-default form we refuse. */
+  /**
+   * Not an absolute https: URL, or it carries credentials / a non-default form
+   * we refuse, or the bearer credential is malformed.
+   */
   | 'url_rejected'
   /** The name resolved to a loopback, link-local, private, or otherwise non-public address. */
   | 'blocked_address'
@@ -97,11 +100,19 @@ export interface WrcHttpOptions {
   /** Parse the body as JSON and fail with `invalid_json` when it is not. */
   expectJson?: boolean
   /**
+   * OAuth bearer token (RFC 6750 `b64token` syntax) sent as `Authorization`.
+   * A value outside that syntax refuses the request instead of being sent.
+   */
+  bearer?: string
+  /**
    * Address-family lookup override. Tests inject a resolver so SSRF behaviour
    * can be proven without real DNS. Production leaves this unset.
    */
   lookup?: LookupFunction
 }
+
+/** RFC 6750 §2.1 `b64token`, bounded. */
+const BEARER_TOKEN = /^[A-Za-z0-9\-._~+/]{1,8192}=*$/
 
 // ── SSRF address policy ───────────────────────────────────────────────────────
 
@@ -241,6 +252,9 @@ export function wrcHttpsGet(url: string, options: WrcHttpOptions = {}): Promise<
       message: 'Only credential-free absolute https URLs to public addresses are allowed',
     })
   }
+  if (options.bearer !== undefined && !BEARER_TOKEN.test(options.bearer)) {
+    return Promise.resolve({ ok: false, code: 'url_rejected', message: 'Malformed bearer credential' })
+  }
 
   return new Promise<WrcHttpResult>((resolve) => {
     let settled = false
@@ -261,6 +275,7 @@ export function wrcHttpsGet(url: string, options: WrcHttpOptions = {}): Promise<
         Accept: options.accept ?? 'application/json',
         'Accept-Encoding': 'identity',
         'User-Agent': 'WRDesk-WRC-Client/1.0',
+        ...(options.bearer !== undefined ? { Authorization: `Bearer ${options.bearer}` } : {}),
       },
       // TLS floor. rejectUnauthorized is left at its secure default and is
       // intentionally not exposed as an option anywhere in this module.

@@ -90,6 +90,10 @@ const STATE_COPY: Record<string, { tone: WrcSubmissionTone; headline: string }> 
     tone: 'neutral',
     headline: 'Someone else is accepting this offer right now. Try again in a few minutes.',
   },
+  entry_account_required: {
+    tone: 'neutral',
+    headline: 'The registry needs your WR Desk sign-in to show this code. Sign in again, then check it.',
+  },
   NOT_FOR_YOU: { tone: 'neutral', headline: 'This code is addressed to someone else.' },
   NOT_FOR_THIS_DEVICE: { tone: 'neutral', headline: 'This code is addressed to another of your devices.' },
   sso_principal_mismatch: {
@@ -172,6 +176,7 @@ export function buildWrcSubmissionView(outcome: WrCodeGateOutcome): WrcSubmissio
     publisherPart: ns?.publisher_part ?? '',
     domain: ns?.domain ?? '',
     publisherDomainVerified: Boolean(ns?.dual_signature_verified && ns.dns_verified && ns.account_holder_verified),
+    responsibleDomain: ns?.display_origin ?? null,
     entryLocalPart: material.entry_id,
     wrCodeCanonical: outcome.reference.canonical,
     evp: outcome.released.evp ?? material.evp,

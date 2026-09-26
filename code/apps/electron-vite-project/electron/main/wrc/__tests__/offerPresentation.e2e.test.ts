@@ -99,6 +99,26 @@ describe('(a) authenticated email → offer → consent pin', () => {
     expect(built.ok).toBe(false)
     if (!built.ok) expect(built.refusal).toBe('no_verified_evp')
   })
+
+  it('the responsible domain is the checked directory value or nothing [XVI.2, XVI.9.4]', () => {
+    const status = composeEntryStatus({ publisherStatus: 'active', entryStatus: 'published' })
+    const base = {
+      publisherPart: 'WR7X4K',
+      domain: 'publisher.test',
+      publisherDomainVerified: true,
+      entryLocalPart: '9B2M3',
+      wrCodeCanonical: VALID_CODE,
+      evp: FX.evp,
+      status,
+      catalogEpoch: 7,
+      resolutionMode: 'public' as const,
+      stale: false,
+    }
+    const withOrigin = buildOfferPresentation({ ...base, responsibleDomain: 'publisher.test' })
+    const without = buildOfferPresentation(base)
+    expect(withOrigin.ok && withOrigin.presentation.responsible_domain).toBe('publisher.test')
+    expect(without.ok && without.presentation.responsible_domain).toBeNull()
+  })
 })
 
 describe('(b) forwarded / unauthenticated message', () => {

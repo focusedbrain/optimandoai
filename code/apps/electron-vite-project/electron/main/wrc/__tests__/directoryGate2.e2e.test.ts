@@ -7,15 +7,20 @@
  * part proof, generation, expiry, rollover — and that no later gate
  * compensates for a Gate-2 trust failure.
  */
+import { sign as cryptoSign } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 import { runWrCodeGatePipeline, type WrCodeReceiverIdentity } from '../gatePipeline'
 import { createWrcGateDeps } from '../gatePipelineAdapter'
 import {
+  WRC_ROLLOVER_REFRESH_MIN_S,
   WrcDirectoryClient,
+  decodeOperatorRolloverList,
   displayOriginOf,
   dnsRecordsNamePart,
   resolveOperatorKeys,
+  transportRolloverSource,
 } from '../namespaceDirectory'
+import { wrcCanonicalBytes } from '../wrcCrypto'
 import { WrcResolutionClient } from '../resolutionClient'
 import { WrcResolvedRecordStore, createMemoryPersistence } from '../resolvedRecordStore'
 import {
@@ -27,7 +32,7 @@ import {
   type FixtureTransportOverrides,
   type WrcPublisherFixture,
 } from './wrcFixtures'
-import type { WrcTransport } from '../wrcTransport'
+import type { WrcTransport, WrcTransportResult } from '../wrcTransport'
 
 const NOW = 1_754_650_100
 const P_REF = 'PWR7X4K9B2M3C'
@@ -380,6 +385,111 @@ describe('resolveOperatorKeys folds only fully verified rollovers', () => {
     expect([...broken.keys()]).toEqual([a.kid])
   })
 })
+
+// ── Operator rollover channel (C6) ────────────────────────────────────────────
+
+describe('operator rollovers arrive over the directory channel [XVI.6.4, contract v2.0 Q24]', () => {
+  const oldOp = makeKeyPair('dir-op-old')
+  const newOp = makeKeyPair('dir-op-new')
+
+  /** A directory client pinned to `oldOp`, over a transport whose channel serves `body`. */
+  function channelSetup(body: WrcTransportResult, clock = { now: NOW }) {
+    const fx = buildPublisherFixture({ operatorKey: newOp })
+    let fetches = 0
+    const transport = createFixtureTransport(fx, { operatorRollovers: body })
+    const source = transportRolloverSource(transport)
+    const directory = new WrcDirectoryClient({
+      transport,
+      operator: { kid: oldOp.kid, pub: oldOp.pub },
+      now: () => clock.now,
+      fetchRollovers: async () => {
+        fetches++
+        return source()
+      },
+    })
+    return { fx, directory, fetches: () => fetches }
+  }
+
+  it('a record signed by the incoming key verifies once the channel serves the dual-signed link', async () => {
+    const { fx, directory, fetches } = channelSetup({ ok: true, value: { rollovers: [buildOperatorRollover(oldOp, newOp)] } })
+    const r = await directory.getVerifiedRecord(fx.publisherPart)
+    expect(r.ok, r.ok ? '' : `${r.leg}: ${r.detail}`).toBe(true)
+    expect(fetches()).toBe(1)
+    // The key stays trusted; the next lookup needs no fetch.
+    expect((await directory.getVerifiedRecord(fx.publisherPart)).ok).toBe(true)
+    expect(fetches()).toBe(1)
+  })
+
+  it('a record signed by the pinned key needs no fetch', async () => {
+    const fx = buildPublisherFixture({ operatorKey: oldOp })
+    let fetches = 0
+    const directory = new WrcDirectoryClient({
+      transport: createFixtureTransport(fx),
+      operator: { kid: oldOp.kid, pub: oldOp.pub },
+      now: () => NOW,
+      fetchRollovers: async () => {
+        fetches++
+        return []
+      },
+    })
+    expect((await directory.getVerifiedRecord(fx.publisherPart)).ok).toBe(true)
+    expect(fetches).toBe(0)
+  })
+
+  it.each([
+    ['a link not signed by the trusted key', () => ({ ok: true, value: { rollovers: [buildOperatorRollover(makeKeyPair('dir-op-rogue'), newOp)] } })],
+    ['a link carrying a field the client does not decode', () => ({ ok: true, value: { rollovers: [signedWithExtraField(oldOp, newOp)] } })],
+    ['a body that is not { rollovers: [...] }', () => ({ ok: true, value: [buildOperatorRollover(oldOp, newOp)] })],
+    ['a transport failure', () => ({ ok: false, code: 'http_status', message: 'HTTP 503', status: 503 })],
+  ] as Array<[string, () => WrcTransportResult]>)('%s leaves the incoming key unknown', async (_label, body) => {
+    const { fx, directory } = channelSetup(body())
+    const r = await directory.getVerifiedRecord(fx.publisherPart)
+    expect(r.ok).toBe(false)
+    if (r.ok) return
+    expect(r.leg).toBe('operator_key_unknown')
+  })
+
+  it('refetches at most once per minute, and concurrent lookups share one fetch', async () => {
+    const clock = { now: NOW }
+    const { fx, directory, fetches } = channelSetup({ ok: true, value: { rollovers: [] } }, clock)
+    await Promise.all([directory.getVerifiedRecord(fx.publisherPart), directory.getVerifiedRecord(fx.publisherPart)])
+    expect(fetches()).toBe(1)
+    clock.now += WRC_ROLLOVER_REFRESH_MIN_S - 1
+    await directory.getVerifiedRecord(fx.publisherPart)
+    expect(fetches()).toBe(1)
+    clock.now += 1
+    await directory.getVerifiedRecord(fx.publisherPart)
+    expect(fetches()).toBe(2)
+  })
+
+  it('decodeOperatorRolloverList ends the list at the first link that does not decode', () => {
+    const a = makeKeyPair('op-a')
+    const b = makeKeyPair('op-b')
+    const c = makeKeyPair('op-c')
+    const list = decodeOperatorRolloverList({
+      rollovers: [buildOperatorRollover(a, b), { type: 'wrc/operator-rollover' }, buildOperatorRollover(b, c)],
+    })
+    expect(list?.map((r) => r.incoming_kid)).toEqual([b.kid])
+    expect(decodeOperatorRolloverList(null)).toBeNull()
+    expect(decodeOperatorRolloverList({ rollovers: 'x' })).toBeNull()
+  })
+})
+
+const signWith = (bytes: Buffer, key: ReturnType<typeof makeKeyPair>) =>
+  cryptoSign(null, bytes, key.privateKey).toString('base64url')
+
+/** A rollover dual-signed over an object with one extra field, as a sloppy signer would emit it. */
+function signedWithExtraField(outgoing: ReturnType<typeof makeKeyPair>, incoming: ReturnType<typeof makeKeyPair>) {
+  const unsigned = {
+    type: 'wrc/operator-rollover',
+    outgoing_kid: outgoing.kid,
+    incoming_kid: incoming.kid,
+    incoming_pub: incoming.pub,
+    note: 'extra',
+  }
+  const bytes = wrcCanonicalBytes(unsigned)
+  return { ...unsigned, sig_outgoing: signWith(bytes, outgoing), sig_incoming: signWith(bytes, incoming) }
+}
 
 // ── Contract v2.0 record content: connector (C4) and grammar (C5) ────────────
 

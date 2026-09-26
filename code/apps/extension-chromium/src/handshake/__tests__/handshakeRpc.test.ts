@@ -204,6 +204,23 @@ describe('normalizeRecord', () => {
     expect(n.peerX25519PublicKey).toBe('AAA=')
     expect(n.peerPQPublicKey).toBe('BBB=')
   })
+
+  it('keeps a staged Connect offer id and its preview (HC5)', () => {
+    const preview = { preview: { offer_id: 'offer-1' }, preview_hash: 'ab'.repeat(32) }
+    const n = normalizeRecord({
+      handshake_id: 'hs-2',
+      state: 'PENDING_REVIEW',
+      local_role: 'acceptor',
+      created_at: '2026-09-26T00:00:00Z',
+      initiator: { email: 'i@b.com' },
+      acceptor: null,
+      connect_offer_id: 'offer-1',
+      connect_offer_preview: preview,
+    })
+    expect(n.connect_offer_id).toBe('offer-1')
+    expect(n.connect_offer_preview).toEqual(preview)
+    expect(normalizeRecord({ ...MOCK_RECORD }).connect_offer_preview).toBeNull()
+  })
 })
 
 describe('acceptHandshake', () => {
@@ -247,6 +264,15 @@ describe('acceptHandshake', () => {
     const call = mockSendMessage.mock.calls[0][0]
     expect(call.params.senderX25519PublicKeyB64).toBe(storagePub)
     expect(vi.mocked(getDeviceX25519PublicKey)).not.toHaveBeenCalled()
+  })
+
+  it('forwards the rendered preview hash of a staged offer, and nothing when there is none', async () => {
+    mockRpcResponse({ handshake_id: 'hs-001', status: 'ACTIVE' })
+    await acceptHandshake('hs-001', 'reciprocal', 'acct-1', { expected_preview_hash: 'cd'.repeat(32) })
+    expect(mockSendMessage.mock.calls[0][0].params.expected_preview_hash).toBe('cd'.repeat(32))
+
+    await acceptHandshake('hs-001', 'reciprocal', 'acct-1')
+    expect(mockSendMessage.mock.calls[1][0].params).not.toHaveProperty('expected_preview_hash')
   })
 })
 

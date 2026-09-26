@@ -3376,6 +3376,9 @@ app.whenReady().then(async () => {
         if (!db && skipVaultContext && vaultRequiredMethods.includes(method)) {
           return { success: false, error: 'No active session. Please log in first.' }
         }
+        const { productRoutePreviewPinRefusal } = await import('./main/handshake/desktopAcceptTarget')
+        const pinRefusal = productRoutePreviewPinRefusal(db, method, p)
+        if (pinRefusal) return pinRefusal
         return (await handleHandshakeRPC(method, p, db)) as Record<string, unknown>
       }
 
@@ -3743,7 +3746,7 @@ app.whenReady().then(async () => {
             }
           }
         } catch { /* vault not initialized â€” allow (keys in ledger) */ }
-        const { resolveDesktopAcceptTarget, desktopAcceptPreviewPinError } = await import(
+        const { resolveDesktopAcceptTarget, desktopAcceptPreviewPinError, PREVIEW_HASH_REQUIRED_COPY } = await import(
           './main/handshake/desktopAcceptTarget'
         )
         // A pending request is usually a staged Connect offer with no record yet (Phase 4);
@@ -3753,11 +3756,7 @@ app.whenReady().then(async () => {
           return { success: false, error: 'Handshake not found', reason: 'HANDSHAKE_NOT_FOUND' }
         }
         if (desktopAcceptPreviewPinError(acceptTarget, contextOpts?.expected_preview_hash)) {
-          return {
-            success: false,
-            reason: 'PREVIEW_HASH_REQUIRED',
-            error: 'Open the handshake request again and review it before accepting.',
-          }
+          return { success: false, reason: 'PREVIEW_HASH_REQUIRED', error: PREVIEW_HASH_REQUIRED_COPY }
         }
         // Before (split contract): isInternalAccept = contextOpts?.device_role === 'host' || 'sandbox'
         //   — could misclassify when device_role is missing/filtered.
@@ -6214,7 +6213,9 @@ async function runDeviceKeyMigration(
                   }))
                   return
                 }
-                const response = await handleHandshakeRPC(msg.method, msg.params, db)
+                const { productRoutePreviewPinRefusal } = await import('./main/handshake/desktopAcceptTarget')
+                const pinRefusal = productRoutePreviewPinRefusal(db, msg.method, msg.params)
+                const response = pinRefusal ?? (await handleHandshakeRPC(msg.method, msg.params, db))
                 socket.send(JSON.stringify({ id: msg.id, ...response }))
                 console.log('[MAIN] âœ… Handshake RPC response sent:', msg.method)
               } catch (error: any) {

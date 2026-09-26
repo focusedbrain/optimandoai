@@ -47,6 +47,8 @@ export const WRC_TEST_REGISTRY_BASE_URL = 'wrc-test://in-process'
 /** The test identity's own publisher (C responder, SC receiving publisher). */
 export const WRC_TEST_OWN_PUBLISHER = 'TEST02'
 export const WRC_TEST_PARTY_ID = 'test-party-1'
+/** The publisher whose directory record is signed by the rolled-over operator key (C6). */
+export const WRC_TEST_ROLLED_PUBLISHER = 'TEST03'
 
 export type WrcTestExpectation =
   | { ok: true }
@@ -412,6 +414,22 @@ export function createWrcTestRegistry(options: WrcTestRegistryOptions = {}): Wrc
   const epoch = 1
 
   const operator = signingKey('test-directory-operator')
+  // C6: the pinned operator key has rolled over once. The rolled publisher's
+  // record is signed by the incoming key, so its codes verify only through
+  // the rollover channel.
+  const operatorNext = signingKey('test-directory-operator-2')
+  const rolloverUnsigned = {
+    type: 'wrc/operator-rollover',
+    outgoing_kid: operator.kid,
+    incoming_kid: operatorNext.kid,
+    incoming_pub: operatorNext.pub,
+  }
+  const rolloverBytes = wrcCanonicalBytes(rolloverUnsigned)
+  const rollover = {
+    ...rolloverUnsigned,
+    sig_outgoing: signBytes(rolloverBytes, operator),
+    sig_incoming: signBytes(rolloverBytes, operatorNext),
+  }
   const ingest = signingKey('test-ingest')
   const envelopesByHash = new Map<string, Record<string, unknown>>()
   const publishers = new Map<string, BuiltPublisher>()
@@ -544,6 +562,7 @@ export function createWrcTestRegistry(options: WrcTestRegistryOptions = {}): Wrc
     const cacheKey = `${p.spec.part}|${domains.join(',')}`
     const cached = directoryCache.get(cacheKey)
     if (cached) return cached
+    const signer = p.spec.part === WRC_TEST_ROLLED_PUBLISHER ? operatorNext : operator
     const base: Record<string, unknown> = {
       type: 'wrc/directory-record',
       publisher_part: p.spec.part,
@@ -560,10 +579,10 @@ export function createWrcTestRegistry(options: WrcTestRegistryOptions = {}): Wrc
       successor_publisher_part: p.spec.successor ?? null,
       generation: 1,
       expires_at: FAR_FUTURE,
-      operator_kid: operator.kid,
+      operator_kid: signer.kid,
       publisher_kid: p.root.kid,
     }
-    const withOperator = { ...base, operator_sig: signBytes(wrcCanonicalBytes(base), operator) }
+    const withOperator = { ...base, operator_sig: signBytes(wrcCanonicalBytes(base), signer) }
     const record = {
       ...withOperator,
       publisher_countersig: signBytes(wrcCanonicalBytes(withOperator), p.root),
@@ -610,6 +629,9 @@ export function createWrcTestRegistry(options: WrcTestRegistryOptions = {}): Wrc
     async directoryRecord(part) {
       const p = byPart(part)
       return p ? answer(directoryRecordOf(p), WRC_TRANSPORT_MAX_BYTES.head) : NOT_FOUND
+    },
+    async operatorRollovers() {
+      return answer({ rollovers: [rollover] }, WRC_TRANSPORT_MAX_BYTES.head)
     },
   }
 

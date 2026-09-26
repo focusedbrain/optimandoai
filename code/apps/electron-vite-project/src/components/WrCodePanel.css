@@ -287,6 +287,11 @@
   color: var(--wrc-fg);
 }
 
+.wrc-offer__facts dd.wrc-offer__responsible {
+  font-weight: 700;
+  color: var(--wrc-fg);
+}
+
 .wrc-offer__verified {
   font-weight: 600;
   color: color-mix(in srgb, var(--wrc-success) 70%, var(--wrc-fg) 30%);

@@ -59,6 +59,12 @@ export type WrcResolutionReason =
   | DualChannelReason
   /** Verification leg failed. */
   | WrcVerifyReason
+  /**
+   * Contract v2.0 §6: `401 account_required` on an entry or object read — the
+   * material is account-tier and no accepted credential was sent. Not a
+   * capture error: the code may well be valid.
+   */
+  | 'account_required'
   /** Object fetch failed at transport level. */
   | 'object_unavailable'
   | 'object_malformed'
@@ -221,6 +227,7 @@ export class WrcResolutionClient {
     const entryRes = await this.deps.transport.entry(part, options.entryId)
     if (!entryRes.ok) {
       if (entryRes.status === 404) return fail('unknown_identifier', undefined, true)
+      if (entryRes.status === 401) return fail('account_required', 'entry')
       return fail('object_unavailable', `${entryRes.code}: ${entryRes.message}`)
     }
     const entryEnvelope = decodeEnvelope(entryRes.value)
@@ -248,6 +255,7 @@ export class WrcResolutionClient {
     const evpRes = await this.deps.transport.object(entry.evp_ref)
     if (!evpRes.ok) {
       if (evpRes.status === 404) return fail('unknown_identifier', undefined, true)
+      if (evpRes.status === 401) return fail('account_required', 'evp')
       return fail('object_unavailable', `${evpRes.code}: ${evpRes.message}`)
     }
     const evpEnvelope = decodeEnvelope(evpRes.value)

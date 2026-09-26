@@ -21,7 +21,7 @@ import {
   connectOfferConsentErrorCopy,
   connectOfferPreviewRows,
   readConnectOfferPreview,
-} from '../lib/connectOfferPreviewView'
+} from '@shared/handshake/connectOfferPreview'
 
 interface HandshakeRecord {
   handshake_id: string

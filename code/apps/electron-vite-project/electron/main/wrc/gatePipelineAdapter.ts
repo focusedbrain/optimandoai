@@ -259,6 +259,9 @@ export function createWrcGateDeps(
         if (res.reason === 'unknown_identifier') {
           return { ok: false, reason: 'entry_unknown' }
         }
+        if (res.reason === 'account_required') {
+          return { ok: false, reason: 'entry_account_required', detail: res.detail }
+        }
         return {
           ok: false,
           reason: 'entry_unverified',
@@ -330,6 +333,9 @@ export function createWrcGateDeps(
             entryId: parentLookup!,
             allowSuspended: true,
           })
+          if (!parentRes.ok && parentRes.reason === 'account_required') {
+            return { ok: false, reason: 'entry_account_required', detail: `parent ${parent.cls} entry` }
+          }
           if (!parentRes.ok || !parentRes.entry) {
             return {
               ok: false,

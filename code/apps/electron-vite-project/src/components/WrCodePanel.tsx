@@ -296,6 +296,12 @@ function Offer(props: {
       <p className="wrc-offer__statement">{offer.value_statement}</p>
       {offer.self_description ? <p className="wrc-offer__description">{offer.self_description}</p> : null}
       <dl className="wrc-offer__facts">
+        {offer.responsible_domain ? (
+          <>
+            <dt>Responsible</dt>
+            <dd className="wrc-offer__responsible">{offer.responsible_domain}</dd>
+          </>
+        ) : null}
         <dt>Publisher</dt>
         <dd>
           {offer.publisher_part} · {offer.verified_domain}

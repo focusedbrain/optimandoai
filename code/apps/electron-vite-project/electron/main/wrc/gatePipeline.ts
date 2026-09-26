@@ -99,6 +99,8 @@ export type WrCodeGateReason =
   | 'entry_unknown'
   | 'entry_unverified'
   | 'entry_verification_unavailable'
+  // Contract v2.0 §6: account-tier material and no accepted credential.
+  | 'entry_account_required'
   | 'entry_suspended'
   | 'entry_retired'
   | 'entry_platform_suspended'
@@ -144,23 +146,20 @@ export type WrCodeGateReason =
  * What Gate 2 requires of a namespace answer, phrased against the Namespace
  * Directory Record of §XVI.6.4/6.5: dual signature (operator + publisher),
  * ACTIVE status, verified account holder, and a valid DNS entry under the
- * publisher's domain naming this Publisher Identifier. The interim adapter
- * fills these legs from the Phase-3 chain; the pipeline only ever reads THIS
- * shape, so swapping the anchor never touches gate logic.
+ * publisher's domain naming this Publisher Identifier. The adapter fills these
+ * legs from the verified Directory Record (`namespaceDirectory.ts`); the
+ * pipeline only ever reads THIS shape, so the trust path never touches gate
+ * logic.
  */
 export interface WrCodeNamespaceRecord {
   publisher_part: string
   /** DNS-verified domain naming this Publisher Identifier. */
   domain: string
   status: WrcPublisherStatus
-  /** Operator + publisher provenance both verified (interim: DNS-pinned root + ingest countersign chain). */
+  /** Operator signature and publisher countersignature on the Directory Record both verified. */
   dual_signature_verified: boolean
   dns_verified: boolean
-  /**
-   * §XVI.6.4 verified-account-holder attestation. The interim anchor cannot
-   * attest this separately from the verification chain; the adapter sets it
-   * from chain success. TODO(§XVI.6.4/6.5): read the directory attestation.
-   */
+  /** §XVI.6.4 operator-vetted account-holder attestation (`account_holder_vetted`). */
   account_holder_verified: boolean
   /** Superseded namespaces surface their successor explicitly, never silently. */
   successor_publisher_part: string | null
@@ -247,6 +246,7 @@ export type WrCodeEntryVerdict =
         | 'entry_unknown'
         | 'entry_unverified'
         | 'entry_verification_unavailable'
+        | 'entry_account_required'
         // Run 3 (§XVI.5.10): the entry constituent must resolve to an entry
         // binding "under a currently governing parent" — a parent that does
         // not resolve, or is not in a governing state, refuses here.
@@ -334,8 +334,8 @@ export interface WrCodeGateDeps {
    * Gate 6 seam — capsule-level admission checks that need state the pipeline
    * does not own (capsule signature, nonce_I, party bindings, replay by
    * request_instance_id). The non-delegable P15 link scan runs in the
-   * pipeline BEFORE this is consulted. TODO(§XVI.7.6 Gate 6): attach the BEAP
-   * capsule verification chain here when the capsule path lands.
+   * pipeline BEFORE this is consulted; the adapter runs the ordered capsule
+   * chain of `capsuleAdmission.ts` over the relay-released bytes.
    */
   admitCapsule(input: {
     reference: WrCodeReference

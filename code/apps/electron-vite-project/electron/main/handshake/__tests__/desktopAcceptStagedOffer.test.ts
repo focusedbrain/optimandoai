@@ -21,7 +21,11 @@ import { handleIngestionRPC } from '../../ingestion/ipc'
 import { getHandshakeRecord } from '../db'
 import { buildConnectOfferPreview } from '../connectOfferStaging'
 import { pendingOfferForHandshake } from '../formationPipeline'
-import { resolveDesktopAcceptTarget, desktopAcceptPreviewPinError } from '../desktopAcceptTarget'
+import {
+  resolveDesktopAcceptTarget,
+  desktopAcceptPreviewPinError,
+  productRoutePreviewPinRefusal,
+} from '../desktopAcceptTarget'
 import { installInMemoryConnectOffers, uninstallInMemoryConnectOffers, submitCapsuleThroughConsentGate } from './connectOfferConsentTestKit'
 import { MOCK_EXTENSION_X25519_PUBLIC_B64 } from './mockKeypair'
 import type { SSOSession } from '../types'
@@ -177,5 +181,57 @@ describe('main-process handshake:accept handler (source guard)', () => {
 
   test('does not answer "not found" from the relationship store alone', () => {
     expect(handler).not.toMatch(/getHandshakeRecord\(db,\s*id\)/)
+  })
+
+  test('both product RPC dispatchers apply the preview pin before handleHandshakeRPC', () => {
+    const blocks = [...mainSource.matchAll(/startsWith\('handshake\.'\)/g)].map((m) => {
+      const from = m.index ?? 0
+      return mainSource.slice(from, mainSource.indexOf('handleHandshakeRPC(', from) + 1)
+    })
+    expect(blocks).toHaveLength(2)
+    for (const block of blocks) expect(block).toContain('productRoutePreviewPinRefusal(')
+  })
+})
+
+describe('the preview pin on the product RPC routes (extension, renderer vaultRpc)', () => {
+  let db: ReturnType<typeof createHandshakeTestDb>
+
+  beforeEach(() => {
+    installInMemoryConnectOffers()
+    db = createHandshakeTestDb()
+    migrateIngestionTables(db)
+    _resetSSOSessionProvider()
+    setSSOSessionProvider(() => receiverSession())
+  })
+
+  afterEach(() => uninstallInMemoryConnectOffers())
+
+  async function stage(): Promise<string> {
+    const { handshakeId, json } = initiateJson()
+    await handleIngestionRPC(
+      'ingestion.ingest',
+      { rawInput: { body: json, mime_type: 'application/vnd.beap+json' }, sourceType: 'internal', transportMeta: { channel_id: 'pin' } },
+      db,
+      receiverSession(),
+    )
+    return handshakeId
+  }
+
+  test('handshake.accept of a staged offer needs the hash; other targets and methods pass', async () => {
+    const id = await stage()
+    expect(productRoutePreviewPinRefusal(db, 'handshake.accept', { handshake_id: id })).toMatchObject({
+      success: false,
+      reason: 'PREVIEW_HASH_REQUIRED',
+    })
+    expect(productRoutePreviewPinRefusal(db, 'handshake.accept', { handshake_id: id, expected_preview_hash: 'ab'.repeat(32) })).toBeNull()
+    expect(productRoutePreviewPinRefusal(db, 'handshake.accept', { handshake_id: 'hs-unknown' })).toBeNull()
+    expect(productRoutePreviewPinRefusal(db, 'handshake.list', {})).toBeNull()
+  })
+
+  test('handshake.consentToOffer always needs the hash', () => {
+    expect(productRoutePreviewPinRefusal(db, 'handshake.consentToOffer', { offer_id: 'o-1' })).toMatchObject({
+      reason: 'PREVIEW_HASH_REQUIRED',
+    })
+    expect(productRoutePreviewPinRefusal(db, 'handshake.consentToOffer', { offer_id: 'o-1', expected_preview_hash: 'ab'.repeat(32) })).toBeNull()
   })
 })

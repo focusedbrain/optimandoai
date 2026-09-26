@@ -31,6 +31,12 @@ export interface OfferPresentation {
   verified_domain: string
   /** True only when DNS + manifest + cross-check all passed. */
   publisher_domain_verified: boolean
+  /**
+   * §XVI.2 Displayed Responsible Domain, re-rendered from the verified
+   * Directory Record (never from carrier or OCR text, §XVI.9.4 / P12). Plain
+   * accountability text: never a link. Null renders nothing.
+   */
+  responsible_domain: string | null
   entry_local_part: string
   /** Locally rendered from the validated identifier only (O3). */
   code_display: string | null
@@ -54,6 +60,8 @@ export interface BuildOfferPresentationInput {
   publisherPart: string
   domain: string
   publisherDomainVerified: boolean
+  /** The Gate-2 namespace's checked `display_origin` (`displayOriginOf`). */
+  responsibleDomain?: string | null
   entryLocalPart: string
   /** Canonical WR code, for the LOCAL renderer. Null when unknown. */
   wrCodeCanonical: string | null
@@ -94,6 +102,7 @@ export function buildOfferPresentation(
       publisher_part: input.publisherPart,
       verified_domain: input.domain,
       publisher_domain_verified: input.publisherDomainVerified,
+      responsible_domain: input.responsibleDomain ?? null,
       entry_local_part: input.entryLocalPart,
       code_display: renderCodeForDisplay(input.wrCodeCanonical),
       value_statement: input.evp.value_statement,

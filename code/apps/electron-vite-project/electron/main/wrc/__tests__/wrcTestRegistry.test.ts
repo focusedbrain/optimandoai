@@ -8,13 +8,14 @@
 import { describe, expect, it } from 'vitest'
 import { claimantIdOf, runWrCodeGatePipeline, type WrCodeReceiverIdentity } from '../gatePipeline'
 import { createWrcGateDeps } from '../gatePipelineAdapter'
-import { WrcDirectoryClient } from '../namespaceDirectory'
+import { WrcDirectoryClient, decodeOperatorRolloverList, transportRolloverSource } from '../namespaceDirectory'
 import { WrcResolutionClient } from '../resolutionClient'
 import { WrcResolvedRecordStore, createMemoryPersistence } from '../resolvedRecordStore'
 import { createMemoryUseLimitStore } from '../useLimitStore'
 import { WRC_TEST_KID_PREFIX } from '../wrcTrustAnchors'
 import {
   WRC_TEST_OWN_PUBLISHER,
+  WRC_TEST_ROLLED_PUBLISHER,
   createWrcTestRegistry,
   type WrcTestCode,
 } from '../wrcTestRegistry'
@@ -23,7 +24,7 @@ const NOW = 1_790_000_000
 const SSO = 'tester@example.org'
 const PARTS = ['TEST01', 'TEST02', 'TEST03', 'TEST04', 'TEST05', 'TEST06']
 
-function setup(opts: { registrySso?: string | null; receiverSso?: string | null } = {}) {
+function setup(opts: { registrySso?: string | null; receiverSso?: string | null; rolloverChannel?: boolean } = {}) {
   const registrySso = opts.registrySso === undefined ? SSO : opts.registrySso
   const receiverSso = opts.receiverSso === undefined ? registrySso : opts.receiverSso
   const registry = createWrcTestRegistry({ now: () => NOW, ssoEmail: () => registrySso })
@@ -37,6 +38,7 @@ function setup(opts: { registrySso?: string | null; receiverSso?: string | null 
     transport: registry.transport,
     operator: { kid: registry.config.directoryOperatorKid, pub: registry.config.directoryOperatorPub },
     now: () => NOW,
+    ...(opts.rolloverChannel === false ? {} : { fetchRollovers: transportRolloverSource(registry.transport) }),
   })
   const useLimits = createMemoryUseLimitStore()
   registry.seedUseLimits(useLimits)
@@ -87,6 +89,40 @@ describe('every listed test code yields its documented outcome [six real gates]'
     const c = await runWrCodeGatePipeline({ raw: compromised.canonical, receiver }, deps)
     expect(s.ok || s.successorPublisherPart).toBe('TEST01')
     expect(c.ok || c.unsuppressibleWarning).toBe(true)
+  })
+})
+
+describe('the operator key has rolled over once (C6)', () => {
+  const rolled = () => CODES.find((c) => c.canonical.startsWith(`P${WRC_TEST_ROLLED_PUBLISHER}`))!
+
+  it('the rolled publisher verifies through the rollover channel', async () => {
+    const { deps, receiver, registry } = setup()
+    const record = await registry.transport.directoryRecord(WRC_TEST_ROLLED_PUBLISHER)
+    expect(record.ok && (record.value as { operator_kid: string }).operator_kid).not.toBe(
+      registry.config.directoryOperatorKid,
+    )
+    const r = await runWrCodeGatePipeline({ raw: rolled().canonical, receiver }, deps)
+    expect(r.ok).toBe(false)
+    if (r.ok) return
+    expect({ gate: r.gate, reason: r.reason }).toEqual({ gate: 2, reason: 'namespace_inactive' })
+  })
+
+  it('without the channel the same code is unverifiable: the new key is unknown', async () => {
+    const { deps, receiver } = setup({ rolloverChannel: false })
+    const r = await runWrCodeGatePipeline({ raw: rolled().canonical, receiver }, deps)
+    expect(r.ok).toBe(false)
+    if (r.ok) return
+    expect({ gate: r.gate, reason: r.reason }).toEqual({ gate: 2, reason: 'namespace_unverified' })
+    expect(r.detail).toContain('operator_key_unknown')
+  })
+
+  it('the channel serves one dual-signed, test-prefixed link from the pinned key', async () => {
+    const { registry } = setup()
+    const res = await registry.transport.operatorRollovers()
+    const list = res.ok ? decodeOperatorRolloverList(res.value) : null
+    expect(list).toHaveLength(1)
+    expect(list![0]!.outgoing_kid).toBe(registry.config.directoryOperatorKid)
+    expect(list![0]!.incoming_kid.startsWith(WRC_TEST_KID_PREFIX)).toBe(true)
   })
 })
 

@@ -27,7 +27,7 @@ Open any message in the inbox and click **WR Code** in the message toolbar. The 
 
 - **Enter a WR Code:** type or paste a code. While you type, a local format check shows the recognized code ("Valid format: …"); nothing is looked up yet. **Check** runs the six gates.
 - **Find WR Codes in this message:** shown only when the message's sender is authenticated by the mail channel (DKIM or SPF aligned pass). The app decides this in the main process from the message's sealed provenance record; for any other message the panel says it is not scanned, and you can still type a code. Found codes appear as buttons; clicking one checks it.
-- **Result:** either the offer (the publisher's signed value statement, publisher, verified domain, code, next steps) with **Accept** and **Decline**, or a status explaining why the code cannot be used, with the gate and reason code as a secondary line.
+- **Result:** either the offer (the publisher's signed value statement, the responsible domain from the verified directory record, publisher, verified domain, code, next steps) with **Accept** and **Decline**, or a status explaining why the code cannot be used, with the gate and reason code as a secondary line.
 - Checking another code, closing the panel or opening another message declines an offer you left open, so a one-time offer is not held for the 10-minute claim timeout.
 
 ## Who you are in the test build
@@ -54,7 +54,7 @@ The expected outcome is the result of a first submission. Enter the codes with o
 | `SE-TEST01-400002-D` | Session sub-handshake, session expired (Test Publisher A) | Gate 3: `entry_expired` |
 | `C-TEST01-TEST02-V` | Cross-organization handshake to your publisher (Test Publisher A) | passes all six gates |
 | `SC-TEST01-500001-W` | Sub-handshake beneath the cross-organization handshake (Test Publisher A) | passes all six gates |
-| `P-TEST03-100011` | Offering (Inactive Test Publisher) | Gate 2: `namespace_inactive` |
+| `P-TEST03-100011` | Offering (Inactive Test Publisher; its directory record is signed by the rolled-over operator key) | Gate 2: `namespace_inactive`. Without the operator-rollover channel it would be `namespace_unverified` |
 | `P-TEST04-10001J` | Offering (Revoked Test Publisher) | Gate 2: `namespace_revoked` |
 | `P-TEST05-10001R` | Offering (Superseded Test Publisher) | Gate 2: `namespace_superseded`, successor `TEST01` shown |
 | `P-TEST06-100016` | Offering (Compromised Test Publisher) | Gate 2: `namespace_compromised`, with the unsuppressible warning |
@@ -64,7 +64,9 @@ The expected outcome is the result of a first submission. Enter the codes with o
 
 `wrc/__tests__/wrcTestRegistry.test.ts` runs every code through the six gates and fails if an outcome changes; `wrcBuildFlavor.guard.test.ts` fails if this table misses a code.
 
-Not covered yet: device-bound SI and SC codes (they need seeded Device Records), relay-released capsules (Gate 5/6 wire, S7), and the §XVI.6.4 `connector` field (client work C4).
+Every directory record carries the §XVI.6.4 `connector` and grammar `"2"`. The directory operator key has rolled over once: `GET /v1/directory/operator-rollovers` serves one dual-signed link from the pinned test key, and `TEST03` verifies only through it.
+
+Not covered yet: device-bound SI and SC codes (they need seeded Device Records), relay-released capsules (Gate 5/6 wire, S7), and account-tier reads: the test registry serves every entry without a credential, so the `401 account_required` path is covered by unit tests only.
 
 ## Starting over
 

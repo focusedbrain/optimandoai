@@ -53,6 +53,12 @@ export interface WrcTransport {
    * to this namespace"; it holds no entry content.
    */
   directoryRecord(publisherPart: string): Promise<WrcTransportResult>
+  /**
+   * `GET /v1/directory/operator-rollovers` → `{ rollovers: [...] }`, the
+   * append-only operator key chain from the pinned anchor (contract v2.0 Q24).
+   * Every link is dual-signed; the channel adds no trust.
+   */
+  operatorRollovers(): Promise<WrcTransportResult>
 }
 
 /** Per-object byte caps. The EVP budget is enforced again after decode (§3.3). */
@@ -76,6 +82,14 @@ export interface WrcHttpTransportConfig {
   /** Registry base origin, e.g. `https://wrc.example.com`. */
   registryBaseUrl: string
   timeoutMs?: number
+  /**
+   * Contract v2.0 §6 account tier (C7): the bearer sent on entry and object
+   * reads, and only there. Public reads (resolve, directory, head,
+   * delegations) and publisher-served channels never carry it. Null or
+   * absent sends none; the registry then answers `401 account_required` for
+   * account-tier material.
+   */
+  accountCredential?: () => Promise<string | null>
 }
 
 /**
@@ -89,6 +103,18 @@ export function createWrcHttpTransport(config: WrcHttpTransportConfig): WrcTrans
   const get = async (url: string, maxBytes: number): Promise<WrcTransportResult> =>
     toResult(await wrcHttpsGet(url, { maxBytes, timeoutMs: t, expectJson: true }))
 
+  const getAccountTier = async (url: string, maxBytes: number): Promise<WrcTransportResult> => {
+    let bearer: string | null = null
+    try {
+      bearer = (await config.accountCredential?.()) ?? null
+    } catch {
+      bearer = null
+    }
+    return toResult(
+      await wrcHttpsGet(url, { maxBytes, timeoutMs: t, expectJson: true, ...(bearer ? { bearer } : {}) }),
+    )
+  }
+
   return {
     resolve: (part) => get(`${base}/v1/resolve/${encodeURIComponent(part)}`, HEAD_MAX_BYTES),
     catalogHead: (part) =>
@@ -96,15 +122,16 @@ export function createWrcHttpTransport(config: WrcHttpTransportConfig): WrcTrans
     delegations: (part) =>
       get(`${base}/v1/publishers/${encodeURIComponent(part)}/delegations`, OBJECT_MAX_BYTES),
     entry: (part, entryId) =>
-      get(
+      getAccountTier(
         `${base}/v1/publishers/${encodeURIComponent(part)}/entries/${encodeURIComponent(entryId)}`,
         OBJECT_MAX_BYTES,
       ),
-    object: (hash) => get(`${base}/v1/objects/${encodeURIComponent(hash)}`, OBJECT_MAX_BYTES),
+    object: (hash) => getAccountTier(`${base}/v1/objects/${encodeURIComponent(hash)}`, OBJECT_MAX_BYTES),
     publisherManifest: (domain) =>
       get(`https://${domain}/.well-known/wr/manifest`, MANIFEST_MAX_BYTES),
     directoryRecord: (part) =>
       get(`${base}/v1/directory/${encodeURIComponent(part)}`, HEAD_MAX_BYTES),
+    operatorRollovers: () => get(`${base}/v1/directory/operator-rollovers`, HEAD_MAX_BYTES),
     async wrTxtRecords(domain) {
       try {
         const records = await resolveTxt(`_wr.${domain}`)
@@ -135,6 +162,7 @@ export function createUnconfiguredWrcTransport(): WrcTransport {
     object: refuse,
     publisherManifest: refuse,
     directoryRecord: refuse,
+    operatorRollovers: refuse,
     async wrTxtRecords() {
       return {
         ok: false,

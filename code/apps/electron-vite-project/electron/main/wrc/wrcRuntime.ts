@@ -53,7 +53,7 @@ import {
   createWrcHttpTransport,
   type WrcTransport,
 } from './wrcTransport'
-import { WrcDirectoryClient } from './namespaceDirectory'
+import { WrcDirectoryClient, transportRolloverSource } from './namespaceDirectory'
 import { createDbUseLimitStore, type WrcUseLimitStore } from './useLimitStore'
 import {
   createDbDirectoryGenerationFloorStore,
@@ -256,6 +256,7 @@ export async function initWrcClient(config?: WrcRuntimeConfig): Promise<WrcResol
           transport,
           operator: { kid: cfg.directoryOperatorKid, pub: cfg.directoryOperatorPub },
           generationFloors: createDbDirectoryGenerationFloorStore(securityDb),
+          fetchRollovers: transportRolloverSource(transport),
         })
       : null
 

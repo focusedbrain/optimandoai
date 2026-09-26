@@ -1,5 +1,6 @@
 /**
- * What the accept dialog shows for a staged Connect offer.
+ * What an accept dialog (desktop app and extension) shows for a staged Connect
+ * offer.
  *
  * Built only from the preview object main hashed (`buildConnectOfferPreview`);
  * the accept returns that object's `preview_hash` and consent refuses any other
