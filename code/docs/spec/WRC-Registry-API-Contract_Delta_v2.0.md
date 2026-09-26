@@ -1,7 +1,7 @@
-# WRC Registry API Contract — Delta v2.0 (DRAFT)
+# WRC Registry API Contract — Delta v2.0
 ## Namespace Directory, per-class entry lookup, disclosure tiers, closed signed objects
 
-Status: **DRAFT for Author ratification. Not normative.** Agent-drafted under Q17 = A (`docs/analysis/resync-2026-09-addendum.md` §B2; `docs/analysis/iteration-01-2026-09-25.md`, "Next"). It becomes contract v2.0 only when the Author ratifies it; then the file is renamed without `_DRAFT` and frozen byte-exact, as v1.1 was.
+Status: **Ratified by the Author on 2026-09-26**, by accepting every recommended default: Q20–Q27 = A (§11). The contract version is now **v2.0**. Agent-drafted under Q17 = A (`docs/analysis/resync-2026-09-addendum.md` §B2; `docs/analysis/iteration-01-2026-09-25.md`, "Next"). Every item tagged OPEN below is decided by the recommended option of its question; the question text stays as the rationale. From here on the file is frozen, as v1.1 was; later changes come as a new delta.
 
 Base: `WRC-Registry-API-Contract_v1.0.md` (`20794bff`) plus `WRC-Registry-API-Contract_Delta_v1.1.md` (`d8ac21b1`). Normative authority: Annex XVI v1.95, `docs/spec/Annex_XVI_WR_Code_v1.95.pdf`, sha256 `064aad6d8f28a0b1b7688c516ca3c4d8ba486bf723a5483d8c119d44f875829f` (re-verified for this draft).
 
@@ -17,7 +17,7 @@ Every item carries one tag:
 
 - **AS-BUILT**: the client already requires this. The service must match it; the client does not change.
 - **CHANGE**: the annex or a ruling requires something the client does not do yet. The client work is listed in §9.
-- **OPEN**: needs an Author decision. Each one points to a question in §11 with a recommended default.
+- **OPEN**: needed an Author decision. Each one points to a question in §11; all were ratified as recommended.
 
 **Why a major version.** A v1.x service breaks against this client in four places: the `{entry_id}` path segment no longer means "local part" (§4.2); entry and object reads gain an account tier (§6), where v1.0 §1.7 made every GET public; the closed-object rule (§2.6) makes a head without an explicit `delegation` field fail verification; and `codes[].canonical` carries the class prefix (§4.3). Everything else is additive.
 
@@ -324,7 +324,7 @@ v1.0 §4.1 is unchanged. Initial directory registration is an out-of-band, opera
 
 ## 9. Client work this delta implies
 
-Numbered for reference from the sections above. Items C3–C7 apply only if the linked question is ratified as recommended.
+Numbered for reference from the sections above. Items C3–C7 follow from the ratified answers to the linked questions.
 
 | # | Change | Where | Depends on |
 |---|---|---|---|
@@ -337,9 +337,9 @@ Numbered for reference from the sections above. Items C3–C7 apply only if the 
 | C7 | Send the account credential on entry and object reads; map `401 account_required` to its own reason, not the capture-error path | `wrc/wrcTransport.ts`, `wrc/resolutionClient.ts` | Q20 |
 | C8 | Check `display_origin` normalization and membership in `domains[]` before rendering | S5 | — (annex) |
 
-C1 and C2 are annex conformance fixes and need no decision. Each needs a test that pins the refusal.
+C1 and C2 are annex conformance fixes and needed no decision. Both are **implemented in `6285f397`**, each with tests that pin the refusal (`docs/analysis/iteration-02-2026-09-26.md`).
 
-C1 was confirmed with a throwaway probe while drafting (not committed). The fixture registry served entry `OTHER` under the local block of `P-WR7X4K-K7Q4MQ`, and the pipeline passed all six gates and released `OTHER`'s EVP. Existing suites pin the equivalent refusal for combination classes only (`wrc/__tests__/fullChain.e2e.test.ts:494`).
+C1 was first confirmed with a throwaway probe while drafting. The fixture registry served entry `OTHER` under the local block of `P-WR7X4K-K7Q4MQ`, and the pipeline passed all six gates and released `OTHER`'s EVP. Before `6285f397`, the suites pinned the equivalent refusal for combination classes only (`wrc/__tests__/fullChain.e2e.test.ts:494`).
 
 ---
 
@@ -399,6 +399,6 @@ The numbering continues the resync Q-register (Q1–Q19).
 - B: now, in v2.0.
 - Recommended: **A**. None of these legs has a wire yet, and S7 needs the WRC service anyway.
 
-Answer template:
+Ratified answers (Author, 2026-09-26):
 
-`Q20: _  Q21: _  Q22: _  Q23: _  Q24: _  Q25: _  Q26: _  Q27: _  (ratify §2–§5 as-built: yes/no)`
+`Q20: A  Q21: A  Q22: A  Q23: A  Q24: A  Q25: A  Q26: A  Q27: A`
