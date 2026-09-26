@@ -495,6 +495,27 @@ export class WrcDirectoryClient {
   }
 
   /**
+   * §XVI.6.5 email-domain agreement: the registered domains of `record` whose
+   * own `_wr` record names the Publisher Identifier, lowercased. A domain the
+   * record lists without its own DNS proof does not chain to the publisher.
+   * Proven live on every call; a failed or throwing lookup excludes the domain.
+   */
+  async dnsVerifiedDomains(record: WrcDirectoryRecord): Promise<string[]> {
+    const domains = [...new Set(record.domains.map((d) => d.toLowerCase()))]
+    const proven = await Promise.all(
+      domains.map(async (domain) => {
+        try {
+          const txt = await this.transport.wrTxtRecords(domain)
+          return txt.ok && dnsRecordsNamePart(txt.records, record.publisher_part) ? domain : null
+        } catch {
+          return null
+        }
+      }),
+    )
+    return proven.filter((d): d is string => d !== null)
+  }
+
+  /**
    * §XVI.6.5 publisher key binding: is this fingerprint (hex sha256 of the
    * raw public key) one of the publisher's directory-registered keys?
    */

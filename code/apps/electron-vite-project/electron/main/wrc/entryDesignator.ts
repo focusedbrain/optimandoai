@@ -148,6 +148,15 @@ export function deriveEntryDesignator(
         if (claim.parent) return fail('invalid_parent_class', 'P entries have no parent binding')
       }
       if (!reference.local) return fail('missing_pair_component', 'P reference without local block')
+      // §XVI.6.5 entry assignment / §XVI.16 entry substitution: a P entry's
+      // repository id IS its local block (WRC contract v2.0 §4.2), so any other
+      // signed entry the resolver serves under this local block is refused.
+      if (entryId !== reference.local) {
+        return fail(
+          'designation_mismatch',
+          `resolver served entry ${entryId} for local block ${reference.local}`,
+        )
+      }
       return {
         ok: true,
         designator: {

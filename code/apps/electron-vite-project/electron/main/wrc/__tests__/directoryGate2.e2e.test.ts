@@ -46,8 +46,8 @@ function depsFor(
   fx: WrcPublisherFixture,
   overrides: FixtureTransportOverrides = {},
   directoryOpts: { operator?: { kid: string; pub: string }; rollovers?: Parameters<typeof resolveOperatorKeys>[1] } = {},
+  transport: WrcTransport = createFixtureTransport(fx, overrides),
 ) {
-  const transport: WrcTransport = createFixtureTransport(fx, overrides)
   const client = new WrcResolutionClient({
     transport,
     store: new WrcResolvedRecordStore(createMemoryPersistence()),
@@ -291,6 +291,54 @@ describe('acting principal SSO binding at Gate 2 [XVI.6.5, XVI.7.6]', () => {
     expect(r.gate).toBe(2)
     expect(r.reason).toBe('sso_principal_mismatch')
     expect(r.gatesPassed).toEqual(['syntax'])
+  })
+
+  /** A fixture registering a second domain, with `_wr` TXT answered per domain. */
+  function secondaryDomainSetup(brandTxt: string[] | null) {
+    const fx = buildPublisherFixture({
+      directoryOverrides: { domains: ['publisher.test', 'brand.test'] },
+    })
+    const base = createFixtureTransport(fx)
+    const transport: WrcTransport = {
+      ...base,
+      async wrTxtRecords(domain) {
+        if (domain === 'publisher.test') return { ok: true, records: fx.txtRecords }
+        if (domain === 'brand.test' && brandTxt) return { ok: true, records: brandTxt }
+        return { ok: false, code: 'dns_error', message: `ENOTFOUND _wr.${domain}` }
+      },
+    }
+    return { fx, deps: depsFor(fx, {}, {}, transport).deps }
+  }
+
+  it('an SSO email in a registered secondary domain WITH its own DNS proof admits', async () => {
+    const { fx, deps } = secondaryDomainSetup([`v=wr1; part=WR7X4K`])
+    const r = await runWrCodeGatePipeline(
+      {
+        raw: P_REF,
+        receiver: { publisher_part: fx.publisherPart, party_id: 'party-1', sso_email: 'pat@brand.test' },
+      },
+      deps,
+    )
+    expect(r.ok, r.ok ? '' : `${r.reason}: ${r.detail}`).toBe(true)
+  })
+
+  it.each([
+    ['no _wr record', null],
+    ['a _wr record naming another publisher', ['v=wr1; part=ZZPQB7']],
+  ])('a registered secondary domain with %s cannot act for the publisher', async (_label, brandTxt) => {
+    const { fx, deps } = secondaryDomainSetup(brandTxt)
+    const r = await runWrCodeGatePipeline(
+      {
+        raw: P_REF,
+        receiver: { publisher_part: fx.publisherPart, party_id: 'party-1', sso_email: 'pat@brand.test' },
+      },
+      deps,
+    )
+    expect(r.ok).toBe(false)
+    if (r.ok) return
+    expect(r.gate).toBe(2)
+    expect(r.reason).toBe('sso_principal_mismatch')
+    expect(r.detail).toContain('no DNS proof')
   })
 
   it('an asserted SSO binding with NO verifier fails closed', async () => {

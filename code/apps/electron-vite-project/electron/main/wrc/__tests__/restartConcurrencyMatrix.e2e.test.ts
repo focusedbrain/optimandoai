@@ -406,6 +406,7 @@ describe.skipIf(!Database)('matrix / capsule: admission idempotency across resta
         capsule,
         expectedInitiatorPart: TENANT,
         initiatorRecord: tenantFx.directoryRecord,
+        initiatorDnsVerifiedDomains: [tenantFx.domain],
         receiver: { party_id: 'party-9', email: 'ceo@responder.test' },
         decryptKey: responderFx.encryption.privateKey,
         replay: createDbAdmissionReplayStore(replayDb),

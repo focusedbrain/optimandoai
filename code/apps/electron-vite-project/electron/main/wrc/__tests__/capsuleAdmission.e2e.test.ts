@@ -29,6 +29,7 @@ import {
 import { openSealed, type WrcPendingCapsule } from '../capsuleAdmission'
 import { WrcResolutionClient } from '../resolutionClient'
 import { WrcResolvedRecordStore, createMemoryPersistence } from '../resolvedRecordStore'
+import type { WrcTransport } from '../wrcTransport'
 import {
   createMemoryUseLimitStore,
   defaultUseLimitProfile,
@@ -150,8 +151,10 @@ let relay: WrcRelayClient
 let useLimits: WrcUseLimitStore
 let deps: WrCodeGateDeps
 
-function buildDeps(admissionOverrides: Parameters<typeof createWrcGateDeps>[1]['admission'] = {}) {
-  const transport = createMultiFixtureTransport([initiatorFx, responderFx, otherOrgFx])
+function buildDeps(
+  admissionOverrides: Parameters<typeof createWrcGateDeps>[1]['admission'] = {},
+  transport: WrcTransport = createMultiFixtureTransport([initiatorFx, responderFx, otherOrgFx]),
+) {
   const client = new WrcResolutionClient({
     transport,
     store: new WrcResolvedRecordStore(createMemoryPersistence()),
@@ -276,6 +279,55 @@ describe('capsule admission through the pipeline [XVI.7.6 gate 6]', () => {
       ),
     )
     await expectAdmissionRefusal('initiator_sso_domain_mismatch')
+  })
+
+  describe('a registered secondary initiator domain counts only with its own DNS proof [XVI.6.5]', () => {
+    const brandedFx = buildPublisherFixture({
+      publisherPart: INITIATOR,
+      domain: 'publisher.test',
+      ingestKey: INGEST,
+      operatorKey: OPERATOR,
+      extraEntries: [
+        {
+          lookupKey: RESPONDER,
+          entryId: 'CREL01',
+          designation: { cls: 'C', initiator_part: INITIATOR, counterparty_part: RESPONDER },
+        },
+      ],
+      directoryOverrides: { domains: ['publisher.test', 'brand.test'] },
+    })
+
+    function depositBrandedCapsule(brandProven: boolean) {
+      const base = createMultiFixtureTransport([brandedFx, responderFx, otherOrgFx])
+      buildDeps({}, {
+        ...base,
+        async wrTxtRecords(domain) {
+          if (domain === 'brand.test') {
+            return brandProven ? { ok: true, records: brandedFx.txtRecords } : { ok: true, records: [] }
+          }
+          return base.wrTxtRecords(domain)
+        },
+      })
+      relay.deposit(
+        envelopeFor(
+          makeCapsule({
+            initiator: brandedFx,
+            initiatorPrincipal: { partyId: 'party-1', email: 'sales@brand.test', key: initiatorPrincipal },
+          }).capsule,
+        ),
+      )
+    }
+
+    it('admits when brand.test carries a _wr record naming the initiator', async () => {
+      depositBrandedCapsule(true)
+      const r = await runWrCodeGatePipeline({ raw: C_REF, receiver: RECEIVER }, deps)
+      expect(r.ok, r.ok ? '' : `${r.reason}: ${r.detail}`).toBe(true)
+    })
+
+    it('refuses when brand.test is registered but has no DNS proof', async () => {
+      depositBrandedCapsule(false)
+      await expectAdmissionRefusal('initiator_sso_domain_mismatch')
+    })
   })
 
   it('a signed capsule whose nonce does not hash to H(nonce_I) refuses', async () => {

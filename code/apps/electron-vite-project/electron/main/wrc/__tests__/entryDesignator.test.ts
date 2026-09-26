@@ -119,6 +119,16 @@ describe('derivation — every class reaches a full designator [XVI.5.10]', () =
 // ── Derivation: failing vectors, precise reasons ──────────────────────────────
 
 describe('derivation — fail-closed reason codes [Run-3 vocabulary]', () => {
+  it('P served under a different repository id → designation_mismatch (no entry substitution) [XVI.6.5, XVI.16]', () => {
+    const r = deriveEntryDesignator(P_REF, null, 'OTHER')
+    expect(r).toMatchObject({ ok: false, reason: 'designation_mismatch' })
+    // A matching P designation claim does not license a foreign entry either.
+    expect(deriveEntryDesignator(P_REF, { cls: 'P' }, 'OTHER')).toMatchObject({
+      ok: false,
+      reason: 'designation_mismatch',
+    })
+  })
+
   it('C reversed ordered pair → invalid_role_ordering (roles are never sorted)', () => {
     // The repository registered PUB→RSP; the reference names RSP→PUB.
     const r = deriveEntryDesignator(C_REVERSED, C_CLAIM, 'x')

@@ -531,4 +531,40 @@ describe('boundary observability: callers cannot inject trusted state', () => {
     expect(r.gate).toBe(3)
     expect(r.reason).toBe('designation_mismatch')
   })
+
+  it('a registry cannot substitute another signed P entry for the local block [XVI.6.5, XVI.16]', async () => {
+    // The tenant's catalog holds a validly signed entry OTHER; the registry
+    // serves it under a different local block. Every signature and inclusion
+    // proof verifies — only the assignment binding can catch it.
+    const LOCAL = 'K7Q4M'
+    const substFx = buildPublisherFixture({
+      publisherPart: TENANT,
+      domain: 'publisher.test',
+      ingestKey: INGEST,
+      operatorKey: OPERATOR,
+      extraEntries: [{ lookupKey: LOCAL, entryId: 'OTHER' }],
+    })
+    const transport = createMultiFixtureTransport([substFx])
+    const client = new WrcResolutionClient({
+      transport,
+      store: new WrcResolvedRecordStore(createMemoryPersistence()),
+      ingestPublicKey: INGEST.pub,
+      now: () => NOW,
+    })
+    const directory = new WrcDirectoryClient({
+      transport,
+      operator: { kid: OPERATOR.kid, pub: OPERATOR.pub },
+      now: () => NOW,
+    })
+    const substDeps = createWrcGateDeps(client, { now: () => NOW, directory })
+    const r = await runWrCodeGatePipeline(
+      { raw: refOf('P', [TENANT, LOCAL]), receiver: TENANT_PRINCIPAL },
+      substDeps,
+    )
+    expect(r.ok).toBe(false)
+    if (r.ok) return
+    expect(r.gate).toBe(3)
+    expect(r.reason).toBe('designation_mismatch')
+    expect(r.gatesPassed).toEqual(['syntax', 'namespace'])
+  })
 })

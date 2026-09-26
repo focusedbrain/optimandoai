@@ -365,6 +365,7 @@ function admit(
     capsule,
     expectedInitiatorPart,
     initiatorRecord: initiatorFx.directoryRecord,
+    initiatorDnsVerifiedDomains: [initiatorFx.domain],
     receiver: { party_id: RESPONDER_PARTY, email: 'ceo@responder.test' },
     decryptKey: responderFx.encryption.privateKey,
     replay,

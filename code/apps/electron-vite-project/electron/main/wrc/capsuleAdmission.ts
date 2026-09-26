@@ -298,6 +298,12 @@ export interface VerifyCapsuleAdmissionInput {
    * time"). Null = that re-verification failed — fail closed.
    */
   initiatorRecord: WrcDirectoryRecord | null
+  /**
+   * The initiator's registered domains that carry their own DNS proof, proven
+   * live by the caller at admission time (§XVI.6.5). The delegation's email
+   * domain must be one of these; a registered but unproven domain never is.
+   */
+  initiatorDnsVerifiedDomains: readonly string[]
   /** The receiver's own identity: Party Identifier + own verified email. */
   receiver: { party_id: string | null; email: string | null }
   /** The recipient publisher's X25519 decryption key (Orchestrator key service). */
@@ -364,7 +370,7 @@ export function verifyCapsuleAdmission(input: VerifyCapsuleAdmissionInput): WrcA
   }
   const at = delegation.sso_email.lastIndexOf('@')
   const emailDomain = at > 0 ? delegation.sso_email.slice(at + 1).toLowerCase() : ''
-  if (!emailDomain || !record.domains.map((d) => d.toLowerCase()).includes(emailDomain)) {
+  if (!emailDomain || !input.initiatorDnsVerifiedDomains.map((d) => d.toLowerCase()).includes(emailDomain)) {
     return {
       ok: false,
       leg: 'initiator_sso_domain_mismatch',

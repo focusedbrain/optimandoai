@@ -174,6 +174,10 @@ export function createWrcGateDeps(
     return { ok: true, record: res.record }
   }
 
+  /** §XVI.6.5: only domains carrying their own DNS proof chain to the publisher. */
+  const dnsVerifiedDomainsOf = async (record: WrcDirectoryRecord): Promise<string[]> =>
+    directory ? directory.dnsVerifiedDomains(record) : []
+
   return {
     async verifyNamespace(publisherPart): Promise<WrCodeNamespaceVerdict> {
       // Run 4 (§XVI.6.4/6.5): the Namespace Directory is the ONLY Gate-2
@@ -204,8 +208,8 @@ export function createWrcGateDeps(
       // §XVI.7.6 Gate 2 / §XVI.6.5 email-domain agreement: the receiver's own
       // acting principal's SSO-verified email must lie in its own publisher's
       // DNS-verified domain — otherwise it cannot claim on the publisher's
-      // behalf. Domains beyond the primary are operator-signed registrations
-      // in the record, each carrying its own DNS proof upstream.
+      // behalf. A domain the record registers counts only with its own DNS
+      // proof naming the publisher.
       if (!receiver.publisher_part || !receiver.sso_email) {
         return { ok: false, detail: 'acting principal without publisher part or SSO email' }
       }
@@ -217,11 +221,18 @@ export function createWrcGateDeps(
         return { ok: false, detail: `own publisher namespace unverified: ${res.detail ?? res.reason}` }
       }
       const registered = res.record.domains.map((d) => d.toLowerCase())
-      return registered.includes(emailDomain)
+      if (!registered.includes(emailDomain)) {
+        return {
+          ok: false,
+          detail: `SSO email domain ${emailDomain} is not among the publisher's DNS-verified domains`,
+        }
+      }
+      const proven = await dnsVerifiedDomainsOf(res.record)
+      return proven.includes(emailDomain)
         ? { ok: true }
         : {
             ok: false,
-            detail: `SSO email domain ${emailDomain} is not among the publisher's DNS-verified domains`,
+            detail: `SSO email domain ${emailDomain} is registered but carries no DNS proof naming ${receiver.publisher_part}`,
           }
     },
 
@@ -552,6 +563,7 @@ export function createWrcGateDeps(
         capsule: released.capsule,
         expectedInitiatorPart: reference.publisher,
         initiatorRecord: dir.ok ? dir.record : null,
+        initiatorDnsVerifiedDomains: dir.ok ? await dnsVerifiedDomainsOf(dir.record) : [],
         receiver: {
           party_id: receiver.party_id ?? null,
           email: receiver.sso_email ?? null,
