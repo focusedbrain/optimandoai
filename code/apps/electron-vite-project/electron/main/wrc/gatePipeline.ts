@@ -164,6 +164,12 @@ export interface WrCodeNamespaceRecord {
   account_holder_verified: boolean
   /** Superseded namespaces surface their successor explicitly, never silently. */
   successor_publisher_part: string | null
+  /**
+   * §XVI.2 Displayed Responsible Domain after the normalization and
+   * membership check (`displayOriginOf`); null or absent renders nothing.
+   * Never the raw record value.
+   */
+  display_origin?: string | null
 }
 
 export type WrCodeNamespaceVerdict =

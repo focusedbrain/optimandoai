@@ -42,7 +42,7 @@ import {
   useLimitEntryKey,
   type WrCodeDesignationClaim,
 } from './entryDesignator'
-import { WrcDirectoryClient, type WrcDirectoryRecord } from './namespaceDirectory'
+import { WrcDirectoryClient, displayOriginOf, type WrcDirectoryRecord } from './namespaceDirectory'
 import { verifyDevicePass, verifyDeviceRecord, type WrcDeviceRegistry } from './deviceRegistry'
 import { wrcCanonicalBytes } from './wrcCrypto'
 import type { WrcPrincipalDelegation, WrcRelayClient, WrcReleaseClaim } from './relayRelease'
@@ -198,6 +198,7 @@ export function createWrcGateDeps(
           dns_verified: true,
           account_holder_verified: record.account_holder_vetted,
           successor_publisher_part: record.successor_publisher_part,
+          display_origin: displayOriginOf(record),
         },
       }
     },
@@ -302,13 +303,17 @@ export function createWrcGateDeps(
           // "an ESTABLISHED C relationship whose two namespaces have
           // themselves passed account-holder and DNS verification" — the
           // responder is not in the reference, so Gate 2 could not have seen
-          // it; verify its namespace here, at the expanded form.
-          const responder = await client.resolvePublisher(parent.counterparty_part)
-          if (!responder.ok || responder.status !== 'active') {
+          // it; verify its namespace here, at the expanded form, on the same
+          // directory path as Gate 2. Only the directory status is signed
+          // (contract v2.0 Q25); the resolve claim's is informational.
+          const responder = await verifiedDirectoryRecord(parent.counterparty_part)
+          if (!responder.ok || responder.record.status !== 'active') {
             return {
               ok: false,
               reason: 'unresolved_parent',
-              detail: `responder namespace ${parent.counterparty_part}: ${responder.ok ? responder.status : responder.reason}`,
+              detail: `responder namespace ${parent.counterparty_part}: ${
+                responder.ok ? responder.record.status : (responder.detail ?? responder.reason)
+              }`,
             }
           }
         }

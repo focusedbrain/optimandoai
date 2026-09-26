@@ -254,6 +254,8 @@ export async function acceptHandshake(
     device_name?: string
     device_role?: 'host' | 'sandbox'
     local_pairing_code_typed?: string
+    /** Staged Connect offer: hash of the preview the dialog rendered (required by main). */
+    expected_preview_hash?: string
   },
 ): Promise<HandshakeAcceptResponse> {
   if (!window.handshakeView?.acceptHandshake) throw new Error('Handshake IPC not available')

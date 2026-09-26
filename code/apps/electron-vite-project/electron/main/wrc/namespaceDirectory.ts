@@ -34,6 +34,7 @@
  */
 
 import { createHash } from 'node:crypto'
+import { domainToASCII } from 'node:url'
 import { wrcCanonicalBytes, wrcVerifyEd25519 } from './wrcCrypto'
 import type { WrcPublisherStatus } from './wrcContract'
 import type { WrcTransport } from './wrcTransport'
@@ -46,6 +47,13 @@ export interface WrcDirectoryKey {
   pub: string
   /** Key generation (§XVI.6.4 "verification key(s) and key generation"). */
   generation: number
+}
+
+/** §XVI.6.4 "WR Connect script version and connector hash" (contract v2.0 Q22). */
+export interface WrcDirectoryConnector {
+  script_version: string
+  /** `sha256:` + 64 lowercase hex, or null when no signed script block is registered. */
+  code_hash: string | null
 }
 
 export interface WrcDirectoryRecord {
@@ -62,7 +70,9 @@ export interface WrcDirectoryRecord {
   resolver_endpoints: string[]
   /** Relay endpoints for capsule and acceptance delivery (§XVI.6.4). */
   relay_endpoints: string[]
+  /** Reference-grammar version; see {@link WRC_SUPPORTED_GRAMMAR_VERSIONS}. */
   grammar_version: string
+  connector: WrcDirectoryConnector
   /** Bound origin(s)/domain(s); index 0 is the primary DNS-proved domain. */
   domains: string[]
   display_origin: string | null
@@ -112,6 +122,24 @@ const PUBLISHER_STATUSES: readonly WrcPublisherStatus[] = [
   'compromised',
 ]
 
+/**
+ * Reference-grammar versions this client implements (contract v2.0 Q23: `"2"`
+ * for Registry Material v2.0). A namespace on any other grammar is refused.
+ */
+export const WRC_SUPPORTED_GRAMMAR_VERSIONS: readonly string[] = ['2']
+
+const CONNECTOR_CODE_HASH = /^sha256:[0-9a-f]{64}$/
+
+function decodeConnector(value: unknown): WrcDirectoryConnector | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null
+  const c = value as Record<string, unknown>
+  if (!isStr(c.script_version)) return null
+  if (c.code_hash !== null && !(typeof c.code_hash === 'string' && CONNECTOR_CODE_HASH.test(c.code_hash))) {
+    return null
+  }
+  return { script_version: c.script_version, code_hash: c.code_hash as string | null }
+}
+
 export function decodeDirectoryRecord(value: unknown): WrcDirectoryRecord | null {
   if (typeof value !== 'object' || value === null) return null
   const o = value as Record<string, unknown>
@@ -131,6 +159,8 @@ export function decodeDirectoryRecord(value: unknown): WrcDirectoryRecord | null
   }
   if ((o.domains as unknown[]).length === 0) return null
   if (!isStr(o.grammar_version)) return null
+  const connector = decodeConnector(o.connector)
+  if (!connector) return null
   if (o.display_origin !== null && !isStr(o.display_origin)) return null
   if (typeof o.account_holder_vetted !== 'boolean') return null
   if (!PUBLISHER_STATUSES.includes(o.status as WrcPublisherStatus)) return null
@@ -147,6 +177,7 @@ export function decodeDirectoryRecord(value: unknown): WrcDirectoryRecord | null
     resolver_endpoints: o.resolver_endpoints as string[],
     relay_endpoints: o.relay_endpoints as string[],
     grammar_version: o.grammar_version,
+    connector,
     domains: o.domains as string[],
     display_origin: (o.display_origin as string | null) ?? null,
     account_holder_vetted: o.account_holder_vetted,
@@ -225,6 +256,7 @@ export type WrcDirectoryLeg =
   | 'record_expired'
   | 'generation_stale'
   | 'account_not_vetted'
+  | 'grammar_unsupported'
   | 'dns_unavailable'
   | 'dns_part_mismatch'
 
@@ -317,7 +349,38 @@ export function verifyDirectoryRecord(
     return { ok: false, leg: 'account_not_vetted' }
   }
 
+  if (!WRC_SUPPORTED_GRAMMAR_VERSIONS.includes(record.grammar_version)) {
+    return {
+      ok: false,
+      leg: 'grammar_unsupported',
+      detail: `grammar ${record.grammar_version}; this client implements ${WRC_SUPPORTED_GRAMMAR_VERSIONS.join(', ')}`,
+    }
+  }
+
   return { ok: true, record }
+}
+
+const DNS_LABEL = /^(?!-)[a-z0-9-]{1,63}(?<!-)$/
+
+/**
+ * §XVI.2 / A.4.1 Displayed Responsible Domain, or null when the record's
+ * `display_origin` must not be rendered (contract v2.0 C8). Accepted: a
+ * lowercase host name in ASCII/punycode form with at least two labels, no
+ * scheme, port, path or query, no `www.` label, that is one of `domains[]`
+ * and not a subdomain of another registered domain. Whether it is a
+ * registrable domain in the Public Suffix List sense is not decided here.
+ */
+export function displayOriginOf(record: WrcDirectoryRecord): string | null {
+  const origin = record.display_origin
+  if (origin === null || origin.length > 253) return null
+  if (domainToASCII(origin) !== origin) return null
+  const labels = origin.split('.')
+  if (labels.length < 2 || !labels.every((l) => DNS_LABEL.test(l))) return null
+  if (labels[0] === 'www' || /^\d+$/.test(labels[labels.length - 1]!)) return null
+  const registered = record.domains.map((d) => d.toLowerCase())
+  if (!registered.includes(origin)) return null
+  if (registered.some((d) => d !== origin && origin.endsWith(`.${d}`))) return null
+  return origin
 }
 
 /**

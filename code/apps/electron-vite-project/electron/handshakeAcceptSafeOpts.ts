@@ -95,5 +95,9 @@ export function buildHandshakeAcceptSafeOpts(contextOpts: unknown): Record<strin
     out.local_pairing_code_typed = opts.local_pairing_code_typed.trim()
   }
 
+  if (typeof opts.expected_preview_hash === 'string' && /^[0-9a-f]{64}$/.test(opts.expected_preview_hash.trim())) {
+    out.expected_preview_hash = opts.expected_preview_hash.trim()
+  }
+
   return out
 }

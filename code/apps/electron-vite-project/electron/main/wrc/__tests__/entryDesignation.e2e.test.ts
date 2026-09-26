@@ -48,6 +48,8 @@ const SP_ORPHAN = 'SPBAD1' // SP whose parent entry does not exist
 const SP_UNDER_C = 'SPBAD2' // SP claiming a C parent (invalid class)
 const SE_UNDER_P = 'SEDP01' // SE beneath P — child-local id DUP001
 const SE_UNDER_C = 'SEDP02' // SE beneath C — SAME child-local id DUP001
+const SC_REVOKED = 'SCRVK1' // SC toward a responder whose directory record is revoked
+const REVOKED_RESPONDER = 'RVKPB2'
 
 const INGEST = makeKeyPair('wrc-ingest-shared')
 const OPERATOR = makeKeyPair('dir-op-shared')
@@ -158,7 +160,32 @@ const initiatorFx = buildPublisherFixture({
         session: { id: 'sess-dup-c', not_before: null, expires_at: NOW + 3_600 },
       },
     },
+    {
+      lookupKey: REVOKED_RESPONDER,
+      entryId: 'CREL02',
+      designation: { cls: 'C', initiator_part: INITIATOR, counterparty_part: REVOKED_RESPONDER },
+    },
+    {
+      lookupKey: SC_REVOKED,
+      entryId: 'SCENT3',
+      designation: {
+        cls: 'SC',
+        combination: SC_REVOKED,
+        receiving_party: { kind: 'publisher', id: REVOKED_RESPONDER },
+        parent: { cls: 'C', publisher_part: INITIATOR, counterparty_part: REVOKED_RESPONDER },
+      },
+    },
   ],
+})
+
+// The resolve claim (unsigned) still says active; the signed directory record is revoked.
+const revokedResponderFx = buildPublisherFixture({
+  publisherPart: REVOKED_RESPONDER,
+  domain: 'revoked.test',
+  entryId: 'RVKENT',
+  ingestKey: INGEST,
+  operatorKey: OPERATOR,
+  directoryOverrides: { status: 'revoked' },
 })
 
 const responderFx = buildPublisherFixture({
@@ -213,7 +240,7 @@ let useLimits: ReturnType<typeof createMemoryUseLimitStore>
 let deps: ReturnType<typeof createWrcGateDeps>
 
 beforeEach(() => {
-  const transport = createMultiFixtureTransport([initiatorFx, responderFx])
+  const transport = createMultiFixtureTransport([initiatorFx, responderFx, revokedResponderFx])
   client = new WrcResolutionClient({
     transport,
     store: new WrcResolvedRecordStore(createMemoryPersistence()),
@@ -296,6 +323,20 @@ describe('S* parent binding [XVI.5.10]', () => {
     if (r.ok) return
     expect(r.gate).toBe(3)
     expect(r.reason).toBe('unresolved_parent')
+  })
+
+  it('SC whose responder the directory lists as revoked → unresolved_parent, whatever the resolve claim says', async () => {
+    expect(revokedResponderFx.resolveClaim.status).toBe('active')
+    const raw = refOf('SC', [INITIATOR, SC_REVOKED])
+    const r = await runWrCodeGatePipeline(
+      { raw, receiver: { publisher_part: REVOKED_RESPONDER, party_id: 'party-1' } },
+      deps,
+    )
+    expect(r.ok).toBe(false)
+    if (r.ok) return
+    expect(r.gate).toBe(3)
+    expect(r.reason).toBe('unresolved_parent')
+    expect(r.detail).toContain(`responder namespace ${REVOKED_RESPONDER}: revoked`)
   })
 
   it('SP beneath its P parent entry admits with the parent bound into the designator', async () => {

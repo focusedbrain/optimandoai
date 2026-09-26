@@ -552,6 +552,7 @@ export function createWrcTestRegistry(options: WrcTestRegistryOptions = {}): Wrc
       resolver_endpoints: [`${WRC_TEST_REGISTRY_BASE_URL}/v1/publishers/${p.spec.part}`],
       relay_endpoints: [],
       grammar_version: '2',
+      connector: { script_version: '1', code_hash: null },
       domains,
       display_origin: p.spec.domain,
       account_holder_vetted: true,

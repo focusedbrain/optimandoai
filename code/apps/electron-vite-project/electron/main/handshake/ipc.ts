@@ -49,7 +49,7 @@ import {
 // The staged-offer table has exactly one owning module (pinned by the Phase-4
 // acceptance test: no second module may read or build an alternate listing),
 // so the O6 status gate lives there and is imported here.
-import { revalidateOfferStatusForConsent } from './connectOfferStaging'
+import { revalidateOfferStatusForConsent, type ConnectOfferPreview } from './connectOfferStaging'
 // Seal-key-source policy: which providers a row MAY be verified with, derived
 // from the row's content class. The row's own `seal_key_source` tag records
 // only how it WAS written, and is stale on legacy rows.
@@ -740,7 +740,9 @@ function getCounterpartyEmail(record: HandshakeRecord, session: SSOSession): str
 /**
  * Display-only projection of a staged Connect offer for the pending list.
  * NOT a relationship row — nothing is persisted; `connect_offer_id` marks it
- * so accept/decline route through the consent gate.
+ * so accept/decline route through the consent gate. `connect_offer_preview`
+ * is what the accept dialog renders; its hash is returned with the accept and
+ * pinned at consent (HC5).
  */
 function connectOfferToDisplayRecord(offer: {
   offer_id: string
@@ -754,6 +756,7 @@ function connectOfferToDisplayRecord(offer: {
   profile_id: string
   staged_at: string
   expires_at: string
+  preview?: ConnectOfferPreview
 }): HandshakeRecord {
   let capsule: Record<string, any> = {}
   try { capsule = JSON.parse(offer.capsule_json) } catch { /* display only */ }
@@ -807,7 +810,12 @@ function connectOfferToDisplayRecord(offer: {
               : null,
         }
       : {}),
-    ...( { connect_offer_id: offer.offer_id } as unknown as Partial<HandshakeRecord> ),
+    ...({
+      connect_offer_id: offer.offer_id,
+      ...(offer.preview
+        ? { connect_offer_preview: { preview: offer.preview.preview, preview_hash: offer.preview.preview_hash } }
+        : {}),
+    } as unknown as Partial<HandshakeRecord>),
   } as HandshakeRecord
 }
 
@@ -2160,7 +2168,7 @@ export async function handleHandshakeRPC(
     }
 
     case 'handshake.accept': {
-      const { handshake_id, sharing_mode: requested_sharing_mode, fromAccountId, context_blocks: receiverRawBlocks, profile_ids: receiverProfileIds, profile_items: receiverProfileItems, p2p_endpoint: p2pEndpointParam, policy_selections: acceptPolicySelections, device_name: acceptDeviceName, device_role: acceptDeviceRole, local_pairing_code_typed: acceptTypedPairingCode } = params as {
+      const { handshake_id, sharing_mode: requested_sharing_mode, fromAccountId, context_blocks: receiverRawBlocks, profile_ids: receiverProfileIds, profile_items: receiverProfileItems, p2p_endpoint: p2pEndpointParam, policy_selections: acceptPolicySelections, device_name: acceptDeviceName, device_role: acceptDeviceRole, local_pairing_code_typed: acceptTypedPairingCode, expected_preview_hash: acceptExpectedPreviewHash } = params as {
         handshake_id: string
         sharing_mode: 'receive-only' | 'reciprocal'
         fromAccountId: string
@@ -2182,6 +2190,12 @@ export async function handleHandshakeRPC(
          * that only carry `internal_peer_device_id`.
          */
         local_pairing_code_typed?: string
+        /**
+         * Staged Connect offers only — `connect_offer_preview.preview_hash` of the
+         * preview the user was shown; consent refuses a different preview. The
+         * desktop `handshake:accept` requires it; other callers may omit it.
+         */
+        expected_preview_hash?: string
       }
 
       if (!handshake_id || !requested_sharing_mode) {
@@ -2199,7 +2213,12 @@ export async function handleHandshakeRPC(
         // user's accept IS the consent event; only it creates the record.
         const offer = pendingOfferForHandshake(handshake_id)
         if (offer) {
-          const consent = await consentToStagedOffer(db, offer, session)
+          const consent = await consentToStagedOffer(
+            db,
+            offer,
+            session,
+            typeof acceptExpectedPreviewHash === 'string' ? acceptExpectedPreviewHash : undefined,
+          )
           if (!consent.ok) {
             return {
               success: false,

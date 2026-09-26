@@ -3726,7 +3726,7 @@ app.whenReady().then(async () => {
       }
     })
 
-    ipcMain.handle('handshake:accept', async (_e, id: string, sharingMode: string, fromAccountId: string, contextOpts?: { context_blocks?: any[]; profile_ids?: string[]; profile_items?: any[]; policy_selections?: { cloud_ai?: boolean; internal_ai?: boolean; ai_processing_mode?: string }; senderX25519PublicKeyB64?: string; sender_x25519_public_key_b64?: string; key_agreement?: { x25519_public_key_b64?: string; mlkem768_public_key_b64?: string }; senderMlkem768PublicKeyB64?: string; senderMlkem768SecretKeyB64?: string; device_name?: string; device_role?: 'host' | 'sandbox'; local_pairing_code_typed?: string; internal_peer_device_id?: string; internal_peer_device_role?: string; internal_peer_computer_name?: string; internal_peer_pairing_code?: string }) => {
+    ipcMain.handle('handshake:accept', async (_e, id: string, sharingMode: string, fromAccountId: string, contextOpts?: { context_blocks?: any[]; profile_ids?: string[]; profile_items?: any[]; policy_selections?: { cloud_ai?: boolean; internal_ai?: boolean; ai_processing_mode?: string }; senderX25519PublicKeyB64?: string; sender_x25519_public_key_b64?: string; key_agreement?: { x25519_public_key_b64?: string; mlkem768_public_key_b64?: string }; senderMlkem768PublicKeyB64?: string; senderMlkem768SecretKeyB64?: string; device_name?: string; device_role?: 'host' | 'sandbox'; local_pairing_code_typed?: string; internal_peer_device_id?: string; internal_peer_device_role?: string; internal_peer_computer_name?: string; internal_peer_pairing_code?: string; expected_preview_hash?: string }) => {
       try {
         const db = await getHandshakeDb()
         if (!db) return { success: false, error: 'No active session. Please log in first.' }
@@ -3743,16 +3743,27 @@ app.whenReady().then(async () => {
             }
           }
         } catch { /* vault not initialized â€” allow (keys in ledger) */ }
-        const { getHandshakeRecord } = await import('./main/handshake/db')
-        const acceptRecord = getHandshakeRecord(db, id)
-        if (!acceptRecord) {
+        const { resolveDesktopAcceptTarget, desktopAcceptPreviewPinError } = await import(
+          './main/handshake/desktopAcceptTarget'
+        )
+        // A pending request is usually a staged Connect offer with no record yet (Phase 4);
+        // handleHandshakeRPC handshake.accept turns the consent into the record.
+        const acceptTarget = resolveDesktopAcceptTarget(db, id)
+        if (!acceptTarget) {
           return { success: false, error: 'Handshake not found', reason: 'HANDSHAKE_NOT_FOUND' }
+        }
+        if (desktopAcceptPreviewPinError(acceptTarget, contextOpts?.expected_preview_hash)) {
+          return {
+            success: false,
+            reason: 'PREVIEW_HASH_REQUIRED',
+            error: 'Open the handshake request again and review it before accepting.',
+          }
         }
         // Before (split contract): isInternalAccept = contextOpts?.device_role === 'host' || 'sandbox'
         //   — could misclassify when device_role is missing/filtered.
         // After: same source of truth as handleHandshakeRPC handshake.accept (record.same_principal).
         // contextOpts.device_role remains for internal pairing/UX; it is not the X25519 guard signal.
-        const isInternalAccept = acceptRecord.same_principal === true
+        const isInternalAccept = acceptTarget.samePrincipal
         const co = contextOpts
         const trimmedSenderX25519 =
           (typeof co?.senderX25519PublicKeyB64 === 'string' ? co.senderX25519PublicKeyB64.trim() : '') ||
@@ -3767,8 +3778,8 @@ app.whenReady().then(async () => {
             const { logNormalAcceptX25519BindingFailure } = await import('./main/handshake/ipc')
             logNormalAcceptX25519BindingFailure({
               handshake_id: id,
-              local_role: acceptRecord.local_role ?? null,
-              same_principal: acceptRecord.same_principal === true,
+              local_role: acceptTarget.localRole,
+              same_principal: acceptTarget.samePrincipal,
               params: {
                 senderX25519PublicKeyB64: co?.senderX25519PublicKeyB64,
                 key_agreement: co?.key_agreement,
@@ -3839,6 +3850,9 @@ app.whenReady().then(async () => {
         // accepts fail with INTERNAL_ENDPOINT_INCOMPLETE.
         if (typeof contextOpts?.local_pairing_code_typed === 'string' && contextOpts.local_pairing_code_typed.trim()) {
           params.local_pairing_code_typed = contextOpts.local_pairing_code_typed.trim()
+        }
+        if (typeof contextOpts?.expected_preview_hash === 'string') {
+          params.expected_preview_hash = contextOpts.expected_preview_hash
         }
         const result = await handleHandshakeRPC('handshake.accept', params, db)
         if (!result?.success) {

@@ -12,6 +12,7 @@ import { runWrCodeGatePipeline, type WrCodeReceiverIdentity } from '../gatePipel
 import { createWrcGateDeps } from '../gatePipelineAdapter'
 import {
   WrcDirectoryClient,
+  displayOriginOf,
   dnsRecordsNamePart,
   resolveOperatorKeys,
 } from '../namespaceDirectory'
@@ -377,5 +378,110 @@ describe('resolveOperatorKeys folds only fully verified rollovers', () => {
     // b → d is fine, but the a → b link is missing: nothing beyond a trusts.
     const broken = resolveOperatorKeys({ kid: a.kid, pub: a.pub }, [buildOperatorRollover(b, d)])
     expect([...broken.keys()]).toEqual([a.kid])
+  })
+})
+
+// ── Contract v2.0 record content: connector (C4) and grammar (C5) ────────────
+
+describe('directory record carries a connector and a grammar this client implements [XVI.6.4]', () => {
+  /** A variant of the fixture record, validly signed by operator and publisher. */
+  function signedVariant(fx: WrcPublisherFixture, change: (base: Record<string, unknown>) => Record<string, unknown>) {
+    return signDirectoryRecord(change(unsignedOf(fx)), fx.operator, fx.root)
+  }
+
+  it('a record on a grammar this client does not implement refuses at Gate 2', async () => {
+    const fx = buildPublisherFixture()
+    const value = signedVariant(fx, (b) => ({ ...b, grammar_version: '1.95' }))
+    const r = await refusalFor(fx, { directoryRecord: { ok: true, value } })
+    expect(r.gate).toBe(2)
+    expect(r.reason).toBe('namespace_unverified')
+    expect(r.detail).toContain('grammar_unsupported')
+  })
+
+  it('a record without the connector field is malformed, even when validly signed', async () => {
+    const fx = buildPublisherFixture()
+    const value = signedVariant(fx, ({ connector: _c, ...rest }) => rest)
+    const r = await refusalFor(fx, { directoryRecord: { ok: true, value } })
+    expect(r.detail).toContain('record_malformed')
+  })
+
+  it.each([
+    ['a code hash without the sha256 prefix', { script_version: '1', code_hash: 'ab'.repeat(32) }],
+    ['an uppercase code hash', { script_version: '1', code_hash: `sha256:${'AB'.repeat(32)}` }],
+    ['an empty script version', { script_version: '', code_hash: null }],
+    ['a missing code hash', { script_version: '1' }],
+  ])('a connector with %s is malformed', async (_label, connector) => {
+    const fx = buildPublisherFixture()
+    const value = signedVariant(fx, (b) => ({ ...b, connector }))
+    const r = await refusalFor(fx, { directoryRecord: { ok: true, value } })
+    expect(r.detail).toContain('record_malformed')
+  })
+
+  it('the record is closed: a connector key the client does not decode breaks the operator signature', async () => {
+    const fx = buildPublisherFixture()
+    const value = signedVariant(fx, (b) => ({ ...b, connector: { script_version: '1', code_hash: null, extra: 'x' } }))
+    const r = await refusalFor(fx, { directoryRecord: { ok: true, value } })
+    expect(r.detail).toContain('operator_sig_invalid')
+  })
+
+  it('a connector naming a signed script hash admits', async () => {
+    const fx = buildPublisherFixture({
+      directoryOverrides: { connector: { script_version: '2.1', code_hash: `sha256:${'0f'.repeat(32)}` } },
+    })
+    const { deps } = depsFor(fx)
+    const r = await runWrCodeGatePipeline({ raw: P_REF, receiver: RECEIVER }, deps)
+    expect(r.ok, r.ok ? '' : `${r.reason}: ${r.detail}`).toBe(true)
+  })
+})
+
+// ── Displayed Responsible Domain (C8) ─────────────────────────────────────────
+
+describe('displayOriginOf renders only a normalized, registered domain [XVI.2, A.4.1]', () => {
+  const record = (display_origin: string | null, domains = ['example.com', 'brand-example.de']) =>
+    ({ ...buildPublisherFixture().directoryRecord, domains, display_origin })
+
+  it('returns a registered lowercase domain', () => {
+    expect(displayOriginOf(record('example.com'))).toBe('example.com')
+    expect(displayOriginOf(record('brand-example.de'))).toBe('brand-example.de')
+    expect(displayOriginOf(record('xn--mnchen-3ya.de', ['xn--mnchen-3ya.de']))).toBe('xn--mnchen-3ya.de')
+  })
+
+  // Each value is registered verbatim, so only the rule under test can refuse it.
+  it.each([
+    ['uppercase', 'Example.com'],
+    ['a scheme', 'https://example.com'],
+    ['a path', 'example.com/offers'],
+    ['a port', 'example.com:443'],
+    ['a trailing dot', 'example.com.'],
+    ['a www label', 'www.example.com'],
+    ['a single label', 'localhost'],
+    ['an IPv4 address', '192.0.2.1'],
+    ['a Unicode name instead of punycode', 'münchen.de'],
+    ['a label starting with a hyphen', '-example.com'],
+  ])('renders nothing for %s', (_label, origin) => {
+    expect(displayOriginOf(record(origin, [origin]))).toBeNull()
+  })
+
+  it('renders nothing when no origin is set or it is not registered', () => {
+    expect(displayOriginOf(record(null))).toBeNull()
+    expect(displayOriginOf(record('other.com'))).toBeNull()
+  })
+
+  it('renders nothing for a subdomain of another registered domain', () => {
+    expect(displayOriginOf(record('shop.example.com', ['example.com', 'shop.example.com']))).toBeNull()
+  })
+
+  it('the Gate-2 namespace verdict carries only the checked value', async () => {
+    for (const [origin, expected] of [
+      ['publisher.test', 'publisher.test'],
+      ['Publisher.test', null],
+      ['elsewhere.test', null],
+    ] as const) {
+      const fx = buildPublisherFixture({ directoryOverrides: { display_origin: origin } })
+      const r = await runWrCodeGatePipeline({ raw: P_REF, receiver: RECEIVER }, depsFor(fx).deps)
+      expect(r.ok, r.ok ? '' : `${r.reason}: ${r.detail}`).toBe(true)
+      if (!r.ok) return
+      expect(r.namespaces[0]!.display_origin).toBe(expected)
+    }
   })
 })
