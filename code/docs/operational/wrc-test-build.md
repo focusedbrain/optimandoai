@@ -16,7 +16,7 @@ This runs the normal build with the test registry compiled in. The app goes to i
 
 | | Release build (`pnpm run build`) | Test build (`pnpm run build:wrc-test`) |
 |---|---|---|
-| Windows | `C:\build-output\build007\win-unpacked\WRDeskT.exe` | `C:\build-output\build007-wrc-test\win-unpacked\WRDeskT.exe` |
+| Windows | `C:\build-output\build009\win-unpacked\WRDeskT.exe` | `C:\build-output\build009-wrc-test\win-unpacked\WRDeskT.exe` |
 | Linux | `dist/release/linux-unpacked/` | `dist/release-wrc-test/linux-unpacked/` |
 
 Both builds are the same app with the same user data (account, handshakes, vault). Only WR Code differs. Every screen of the test build shows the banner "WR Code test build: every WR Code resolves against built-in test publishers, not real ones", and it cannot be dismissed. The main-process log shows `[WRC] TEST REGISTRY ACTIVE` on first use, and `wrc.runtimeStatus` reports `testRegistry: true`.
