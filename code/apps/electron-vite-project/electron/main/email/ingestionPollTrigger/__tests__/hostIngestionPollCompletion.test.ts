@@ -56,9 +56,14 @@ describe('finalizePendingIngestionPollSyncResult (A5)', () => {
       delivered: 3,
     })
 
+    // 4 unpacked, 3 delivered: "fetched" is not success, so the UI must not be green.
     const ui = mapIngestionPollTriggerHostFeedback(finalized.ingestionPollTrigger!)
-    expect(ui.ok).toBe(true)
-    expect(ui.pullHint).toContain('delivered 3')
+    expect(ui.ok).toBe(false)
+    expect(ui.pullHint).toMatch(/could not deliver it to this device/)
+
+    const allDelivered = mapIngestionPollTriggerHostFeedback({ ...finalized.ingestionPollTrigger!, delivered: 4 })
+    expect(allDelivered.ok).toBe(true)
+    expect(allDelivered.pullHint).toContain('delivered 4')
   })
 
   it('timeout maps to ingestion_trigger_unreachable loud failure', async () => {

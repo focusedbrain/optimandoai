@@ -43,6 +43,7 @@ export interface IngestionTopologyStatus {
     | 'PAUSED_SANDBOX_UNREACHABLE'
     | 'PAUSED_HOST_DELEGATED'
     | 'DEGRADED_HELD_MESSAGES'
+    | 'PAUSED_DELIVERY_FAILED'
   thisNodeRole: 'host' | 'sandbox'
   owner: 'host' | 'sandbox'
 }
@@ -50,6 +51,7 @@ export interface IngestionTopologyStatus {
 // ── Scenario derivation ───────────────────────────────────────────────────────
 
 type ExplainerScenario =
+  | 'delivery_failed'
   | 'host_delegated_with_accounts'
   | 'host_delegated_no_accounts'
   | 'host_sandbox_unreachable'
@@ -66,6 +68,8 @@ function deriveScenario(
 
   // Single-machine: never show dual-setup wording
   if (code === 'OK_SINGLE_MACHINE') return null
+
+  if (code === 'PAUSED_DELIVERY_FAILED') return 'delivery_failed'
 
   if (code === 'PAUSED_SANDBOX_UNREACHABLE' && thisNodeRole === 'host') {
     return 'host_sandbox_unreachable'
@@ -200,6 +204,30 @@ export const IngestionTopologyExplainer: React.FC<IngestionTopologyExplainerProp
           }}
         >
           ✕ Sandbox unreachable — mail not synced
+        </span>
+      </div>
+    )
+  }
+
+  // ── Sandbox fetched mail the host never received (loud — never "receiving") ─
+  if (scenario === 'delivery_failed') {
+    return (
+      <div style={errorStyle} aria-label="Sandbox mail not delivered" role="alert">
+        <span style={{ color: textColor, fontWeight: 600 }}>
+          {status.thisNodeRole === 'host' ? '🖥 Host device (sends mail)' : '📥 Sandbox device (headless ingestion)'}
+        </span>
+        <span>
+          The sandbox fetched new mail but could not deliver it to the host inbox. The mail stays on
+          your mail server and is fetched again on the next Sync.
+        </span>
+        <span
+          style={{
+            ...chipStyle,
+            background: isLight ? 'rgba(239,68,68,0.12)' : 'rgba(248,113,113,0.16)',
+            color: isLight ? '#991b1b' : '#fca5a5',
+          }}
+        >
+          ✕ Mail not delivered from sandbox
         </span>
       </div>
     )

@@ -339,6 +339,9 @@ describe('buildProductionSandboxIngestionDeps — fail-closed HELD modes', () =>
     expect(r.depackaged).toBe(1)
     expect(r.delivered).toBe(0)
     expect(r.held).toBe(1)
+    // Unpacked but not delivered is a failure the host must surface, never 'ok'.
+    expect(r.ok).toBe(false)
+    expect(r.status).toBe('held_delivery_failed')
   })
 })
 

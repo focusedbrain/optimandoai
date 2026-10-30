@@ -10,7 +10,7 @@ import { getHandshakeRecord } from '../../handshake/db'
 import type { HandshakeRecord } from '../../handshake/types'
 import { getInstanceId } from '../../orchestrator/orchestratorModeStore'
 import { isEffectiveSandboxNode } from '../../sandbox/sandboxOutboundPolicy'
-import { openServiceRpcPayloadResolvingLocalKey } from '../../serviceRpc/sealedServiceRpc'
+import { claimSealedServiceRpcMessage, openServiceRpcPayloadResolvingLocalKey } from '../../serviceRpc/sealedServiceRpc'
 import {
   recordHostIngestionPollAck,
   type HostIngestionPollAck,
@@ -145,7 +145,7 @@ export async function tryHandleIngestionPollResultRelayCapsule(
     return true
   }
 
-  const opened = await openServiceRpcPayloadResolvingLocalKey(record, envelope)
+  const opened = await openServiceRpcPayloadResolvingLocalKey(record, envelope, { requireAuthenticated: true })
   if (!opened.ok) {
     console.warn(
       `[IngestionPollTrigger] result-open-on-host failed. request_handshake=${envelope.handshake_id} code=${opened.code}`,
@@ -189,6 +189,13 @@ export async function tryHandleIngestionPollResultRelayCapsule(
       `[IngestionPollTrigger] result-handler declining non-poll inner type=${innerType || '(empty)'} — yielding to next handler`,
     )
     return false
+  }
+
+  const claimed = claimSealedServiceRpcMessage(envelope)
+  if (!claimed.ok) {
+    console.warn(`[IngestionPollTrigger] host sealed result — replayed envelope dropped. code=${claimed.code}`)
+    ctx.sendAck([ctx.relayMessageId])
+    return true
   }
 
   if (!isValidIngestionPollBaseEnvelope(inner)) {

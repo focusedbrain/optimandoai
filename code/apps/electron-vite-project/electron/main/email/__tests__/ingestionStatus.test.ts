@@ -400,6 +400,48 @@ describe('resolveIngestionStatus — IngestionStatusCode mapping', () => {
     expect(res.code).toBe('PAUSED_HOST_DELEGATED')
   })
 
+  it('dedicated delegated host: sandbox unpacked mail the host never received → PAUSED_DELIVERY_FAILED', async () => {
+    _setIngestionStatusTopologyKindForTests('dedicated')
+    mockResolveIngestionOwnership.mockReturnValue(delegatedOwnershipOnHost())
+    // An older sandbox build still reports 'ok' — the counters decide.
+    recordHostIngestionPollAck({
+      accountId: 'acc-host',
+      requestId: 'req-4',
+      pollStatus: 'ok',
+      fetched: 5,
+      depackaged: 5,
+      delivered: 0,
+      held: 5,
+      at: Date.now(),
+    })
+
+    const res = await resolveIngestionStatus(['acc-host'])
+    expect(res.code).toBe('PAUSED_DELIVERY_FAILED')
+  })
+
+  it('sandbox: last poll held_delivery_failed → PAUSED_DELIVERY_FAILED (never OK_SANDBOX_FETCHING)', async () => {
+    _setIngestionStatusTopologyKindForTests('dedicated')
+    mockResolveIngestionOwnership.mockReturnValue(sandboxOwnsOnSandbox())
+    mockHasRoleScopedTokens.mockReturnValue(true)
+    mockGetLastSandboxPollOutcomes.mockReturnValue(new Map([
+      ['acc1', pollOutcome('held_delivery_failed', { fetched: 3, delivered: 0, held: 3 })],
+    ]))
+
+    const res = await resolveIngestionStatus(['acc1'])
+    expect(res.code).toBe('PAUSED_DELIVERY_FAILED')
+  })
+
+  it('sandbox: last poll held_depackage_failed → DEGRADED_HELD_MESSAGES', async () => {
+    mockResolveIngestionOwnership.mockReturnValue(sandboxOwnsOnSandbox())
+    mockHasRoleScopedTokens.mockReturnValue(true)
+    mockGetLastSandboxPollOutcomes.mockReturnValue(new Map([
+      ['acc1', pollOutcome('held_depackage_failed', { fetched: 3, delivered: 2, held: 1 })],
+    ]))
+
+    const res = await resolveIngestionStatus(['acc1'])
+    expect(res.code).toBe('DEGRADED_HELD_MESSAGES')
+  })
+
   it('dedicated sandbox working → OK_SANDBOX_FETCHING (quiet)', async () => {
     _setIngestionStatusTopologyKindForTests('dedicated')
     mockResolveIngestionOwnership.mockReturnValue(sandboxOwnsOnSandbox())

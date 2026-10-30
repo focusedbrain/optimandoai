@@ -9,6 +9,7 @@
  *   ACTION_NEEDED_READ_CONSENT  → amber "paused" warning
  *   PAUSED_SANDBOX_UNREACHABLE  → amber "paused" warning
  *   DEGRADED_HELD_MESSAGES      → softer amber "degraded" notice
+ *   PAUSED_DELIVERY_FAILED      → red: sandbox fetched mail the host never received
  *
  * Silent states (no banner):
  *   OK_SINGLE_MACHINE           → healthy single-machine, no topology info needed
@@ -55,6 +56,12 @@ const COPY: Partial<
     detail:
       'Some messages were held during headless depackaging on your sandbox. Check the sandbox device for details.',
     level: 'degraded',
+  },
+  PAUSED_DELIVERY_FAILED: {
+    title: 'Mail not delivered from sandbox',
+    detail:
+      'Your sandbox fetched new mail but could not deliver it to your host inbox. The mail stays on your mail server and is fetched again on the next Sync.',
+    level: 'error',
   },
 }
 

@@ -52,6 +52,18 @@ export const TRIGGER_READ_CONSENT_MISSING_HINT =
 export const TRIGGER_FETCH_FAILED_HINT =
   'Sandbox could not fetch mail — check the sandbox is online and the read account credentials are valid.'
 
+/** Sandbox ack: mail fetched and unpacked on the sandbox, but not delivered to this host. */
+export const TRIGGER_DELIVERY_FAILED_HINT =
+  'Your sandbox fetched new mail but could not deliver it to this device. The mail stays on your mail server and is fetched again on the next Sync.'
+
+/** Sandbox ack with any other non-ok status: never reported as success. */
+export const TRIGGER_NOT_COMPLETED_HINT =
+  'Your sandbox could not complete this sync — mail was not synced. Check the sandbox device.'
+
+/** Sandbox ack: some mail could not be unpacked safely on the sandbox and was held there. */
+export const TRIGGER_DEPACKAGE_HELD_HINT =
+  'Some mail could not be unpacked safely on your sandbox device and was held there. It stays on your mail server.'
+
 export interface IngestionPollTriggerCounts {
   requestId: string
   pollStatus: string
@@ -59,6 +71,18 @@ export interface IngestionPollTriggerCounts {
   depackaged: number
   delivered: number
   held: number
+}
+
+/**
+ * "Fetched" is not success, "delivered" is. A poll that delivered fewer messages than it
+ * fetched is never reported as ok, whatever status the sandbox sent (older sandbox builds
+ * report `ok` with held messages).
+ */
+export function effectiveIngestionPollStatus(trigger: Omit<IngestionPollTriggerCounts, 'requestId'>): string {
+  if (trigger.pollStatus !== 'ok') return trigger.pollStatus
+  if (trigger.depackaged > trigger.delivered) return 'held_delivery_failed'
+  if (trigger.fetched > trigger.delivered) return 'held_depackage_failed'
+  return 'ok'
 }
 
 export function formatIngestionPollTriggerPullHint(trigger: IngestionPollTriggerCounts): string {
@@ -83,29 +107,20 @@ export function mapIngestionPollTriggerHostFeedback(trigger: IngestionPollTrigge
   pullHint: string
   syncWarnings: string[]
 } {
-  if (trigger.pollStatus === 'pending') {
+  const pollStatus = effectiveIngestionPollStatus(trigger)
+  if (pollStatus === 'pending') {
     return mapIngestionPollTriggerPendingFeedback(trigger)
   }
-  if (trigger.pollStatus === 'held_read_consent_missing') {
-    return {
-      ok: false,
-      pullHint: TRIGGER_READ_CONSENT_MISSING_HINT,
-      syncWarnings: [TRIGGER_READ_CONSENT_MISSING_HINT],
-    }
+  const failureHint: Record<string, string> = {
+    held_read_consent_missing: TRIGGER_READ_CONSENT_MISSING_HINT,
+    trigger_unreachable: TRIGGER_UNREACHABLE_HINT,
+    held_fetch_failed: TRIGGER_FETCH_FAILED_HINT,
+    held_delivery_failed: TRIGGER_DELIVERY_FAILED_HINT,
+    held_depackage_failed: TRIGGER_DEPACKAGE_HELD_HINT,
   }
-  if (trigger.pollStatus === 'trigger_unreachable') {
-    return {
-      ok: false,
-      pullHint: TRIGGER_UNREACHABLE_HINT,
-      syncWarnings: [TRIGGER_UNREACHABLE_HINT],
-    }
-  }
-  if (trigger.pollStatus === 'held_fetch_failed') {
-    return {
-      ok: false,
-      pullHint: TRIGGER_FETCH_FAILED_HINT,
-      syncWarnings: [TRIGGER_FETCH_FAILED_HINT],
-    }
+  if (pollStatus !== 'ok') {
+    const hint = failureHint[pollStatus] ?? `${TRIGGER_NOT_COMPLETED_HINT} (${pollStatus})`
+    return { ok: false, pullHint: hint, syncWarnings: [hint] }
   }
   return {
     ok: true,

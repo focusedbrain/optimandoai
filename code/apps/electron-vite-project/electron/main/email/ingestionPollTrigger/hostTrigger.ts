@@ -226,7 +226,7 @@ export async function sendDedicatedSandboxIngestionPollTrigger(
       `handshake=${record.handshake_id} receiver=${receiverDeviceId}`,
   )
 
-  const sealed = sealServiceRpcForRelay(record, {
+  const sealed = await sealServiceRpcForRelay(record, {
     handshake_id: record.handshake_id,
     sender_device_id: wire.sender_device_id,
     receiver_device_id: receiverDeviceId,

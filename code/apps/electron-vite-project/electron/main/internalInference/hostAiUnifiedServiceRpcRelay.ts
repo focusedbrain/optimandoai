@@ -101,7 +101,7 @@ export async function trySendHostAiP2pSignalViaUnifiedRelay(params: {
     }
   }
 
-  const sealed = sealServiceRpcForRelay(ar.record, {
+  const sealed = await sealServiceRpcForRelay(ar.record, {
     handshake_id: hid,
     sender_device_id: sender,
     receiver_device_id: receiver,

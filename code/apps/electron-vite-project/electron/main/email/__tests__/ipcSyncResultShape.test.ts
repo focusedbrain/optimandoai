@@ -26,6 +26,10 @@ import {
   mapIngestionPollTriggerPendingFeedback,
   mapIngestionTriggerFailureSkipReason,
   TRIGGER_PENDING_HINT,
+  TRIGGER_DELIVERY_FAILED_HINT,
+  TRIGGER_DEPACKAGE_HELD_HINT,
+  TRIGGER_NOT_COMPLETED_HINT,
+  effectiveIngestionPollStatus,
 } from '../ipcSyncResultShape'
 
 describe('mapSkipReasonToIpcWarning — skip reason routing', () => {
@@ -220,6 +224,58 @@ describe('mapIngestionPollTriggerHostFeedback', () => {
     expect(offline.ok).toBe(false)
     expect(offline.syncWarnings[0]).not.toBe(missing.syncWarnings[0])
     expect(offline.syncWarnings[0]).toContain('could not fetch mail')
+  })
+
+  it('fetched but not delivered is never success, whatever status the sandbox sends', () => {
+    for (const pollStatus of ['ok', 'held_delivery_failed']) {
+      const r = mapIngestionPollTriggerHostFeedback({
+        requestId: 'req-d',
+        pollStatus,
+        fetched: 5,
+        depackaged: 5,
+        delivered: 0,
+        held: 5,
+      })
+      expect(r.ok).toBe(false)
+      expect(r.syncWarnings[0]).toBe(TRIGGER_DELIVERY_FAILED_HINT)
+    }
+  })
+
+  it('messages held during unpacking → held copy, not success', () => {
+    const r = mapIngestionPollTriggerHostFeedback({
+      requestId: 'req-p',
+      pollStatus: 'ok',
+      fetched: 3,
+      depackaged: 2,
+      delivered: 2,
+      held: 1,
+    })
+    expect(r.ok).toBe(false)
+    expect(r.syncWarnings[0]).toBe(TRIGGER_DEPACKAGE_HELD_HINT)
+  })
+
+  it('any other non-ok status is a failure that names the status (no silent success)', () => {
+    for (const pollStatus of ['held_no_custody_key', 'not_owner', 'E_SOMETHING_NEW']) {
+      const r = mapIngestionPollTriggerHostFeedback({
+        requestId: 'req-x',
+        pollStatus,
+        fetched: 0,
+        depackaged: 0,
+        delivered: 0,
+        held: 0,
+      })
+      expect(r.ok).toBe(false)
+      expect(r.syncWarnings[0]).toContain(TRIGGER_NOT_COMPLETED_HINT)
+      expect(r.syncWarnings[0]).toContain(pollStatus)
+    }
+  })
+
+  it('effectiveIngestionPollStatus: only fully delivered is ok', () => {
+    const base = { pollStatus: 'ok', fetched: 2, depackaged: 2, delivered: 2, held: 0 }
+    expect(effectiveIngestionPollStatus(base)).toBe('ok')
+    expect(effectiveIngestionPollStatus({ ...base, delivered: 1, held: 1 })).toBe('held_delivery_failed')
+    expect(effectiveIngestionPollStatus({ ...base, depackaged: 1, delivered: 1, held: 1 })).toBe('held_depackage_failed')
+    expect(effectiveIngestionPollStatus({ ...base, pollStatus: 'trigger_unreachable' })).toBe('trigger_unreachable')
   })
 
   it('ok poll → success feedback', () => {

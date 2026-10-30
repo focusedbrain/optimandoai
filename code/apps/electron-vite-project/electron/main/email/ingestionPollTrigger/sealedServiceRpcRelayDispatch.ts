@@ -1,6 +1,7 @@
 /**
  * Coordination WS dispatch for sealed_service_rpc_v1 — Host AI inference result first on sandbox,
- * then ingestion poll result (host-only), unified relay, inference request, poll request.
+ * then ingestion poll result (host-only), unified relay, inference request, sandbox mail
+ * delivery (host) and its receipt (sandbox), poll request.
  */
 
 import { SEALED_SERVICE_RPC_CAPSULE_TYPE } from '@repo/ingestion-core'
@@ -52,6 +53,13 @@ export async function tryHandleSealedServiceRpcRelayCapsule(
     '../../internalInference/hostAiSealedInferenceRelayHandler'
   )
   if (await tryHandleHostAiSealedInferenceRequestRelayCapsule(ctx)) return
+
+  // Sandbox → host mail delivery (host side) and its receipt (sandbox side) — D-38.
+  // Before the poll-request handler, which answers any other inner type with an error.
+  const { tryHandleSandboxEmailDeliveryRelayCapsule } = await import('../sandboxDelivery/relayDeliveryHostHandler')
+  if (await tryHandleSandboxEmailDeliveryRelayCapsule(ctx)) return
+  const { tryHandleSandboxEmailDeliveryAckRelayCapsule } = await import('../sandboxDelivery/relayDelivery')
+  if (await tryHandleSandboxEmailDeliveryAckRelayCapsule(ctx)) return
 
   if (await tryHandleIngestionPollRelayCapsule(ctx)) return
 

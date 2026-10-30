@@ -5,7 +5,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { x25519 } from '@noble/curves/ed25519'
 import { HandshakeState, type HandshakeRecord } from '../../handshake/types'
-import { sealServiceRpcPayload } from '../../serviceRpc/sealedServiceRpc'
+import { sealServiceRpcPayloadAuthenticated } from '../../serviceRpc/sealedServiceRpc'
 import { buildSealedServiceRpcRelayCapsule } from '../../email/ingestionPollTrigger/relaySend'
 import {
   _resetPendingForTests,
@@ -20,6 +20,13 @@ const isEffectiveSandboxNode = vi.hoisted(() => vi.fn((_db: unknown) => false))
 const getHandshakeRecord = vi.hoisted(() => vi.fn((_db: unknown, _hid: string) => null as HandshakeRecord | null))
 const consoleLog = vi.hoisted(() => vi.fn())
 const consoleWarn = vi.hoisted(() => vi.fn())
+
+
+// Relay receivers require sender-authenticated (v2) envelopes (roadmap 0.26): seal like the product does.
+const sealServiceRpcPayload = (
+  record: HandshakeRecord,
+  input: Parameters<typeof sealServiceRpcPayloadAuthenticated>[1],
+) => sealServiceRpcPayloadAuthenticated(record, input, record.local_x25519_private_key_b64)
 
 vi.mock('../../handshake/db', () => ({
   getHandshakeRecord: (db: unknown, hid: string) => getHandshakeRecord(db, hid),

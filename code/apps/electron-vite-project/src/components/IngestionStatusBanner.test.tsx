@@ -93,6 +93,16 @@ describe('IngestionStatusBanner — actionable states render correct copy', () =
     // Degraded is not a hard "paused" — title should not say "paused"
     expect(html).not.toContain('Headless ingestion paused')
   })
+
+  it('PAUSED_DELIVERY_FAILED: loud alert that fetched mail did not reach the host', () => {
+    const html = renderToStaticMarkup(
+      <IngestionStatusBanner status={makeStatus('PAUSED_DELIVERY_FAILED')} />,
+    )
+    expect(html).toContain('Mail not delivered from sandbox')
+    expect(html).toContain('could not deliver it to your host inbox')
+    expect(html).toContain('role="alert"')
+    expect(html).toContain('data-ingestion-code="PAUSED_DELIVERY_FAILED"')
+  })
 })
 
 describe('IngestionStatusBanner — silent states render nothing', () => {

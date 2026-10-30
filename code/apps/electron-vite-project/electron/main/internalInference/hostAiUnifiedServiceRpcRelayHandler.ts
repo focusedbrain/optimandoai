@@ -6,7 +6,7 @@
 import { getHandshakeRecord } from '../handshake/db'
 import type { HandshakeRecord } from '../handshake/types'
 import { getInstanceId } from '../orchestrator/orchestratorModeStore'
-import { openServiceRpcPayload } from '../serviceRpc/sealedServiceRpc'
+import { claimSealedServiceRpcMessage, openServiceRpcPayloadResolvingLocalKey } from '../serviceRpc/sealedServiceRpc'
 import {
   parseSealedServiceRpcEnvelopeFromRelayCapsule,
   type IngestionPollRelayCapsuleContext,
@@ -110,7 +110,7 @@ export async function tryHandleHostAiUnifiedServiceRpcRelayCapsule(
     return true
   }
 
-  const opened = openServiceRpcPayload(record, envelope)
+  const opened = await openServiceRpcPayloadResolvingLocalKey(record, envelope, { requireAuthenticated: true })
   if (!opened.ok) {
     console.warn(
       `[HOST_AI_UNIFIED_RELAY_IN] drop reason=open_failed code=${opened.code} handshake=${envelope.handshake_id} relay_message_id=${ctx.relayMessageId}`,
@@ -133,6 +133,13 @@ export async function tryHandleHostAiUnifiedServiceRpcRelayCapsule(
     console.warn(
       `[HOST_AI_UNIFIED_RELAY_IN] drop reason=inner_forbidden inner=${innerType} handshake=${envelope.handshake_id} relay_message_id=${ctx.relayMessageId}`,
     )
+    ctx.sendAck([ctx.relayMessageId])
+    return true
+  }
+
+  const claimed = claimSealedServiceRpcMessage(envelope)
+  if (!claimed.ok) {
+    console.warn(`[HOST_AI_UNIFIED_RELAY_IN] drop reason=replay code=${claimed.code} handshake=${envelope.handshake_id} relay_message_id=${ctx.relayMessageId}`)
     ctx.sendAck([ctx.relayMessageId])
     return true
   }
