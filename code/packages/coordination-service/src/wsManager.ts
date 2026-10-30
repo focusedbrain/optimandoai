@@ -214,8 +214,14 @@ export function createWsManager(store: StoreAdapter): WsManagerAdapter {
       clients.set(clientKey, client)
       wsToClientKey.set(ws, clientKey)
 
-      ws.on('close', () => removeClient(clientKey))
-      ws.on('error', () => removeClient(clientKey))
+      // Only the registered socket may deregister its key: a socket replaced by a newer
+      // connection of the same (user, device) closes after the new one registered, and
+      // must not remove the new registration (live push would then miss the device).
+      const removeIfCurrent = (): void => {
+        if (clients.get(clientKey)?.ws === ws) removeClient(clientKey)
+      }
+      ws.on('close', removeIfCurrent)
+      ws.on('error', removeIfCurrent)
 
       const deliveredOnConnect = deliverPendingToWs(store, userId, email, did, (payload) => {
         ws.send(payload)

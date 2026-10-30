@@ -729,6 +729,17 @@ export function createCoordinationWsClient(
 
   const connect = async (): Promise<void> => {
     intentionalShutdown = false
+    // One socket per client. The relay keeps one connection per (user, device) and
+    // terminates the older one when a second arrives; a second socket from this client
+    // therefore evicts the first, whose close used to start yet another connect — an
+    // endless eviction loop. A caller that finds a socket open or opening waits for it.
+    if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+      return
+    }
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer)
+      reconnectTimer = null
+    }
     if (!config.use_coordination || !config.coordination_enabled) {
       console.log('[Coordination] Skipping connect: use_coordination=', config.use_coordination, 'coordination_enabled=', config.coordination_enabled)
       return
@@ -825,16 +836,25 @@ export function createCoordinationWsClient(
     )
     console.log('[Coordination] Connecting to relay WebSocket:', wsUrl.replace(/\?.*/, ''))
 
+    // A concurrent connect() may have opened a socket while this one awaited the token.
+    if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+      return
+    }
+
     return new Promise((resolve, reject) => {
+      let sock: WebSocket
       try {
-        ws = new WebSocket(url)
+        sock = new WebSocket(url)
+        ws = sock
       } catch (err: any) {
         setP2PHealthCoordinationError(err?.message ?? 'WebSocket connect failed')
         reject(err)
         return
       }
+      const settle = { done: false }
 
-      ws.on('open', () => {
+      sock.on('open', () => {
+        settle.done = true
         const ssoOpen = getSsoSession()
         const openSnap = relayIdentitySnapshot(ssoOpen)
         const openDev = getCanonicalRelayDeviceId()
@@ -890,7 +910,7 @@ export function createCoordinationWsClient(
         }
       })
 
-      ws.on('message', (data: Buffer | string) => {
+      sock.on('message', (data: Buffer | string) => {
         bumpActivity()
         try {
           const text = typeof data === 'string' ? data : data.toString('utf8')
@@ -1076,7 +1096,19 @@ export function createCoordinationWsClient(
         }
       })
 
-      ws.on('close', () => {
+      sock.on('close', (code: number, reason: Buffer) => {
+        const reasonText = reason?.length ? reason.toString('utf8').slice(0, 120) : ''
+        if (ws !== sock) {
+          // A socket this client already replaced (or shut down) closed late: it must not
+          // touch the current socket's state or start another connect.
+          console.log('[RELAY_WS_LIFECYCLE] close_stale_socket', JSON.stringify({ code, reason: reasonText }))
+          return
+        }
+        console.log('[RELAY_WS_LIFECYCLE] close', JSON.stringify({ code, reason: reasonText, intentional: intentionalShutdown }))
+        if (!settle.done) {
+          settle.done = true
+          reject(new Error(`coordination_ws_closed_before_open:${code}`))
+        }
         ws = null
         _coordinationWsJsonSender = null
         stopHeartbeat()
@@ -1090,16 +1122,17 @@ export function createCoordinationWsClient(
         scheduleReconnect()
       })
 
-      ws.on('error', (err: Error) => {
+      sock.on('error', (err: Error) => {
+        if (ws !== sock) return
         setP2PHealthCoordinationError(err?.message ?? 'WebSocket error')
       })
 
-      ws.on('ping', () => {
+      sock.on('ping', () => {
         bumpActivity()
-        ws?.pong()
+        sock.pong()
       })
 
-      ws.on('pong', () => {
+      sock.on('pong', () => {
         bumpActivity()
       })
     })
