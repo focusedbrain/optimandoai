@@ -5,6 +5,7 @@ import { extractAllTabsDom } from './utils/watchdogDomExtract'
 import { maybePresentOrchestratorDisplayGridSession } from './services/presentOrchestratorDisplayGridSession'
 import { findOpenSessionSurface } from './services/sessionSurfaceResolver'
 import { activateSessionForOptimization } from './services/sessionActivationForOptimization'
+import { createLaunchSecretFetch, isStaleLaunchSecretResponse } from './rpc/launchSecretFetch'
 
 import { RUN_MODE_ALLOCATED_SESSION_TYPE } from './services/runModeAllocatedSessionAutomation'
 import type { CustomModeRuntimeConfig } from './shared/ui/customModeRuntime'
@@ -566,6 +567,27 @@ async function ensureLaunchSecret(maxWaitMs = 10000): Promise<boolean> {
   return !!_launchSecret;
 }
 
+/**
+ * Wait until the WebSocket handshake replaces a secret the app rejected (it makes a new
+ * one on every start). Keeps the old value if no handshake arrives in time.
+ */
+async function awaitFreshLaunchSecret(stale: string | null, maxWaitMs = 6000): Promise<boolean> {
+  // Connects now if the socket is down, instead of waiting for the backoff timer.
+  try { await connectToWebSocketServer(); } catch { /* ignore */ }
+  const start = Date.now();
+  while (Date.now() - start < maxWaitMs) {
+    if (_launchSecret && _launchSecret !== stale) return true;
+    await new Promise(r => setTimeout(r, 250));
+  }
+  return false;
+}
+
+/** fetch() to the desktop app with X-Launch-Secret; one retry after an app restart. */
+const electronFetch = createLaunchSecretFetch({
+  getSecret: () => _launchSecret,
+  awaitFreshSecret: (stale) => awaitFreshLaunchSecret(stale),
+})
+
 function _cacheVsbt(token: string | null) {
   _cachedVsbt = token
   _vsbtCachedAt = token ? Date.now() : 0
@@ -1107,6 +1129,9 @@ async function electronRequest(
     }
   }
 
+  // After an app restart the cached launch secret is stale until the handshake: retry once, outside the backoff budget.
+  let launchSecretRefreshed = false;
+
   // Retry loop with exponential backoff
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     if (attempt > 0) {
@@ -1133,8 +1158,9 @@ async function electronRequest(
     try {
       // Inject per-launch auth secret into every request
       const mergedHeaders = new Headers((options as any)?.headers)
-      if (_launchSecret) {
-        mergedHeaders.set('X-Launch-Secret', _launchSecret)
+      const sentSecret = _launchSecret
+      if (sentSecret) {
+        mergedHeaders.set('X-Launch-Secret', sentSecret)
       }
       const response = await fetch(url, {
         ...options,
@@ -1142,6 +1168,14 @@ async function electronRequest(
         signal: controller.signal
       });
       clearTimeout(timeoutId);
+
+      if (!launchSecretRefreshed && (await isStaleLaunchSecretResponse(response))) {
+        launchSecretRefreshed = true
+        if (await awaitFreshLaunchSecret(sentSecret)) {
+          attempt--
+          continue
+        }
+      }
 
       const contentType = response.headers.get('content-type') || '';
 
@@ -3173,11 +3207,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         }
         
         // Step 1: Get auth URL from Electron (Electron starts loopback server but does NOT open browser)
-        const urlResponse = await fetch(`${ELECTRON_BASE_URL}/api/auth/login-url`, {
+        const urlResponse = await electronFetch(`${ELECTRON_BASE_URL}/api/auth/login-url`, {
           method: 'POST',
           headers: _electronHeaders(),
-          signal: AbortSignal.timeout(10000),
-        });
+        }, 10000);
         const urlData = await urlResponse.json();
         
         if (!urlData.ok || !urlData.authUrl) {
@@ -3190,11 +3223,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const authTab = await chrome.tabs.create({ url: urlData.authUrl, active: true });
         
         // Step 3: Wait for Electron to receive the callback (long-poll)
-        const waitResponse = await fetch(`${ELECTRON_BASE_URL}/api/auth/login-wait`, {
+        const waitResponse = await electronFetch(`${ELECTRON_BASE_URL}/api/auth/login-wait`, {
           method: 'POST',
           headers: _electronHeaders(),
-          signal: AbortSignal.timeout(130000), // 130s = Electron's 120s LOGIN_TIMEOUT_MS + 10s buffer
-        });
+        }, 130000); // 130s = Electron's 120s LOGIN_TIMEOUT_MS + 10s buffer
         const waitData = await waitResponse.json();
         
         if (waitData.ok) {
@@ -3252,11 +3284,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         // Ensure launch secret is available (may need WebSocket handshake)
         await ensureLaunchSecret(3000);
 
-        const response = await fetch(`${ELECTRON_BASE_URL}/api/auth/status`, {
+        const response = await electronFetch(`${ELECTRON_BASE_URL}/api/auth/status`, {
           method: 'GET',
           headers: _electronHeaders(),
-          signal: AbortSignal.timeout(5000),
-        });
+        }, 5000);
+        // A rejected request says nothing about the session; do not cache it as "logged out".
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const data = await response.json();
         if (DEBUG_AUTH_STATUS_LOG) {
         }
@@ -3335,11 +3368,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       };
       
       try {
-        const response = await fetch(`${ELECTRON_BASE_URL}/api/auth/logout`, {
+        const response = await electronFetch(`${ELECTRON_BASE_URL}/api/auth/logout`, {
           method: 'POST',
           headers: _electronHeaders(),
-          signal: AbortSignal.timeout(10000),
-        });
+        }, 10000);
         const data = await response.json();
         // Clear stored state
         await clearAuthState();
