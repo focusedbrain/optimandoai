@@ -54,12 +54,13 @@ export function decodeJwtSubForLogs(token: string): string {
 export function coordinationRegistryUserIdsForSession(
   session: SSOSession,
   record: {
-    handshake_type?: 'internal' | 'standard' | null
+    /** Profile-derived same-principal parameter (Q9). */
+    same_principal?: boolean | null
     initiator?: PartyIdentity | null
     acceptor?: PartyIdentity | null
   },
 ): { initiator_user_id: string; acceptor_user_id: string } {
-  if (record.handshake_type === 'internal') {
+  if (record.same_principal === true) {
     const sub = getRelayUserIdForRegistry(session)
     if (sub) return { initiator_user_id: sub, acceptor_user_id: sub }
   }

@@ -6,7 +6,7 @@
  * filled counterparty with the *local* acceptor key when the initiator key was still missing.
  */
 
-import { describe, test, expect, beforeEach, vi } from 'vitest'
+import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest'
 
 // Email gateway reads `app.getPath` at module-load time via `ingestion/ipc` → `emailTransport` →
 // `messageRouter` (same pattern as ipc.internal.relayPush.test.ts).
@@ -26,8 +26,12 @@ vi.mock('electron', () => ({
 import { buildTestSession } from '../sessionFactory'
 import { createHandshakeTestDb } from './handshakeTestDb'
 import { migrateIngestionTables } from '../../ingestion/persistenceDb'
-import { handleIngestionRPC } from '../../ingestion/ipc'
 import { _resetSSOSessionProvider } from '../ipc'
+import {
+  installInMemoryConnectOffers,
+  uninstallInMemoryConnectOffers,
+  submitCapsuleThroughConsentGate,
+} from './connectOfferConsentTestKit'
 import { setEmailSendFn, _resetEmailSendFn } from '../emailTransport'
 import { buildInitiateCapsuleWithKeypair, buildAcceptCapsule, buildContextSyncCapsule } from '../capsuleBuilder'
 import { updateHandshakeSigningKeys, updateHandshakeCounterpartyKey } from '../db'
@@ -50,17 +54,13 @@ function bobSession(): SSOSession {
   })
 }
 
+// Phase 4 [IX.3.1]: inbound initiates stage a Connect offer; the kit consents
+// and re-runs the one pipeline behind the consent gate.
+beforeEach(() => installInMemoryConnectOffers())
+afterEach(() => uninstallInMemoryConnectOffers())
+
 async function submitCapsule(capsuleJson: string, db: any, session: SSOSession) {
-  return handleIngestionRPC(
-    'ingestion.ingest',
-    {
-      rawInput: { body: capsuleJson, mime_type: 'application/vnd.beap+json' },
-      sourceType: 'email',
-      transportMeta: { channel_id: 'test', mime_type: 'application/vnd.beap+json' },
-    },
-    db,
-    session,
-  )
+  return submitCapsuleThroughConsentGate(capsuleJson, db, session, { channelId: 'test' })
 }
 
 describe('counterparty key binding + context_sync (regression)', () => {

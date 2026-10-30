@@ -169,6 +169,13 @@ export function sanitisedPackageToBeapMessage(
     ((pkg.capsule as unknown as Record<string, unknown>).session_import_artefact as SessionImportArtefact | null | undefined) ??
     null
 
+  const capsuleRec = pkg.capsule as unknown as Record<string, unknown>
+  const contentProvenanceRaw = capsuleRec.content_provenance
+  const contentProvenance =
+    contentProvenanceRaw && typeof contentProvenanceRaw === 'object' && !Array.isArray(contentProvenanceRaw)
+      ? (contentProvenanceRaw as Record<string, unknown>)
+      : undefined
+
   return {
     messageId: deriveMessageId(pkg),
     senderFingerprint: pkg.header.sender_fingerprint,
@@ -193,5 +200,6 @@ export function sanitisedPackageToBeapMessage(
     validation_reason: null,
     // Canonical artefact from capsule plaintext (Decision A — PR 5).
     session_import_artefact: sessionImportArtefact,
+    ...(contentProvenance ? { contentProvenance } : {}),
   }
 }

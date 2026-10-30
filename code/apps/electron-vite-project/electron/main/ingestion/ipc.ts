@@ -49,10 +49,12 @@ export async function handleIngestionRPC(
 ): Promise<any> {
   switch (method) {
     case 'ingestion.ingest': {
-      const { rawInput, sourceType, transportMeta } = params as {
+      const { rawInput, sourceType, transportMeta, formationConsent } = params as {
         rawInput: RawInput;
         sourceType: SourceType;
         transportMeta: TransportMetadata;
+        /** Phase 4 (Q1): consent gate ref — only the consent flow hands one in. */
+        formationConsent?: import('../handshake/formationPipeline').FormationConsentRef;
       }
 
       const result = await processIncomingInput(rawInput, sourceType, transportMeta)
@@ -148,6 +150,7 @@ export async function handleIngestionRPC(
             canonicalValidated,
             receiverPolicy,
             ssoSession,
+            formationConsent ? { formationConsent } : undefined,
           )
 
           if (!handshakeResult.success) {

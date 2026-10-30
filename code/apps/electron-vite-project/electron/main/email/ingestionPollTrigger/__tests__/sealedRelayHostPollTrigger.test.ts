@@ -104,7 +104,7 @@ function hostToSandboxRecord(over: Partial<HandshakeRecord> = {}): HandshakeReco
     initiator: party('u1'),
     acceptor: party('u1'),
     local_role: 'initiator',
-    handshake_type: 'internal',
+    same_principal: true,
     internal_coordination_identity_complete: true,
     internal_coordination_repair_needed: false,
     initiator_coordination_device_id: 'dev-ws-1',

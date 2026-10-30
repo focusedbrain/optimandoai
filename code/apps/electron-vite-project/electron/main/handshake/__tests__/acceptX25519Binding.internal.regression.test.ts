@@ -76,7 +76,7 @@ function internalPendingRecord(overrides: Partial<HandshakeRecord>): HandshakeRe
     counterparty_p2p_token: null,
     counterparty_public_key: 'a'.repeat(64),
     receiver_email: 'user-int@test.com',
-    handshake_type: 'internal',
+    same_principal: true,
     initiator_coordination_device_id: 'initiator-orch-1',
     initiator_device_role: 'host',
     initiator_device_name: 'HostComputer',

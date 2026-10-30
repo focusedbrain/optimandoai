@@ -160,9 +160,9 @@ function logHostAiLedgerView(
   source: 'sandbox' | 'list_targets_common',
 ): void {
   const currentDevice = getInstanceId().trim()
-  const firstInternal = rows.find((r) => r.handshake_type === 'internal' && r.state === HandshakeState.ACTIVE)
+  const firstInternal = rows.find((r) => r.same_principal === true && r.state === HandshakeState.ACTIVE)
   const handshakes = rows
-    .filter((r) => r.handshake_type === 'internal' && r.state === HandshakeState.ACTIVE)
+    .filter((r) => r.same_principal === true && r.state === HandshakeState.ACTIVE)
     .map((r) => {
       const d = deriveFromRecord(r)
       const dr = deriveInternalHostAiPeerRoles(r, getInstanceId().trim())
@@ -775,7 +775,7 @@ type DerivedInternalRoles = ReturnType<typeof deriveInternalHandshakeRoles>
 
 function recordToInternalRoleSource(r: HandshakeRecord): InternalHandshakeRoleSource {
   return {
-    handshake_type: r.handshake_type,
+    same_principal: r.same_principal === true,
     state: r.state,
     local_role: r.local_role,
     initiator_device_role: r.initiator_device_role,
@@ -1701,7 +1701,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
       db,
       async () =>
         filterHandshakeRecordsForCurrentSession(
-          listHandshakeRecords(db, { state: HandshakeState.ACTIVE, handshake_type: 'internal' }),
+          listHandshakeRecords(db, { state: HandshakeState.ACTIVE, same_principal: true }),
           currentSession,
         ),
       'list_targets_init',
@@ -1723,11 +1723,11 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
 
   /** 1) ACTIVE internal rows for current SSO session (target emission stays session-scoped — §2 defense-in-depth), 2) derive roles, 3) count Sandbox→Host. */
   const ledgerActive = listActiveInternalHandshakesForCurrentSession(db)
-  const activeInternalCount = ledgerActive.filter((r) => r.handshake_type === 'internal').length
+  const activeInternalCount = ledgerActive.filter((r) => r.same_principal === true).length
   let activeInternalSandboxToHostCount = 0
   let handshakeProvesSandboxToHost = false
   for (const r0 of ledgerActive) {
-    if (r0.handshake_type !== 'internal' || r0.state !== HandshakeState.ACTIVE) continue
+    if (r0.same_principal !== true || r0.state !== HandshakeState.ACTIVE) continue
     if (rowProvesLocalSandboxToHostForHostAi(r0)) {
       activeInternalSandboxToHostCount += 1
       handshakeProvesSandboxToHost = true
@@ -1755,7 +1755,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
   let hadCapabilitiesProbed = false
 
   for (const r0 of ledgerActive) {
-    if (r0.handshake_type !== 'internal') {
+    if (r0.same_principal !== true) {
       console.log(`${L} rejected handshake=${r0.handshake_id} reason=NOT_INTERNAL`)
       continue
     }
@@ -1904,7 +1904,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
     {
       const epKindForNudge = p2pEndpointKind(db, r.p2p_endpoint)
       if (
-        r.handshake_type === 'internal' &&
+        r.same_principal === true &&
         epKindForNudge === 'relay' &&
         !isP2pDataChannelUpForHandshake(hid)
       ) {
@@ -3748,7 +3748,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
    */
   if (targets.length === 0 && db && handshakeProvesSandboxToHost) {
     for (const r0 of ledgerActive) {
-      if (r0.handshake_type !== 'internal' || r0.state !== HandshakeState.ACTIVE) {
+      if (r0.same_principal !== true || r0.state !== HandshakeState.ACTIVE) {
         continue
       }
       if (!rowProvesLocalSandboxToHostForHostAi(r0)) {

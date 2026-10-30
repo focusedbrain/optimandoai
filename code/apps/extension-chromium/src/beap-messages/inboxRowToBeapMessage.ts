@@ -15,6 +15,7 @@
  * @version 1.0.0
  */
 
+import { channelProvenanceAlertRecordFromUnknown } from '@repo/shared-beap-ui'
 import type { BeapMessage, BeapAttachment, AiClassification, UrgencyLevel } from './beapInboxTypes'
 import type { BeapInboxRow } from '../handshake/handshakeRpc'
 import type { ProcessingEventOffer } from './services/processingEvents'
@@ -166,5 +167,9 @@ export function inboxRowToBeapMessage(row: BeapInboxRow): BeapMessage {
     validated_at: row.validated_at ?? null,
     validation_reason: row.validation_reason ?? null,
     session_import_artefact: sessionImportArtefact ?? null,
+    // Phase 5 — extension CPR plumbing. Decoded with the SAME fail-closed
+    // extractor the Electron surfaces use, so both render the rule-8 alert
+    // from one rule over one projection rather than two readings of one field.
+    channelProvenance: channelProvenanceAlertRecordFromUnknown(row.depackaged_metadata),
   }
 }

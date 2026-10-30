@@ -33,33 +33,18 @@ import {
 import { type AnalysisOpenPayload, sanitizeAnalysisOpenPayload } from './components/analysis'
 import './components/handshakeViewTypes'
 import { HandshakeHealthOrchestratorBanner } from './components/HandshakeHealthOrchestratorBanner'
+import { WrcTestRegistryBanner } from './components/WrcTestRegistryBanner'
 import { useActiveHandshakeHealthBanner } from './hooks/useActiveHandshakeHealthBanner'
 // === TEMPORARY DEBUG LOG VIEWER (remove before production) ===
 import { DebugLogViewer } from './components/DebugLogViewer'
 // === END TEMPORARY DEBUG LOG VIEWER ===
+import { BrandLogo } from './components/BrandLogo'
 
 type DashboardView = 'analysis' | 'wr-chat' | 'handshakes' | 'beap-inbox'
 type ExtensionTheme = 'pro' | 'dark' | 'standard'
 
 function mapThemeToCss(theme: ExtensionTheme): string {
   return theme
-}
-
-function WRCodeLogo({ size = 220, decorative = false }: { size?: number; decorative?: boolean }) {
-  // Respect Vite base ('./') so packaged Electron (file://) resolves like dev server
-  const logoSrc = `${import.meta.env.BASE_URL}wrdesk-logo.png`
-  return (
-    <img
-      src={logoSrc}
-      alt={decorative ? '' : 'WR Desk'}
-      aria-hidden={decorative ? true : undefined}
-      style={{
-        width: size,
-        height: 'auto',
-        objectFit: 'contain',
-      }}
-    />
-  )
 }
 
 function normalizeTheme(theme: string): ExtensionTheme {
@@ -440,7 +425,8 @@ function App() {
             aria-label="Dashboard"
             title="Dashboard"
           >
-            <WRCodeLogo size={110} decorative />
+            {/* Compact header mark — official 200px transparent wordmark (no duplicate text). */}
+            <BrandLogo variant="wordmarkSm" size={150} decorative />
           </button>
         </div>
         <nav className="app-header__nav">
@@ -573,6 +559,8 @@ function App() {
           }}
         />
       </header>
+
+      <WrcTestRegistryBanner />
 
       {handshakeHealthIssue ? (
         <HandshakeHealthOrchestratorBanner

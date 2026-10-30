@@ -213,7 +213,7 @@ export async function tryHandleSandboxEmailDelivery(
     return true
   }
 
-  const writer = hostWriterOverride ?? defaultHostWriter
+  const writer = hostWriterOverride ?? writeSandboxDeliveryToHostInbox
   let inboxRowId: string | null = null
   try {
     const r = await writer(db, msg.account_id, result, {
@@ -236,7 +236,7 @@ export async function tryHandleSandboxEmailDelivery(
 }
 
 /**
- * Default host writer: converts the guest-derived `DepackageEmailResult`
+ * Host writer (direct HTTP legacy path and the sealed relay path): converts the guest-derived `DepackageEmailResult`
  * to a host inbox row.
  *
  * - `plain`:        builds a `RawEmailMessage` and calls `detectAndRouteMessageInline`
@@ -247,7 +247,7 @@ export async function tryHandleSandboxEmailDelivery(
  *                   `source_type='p2p_relay'`. Errors throw so the delivery is HELD
  *                   (retryable), never silently dropped.
  */
-const defaultHostWriter: SandboxDeliveryHostWriter = async (db, accountId, result, meta) => {
+export const writeSandboxDeliveryToHostInbox: SandboxDeliveryHostWriter = async (db, accountId, result, meta) => {
   if (!result.ok) return { inboxRowId: null }
   const out = result
 

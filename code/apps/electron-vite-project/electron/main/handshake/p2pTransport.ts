@@ -631,7 +631,7 @@ export async function sendCapsuleViaCoordination(
   if (db && queueHandshakeId?.trim()) {
     try {
       const rec = getHandshakeRecord(db, queueHandshakeId.trim())
-      if (rec?.handshake_type === 'internal') {
+      if (rec?.same_principal === true) {
         console.log(
           '[RELAY_ROUTING_DEBUG] internal_handshake_device_context',
           JSON.stringify({

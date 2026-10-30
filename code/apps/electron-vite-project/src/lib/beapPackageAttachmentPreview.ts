@@ -48,7 +48,7 @@ export async function extractTextForPackagePreview(opts: {
       }
       return {
         text: '',
-        error: 'PDF extract is only available inside the WR Desk app (preload bridge missing).',
+        error: 'PDF extract is only available inside the Optirando app (preload bridge missing).',
       }
     } catch (e) {
       return { text: '', error: e instanceof Error ? e.message : 'PDF extract failed' }

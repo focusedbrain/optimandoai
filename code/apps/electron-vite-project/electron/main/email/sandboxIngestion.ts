@@ -84,7 +84,14 @@ export interface SandboxIngestionDeps {
     readAccountId: string,
     msg: SandboxFetchedMessage,
     outcome: DepackageDispatchOutcome,
+    /** The host account whose Sync triggered this poll (the host maps rows to it). */
+    triggerAccountId?: string,
   ) => Promise<SandboxDeliveryResult>
+  /**
+   * True when the host already has this message (receipt) or a delivery is in flight.
+   * Such messages are skipped this round: not unpacked, not sent again, not counted.
+   */
+  isAlreadyDelivered?: (readAccountId: string, sourceMessageId: string) => boolean
   /** Resolve the read token. Default: `roleScopedTokenStore` role='read'. */
   loadReadToken?: (accountId: string) => RoleScopedTokenRecord | null
   /** List account ids with local read tokens (diagnostics). Default: `listReadScopedAccountIds`. */
@@ -101,6 +108,10 @@ export type SandboxIngestionStatus =
   | 'held_read_consent_missing'
   | 'held_no_custody_key'
   | 'held_fetch_failed'
+  /** Unpacked on the sandbox, but the host did not confirm delivery. */
+  | 'held_delivery_failed'
+  /** Fetched, but some messages could not be unpacked and were held here. */
+  | 'held_depackage_failed'
 
 export interface SandboxIngestionResult {
   /** True only when this node owned ingestion and the poll ran without a fail-closed HELD. */
@@ -182,6 +193,11 @@ function finalizeAggregatedPollStatus(partials: SandboxIngestionResult[]): Pick<
   if (partials.every((p) => p.status === 'held_fetch_failed')) {
     return { ok: false, status: 'held_fetch_failed' }
   }
+  // "Fetched" is not success, "delivered" is: a poll that delivered fewer messages than
+  // it fetched never reports ok (the host would otherwise show a green sync).
+  const sum = (k: 'fetched' | 'depackaged' | 'delivered') => partials.reduce((n, p) => n + p[k], 0)
+  if (sum('depackaged') > sum('delivered')) return { ok: false, status: 'held_delivery_failed' }
+  if (sum('fetched') > sum('delivered')) return { ok: false, status: 'held_depackage_failed' }
   return { ok: true, status: 'ok' }
 }
 
@@ -239,6 +255,14 @@ async function pollOneSandboxReadAccount(
     return { ...emptyResult('held_fetch_failed', false), errors: [msg] }
   }
 
+  if (deps.isAlreadyDelivered) {
+    const before = fetched.length
+    fetched = fetched.filter((m) => !deps.isAlreadyDelivered!(readAccountId, m.id))
+    if (before !== fetched.length) {
+      sandboxLog(`skipped ${before - fetched.length} message(s) already delivered to the host. read_account=${readAccountId}`)
+    }
+  }
+
   const result: SandboxIngestionResult = {
     ok: true,
     status: 'ok',
@@ -270,7 +294,7 @@ async function pollOneSandboxReadAccount(
       }
       result.depackaged++
 
-      const delivery = await deliverToHost(readAccountId, msg, outcome)
+      const delivery = await deliverToHost(readAccountId, msg, outcome, triggerAccountId)
       if (delivery.delivered) {
         result.delivered++
         if (delivery.inboxMessageId) result.inboxMessageIds.push(delivery.inboxMessageId)
@@ -287,8 +311,15 @@ async function pollOneSandboxReadAccount(
     }
   }
 
+  if (result.depackaged > result.delivered) {
+    result.ok = false
+    result.status = 'held_delivery_failed'
+  } else if (result.fetched > result.delivered) {
+    result.ok = false
+    result.status = 'held_depackage_failed'
+  }
   sandboxLog(
-    `read account done read_account=${readAccountId} trigger_account=${triggerAccountId} fetched=${result.fetched} depackaged=${result.depackaged} delivered=${result.delivered} held=${result.held}`,
+    `read account done read_account=${readAccountId} trigger_account=${triggerAccountId} status=${result.status} fetched=${result.fetched} depackaged=${result.depackaged} delivered=${result.delivered} held=${result.held}`,
   )
   return result
 }

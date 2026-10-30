@@ -70,7 +70,7 @@ const HID = 'hs-stale-dc-1'
 function hostHS() {
   return {
     handshake_id: HID,
-    handshake_type: 'internal' as const,
+    same_principal: true as const,
     state: 'ACTIVE' as const,
     local_role: 'initiator' as const,
     initiator_device_role: 'host' as const,

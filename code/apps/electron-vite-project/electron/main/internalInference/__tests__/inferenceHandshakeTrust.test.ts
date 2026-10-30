@@ -106,7 +106,7 @@ function happyHandshakeRecord(over: Partial<HandshakeRecord> = {}): HandshakeRec
     initiator_coordination_device_id: 'dev-sand-coord-1',
     acceptor_coordination_device_id: 'dev-host-coord-1',
     internal_coordination_identity_complete: true,
-    handshake_type: 'internal',
+    same_principal: true,
     p2p_endpoint: LAN_PEER,
     local_p2p_auth_token: 't',
     counterparty_p2p_token: 'test-bearer-abc123',
@@ -148,17 +148,17 @@ describe('inferenceDirectHttpTrust', () => {
     expect(r.normalizedUrl).toBeNull()
   })
 
-  it('handshake_type_not_internal', () => {
+  it('record_not_same_principal', () => {
     const r = inferenceDirectHttpTrust({
       handshakeRecord: happyHandshakeRecord({
-        handshake_type: 'standard',
+        same_principal: false,
       }),
       roles: happyRoles,
       counterpartyP2pToken: 'test-bearer-abc123',
       localBeapEndpoint: LOCAL_BEAP_OTHER,
     })
     expect(r.trusted).toBe(false)
-    expect(r.reason).toBe('handshake_type_not_internal')
+    expect(r.reason).toBe('record_not_same_principal')
     expect(r.normalizedUrl).toBeNull()
   })
 
@@ -469,7 +469,7 @@ describe('decideInternalInferenceTransport — inference trust wiring', () => {
         operationContext: 'capabilities',
         db: {},
         handshakeRecord: wiringRecord({
-          handshake_type: 'standard',
+          same_principal: false,
           counterparty_p2p_token: 'bearer-std',
         }),
         featureFlags: getP2pInferenceFlags(),

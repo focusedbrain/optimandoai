@@ -10,10 +10,14 @@ const VISION_KEY_ORDER: VisionProvider[] = ['OpenAI', 'Claude', 'Gemini', 'Grok'
 
 /**
  * Build CloudAIConfig from a flat key bag (OpenAI, Claude, Gemini, Grok, plus optional custom names).
- * Only vision providers are placed in `apiKeys`; preference is `auto` when any vision key exists.
+ * Only vision providers are placed in `apiKeys`.
+ *
+ * Roadmap 0.15 / D-37: a stored key is not consent. The config stays local
+ * (`preference: 'local'`, no cloud for images); keys only make a cloud model selectable
+ * where the user picks one explicitly.
  */
 export function cloudConfigFromOptimandoApiKeysRecord(
-  raw: Record<string, string> | null | undefined,
+  raw: Record<string, unknown> | null | undefined,
 ): CloudAIConfig | null {
   if (!raw || typeof raw !== 'object') return null
   const apiKeys: Partial<Record<VisionProvider, string>> = {}
@@ -26,9 +30,18 @@ export function cloudConfigFromOptimandoApiKeysRecord(
   if (Object.keys(apiKeys).length === 0) return null
   return {
     apiKeys,
-    preference: 'auto',
-    useCloudForImages: true,
+    preference: 'local',
+    useCloudForImages: false,
   }
+}
+
+/**
+ * Key sync from the extension (`POST /api/ocr/config`): take the keys, never the
+ * `preference` / `useCloudForImages` the sync sends (it derives them from key presence).
+ */
+export function cloudConfigFromKeySync(body: { apiKeys?: unknown } | null | undefined): CloudAIConfig {
+  const keys = body?.apiKeys && typeof body.apiKeys === 'object' ? (body.apiKeys as Record<string, unknown>) : null
+  return cloudConfigFromOptimandoApiKeysRecord(keys) ?? { apiKeys: {}, preference: 'local', useCloudForImages: false }
 }
 
 /**

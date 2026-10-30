@@ -125,7 +125,7 @@ export function findActiveHostToSandboxHandshakeRecord(db: unknown): HandshakeRe
   const localId = getInstanceId().trim()
   const rows = listHandshakeRecords(db as never, {
     state: HandshakeState.ACTIVE,
-    handshake_type: 'internal',
+    same_principal: true,
   })
   for (const r of rows) {
     const dr = deriveInternalHostAiPeerRoles(r, localId)
@@ -226,7 +226,7 @@ export async function sendDedicatedSandboxIngestionPollTrigger(
       `handshake=${record.handshake_id} receiver=${receiverDeviceId}`,
   )
 
-  const sealed = sealServiceRpcForRelay(record, {
+  const sealed = await sealServiceRpcForRelay(record, {
     handshake_id: record.handshake_id,
     sender_device_id: wire.sender_device_id,
     receiver_device_id: receiverDeviceId,

@@ -40,7 +40,7 @@ describe('handshake.initiate internal — no orchestrator device_id', () => {
         receiverUserId: 'user-int',
         receiverEmail: 'user-int@test.com',
         fromAccountId: 'acct',
-        handshake_type: 'internal',
+        profile_id: 'internal_device',
         device_role: 'host',
         device_name: 'HostBox',
         counterparty_device_id: 'peer-dev-1',

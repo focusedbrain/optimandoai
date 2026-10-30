@@ -132,7 +132,7 @@ export default function BeapRedirectDialog({ message, onClose, onSent }: BeapRed
       if (!hasHandshakeKeyMaterial(handshakeRecordToSelectedRecipient(h))) return false
       if (!(h.p2pEndpoint && String(h.p2pEndpoint).trim())) return false
       if (!h.localX25519PublicKey?.trim()) return false
-      if (h.handshake_type === 'internal' && h.internal_coordination_identity_complete === false) return false
+      if (h.same_principal === true && h.internal_coordination_identity_complete === false) return false
       return true
     })
   }, [rows, sourceHs])
@@ -279,7 +279,7 @@ export default function BeapRedirectDialog({ message, onClose, onSent }: BeapRed
                   return (
                     <option key={h.handshake_id} value={h.handshake_id}>
                       {label}
-                      {h.handshake_type === 'internal' ? ' — internal' : ''}
+                      {h.same_principal === true ? ' — internal' : ''}
                     </option>
                   )
                 })}

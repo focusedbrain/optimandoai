@@ -366,6 +366,15 @@ function sandboxCloneFailureUserText(
   if (code === 'MESSAGE_NOT_FOUND') {
     return 'Inbox message was not found.'
   }
+  // The taxonomy split: three states that used to share MESSAGE_NOT_FOUND now
+  // say which one happened, because "not found" for a message the user is
+  // looking at is a confusing thing to be told.
+  if (code === 'SOURCE_UNVERIFIABLE') {
+    return 'Inbox message could not be verified and was not cloned.'
+  }
+  if (code === 'SOURCE_NO_CANONICAL_CONTENT') {
+    return 'This message has no decrypted content yet, so there is nothing to clone.'
+  }
   if (code === 'outer_vault_unavailable') {
     return err.trim() || 'No vault found for your account. Create or claim a vault to enable cloning.'
   }
@@ -408,6 +417,8 @@ export function sandboxCloneFeedbackFromOutcome(
       f.code === 'outer_vault_or_key_provider_unavailable' ||
       f.code === 'outer_vault_unavailable' ||
       f.code === 'MESSAGE_NOT_FOUND' ||
+      f.code === 'SOURCE_UNVERIFIABLE' ||
+      f.code === 'SOURCE_NO_CANONICAL_CONTENT' ||
       f.code === 'MESSAGE_CONTENT_NOT_EXTRACTABLE' ||
       f.code === 'NO_ACTIVE_SANDBOX_HANDSHAKE' ||
       f.code === 'SANDBOX_SEND_FAILED'

@@ -104,7 +104,7 @@ function defaultRecord(over: Partial<HandshakeRecord> = {}): HandshakeRecord {
     p2p_endpoint: 'http://10.0.0.2:51249/beap/ingest',
     local_p2p_auth_token: 'tok',
     counterparty_p2p_token: 'peer-tok',
-    handshake_type: 'internal',
+    same_principal: true,
     initiator_device_role: 'host',
     acceptor_device_role: 'sandbox',
     initiator_coordination_device_id: 'dev-host-1',
@@ -279,7 +279,7 @@ describe('direct Host inference — authorization (Host inbound)', () => {
 
   it('rejects external (non-internal) handshake', async () => {
     getHandshakeRecord.mockReturnValue(
-      defaultRecord({ handshake_type: 'standard' as any, initiator: party('a'), acceptor: party('b') }),
+      defaultRecord({ same_principal: false as any, initiator: party('a'), acceptor: party('b') }),
     )
     const r: { status?: number } = {}
     const res = {

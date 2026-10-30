@@ -14,7 +14,7 @@ describe('computeSamePrincipalCoordinationSkipOwn — internal multi-device inbo
       computeSamePrincipalCoordinationSkipOwn({
         hasDb: true,
         handshakeId: hs,
-        record: { handshake_type: 'standard' },
+        record: { same_principal: false },
         capsuleSenderDeviceId: 'device-peer',
         localDeviceId: 'device-local',
       }),
@@ -24,7 +24,7 @@ describe('computeSamePrincipalCoordinationSkipOwn — internal multi-device inbo
       computeSamePrincipalCoordinationSkipOwn({
         hasDb: true,
         handshakeId: hs,
-        record: { handshake_type: null },
+        record: { same_principal: null },
         capsuleSenderDeviceId: 'a',
         localDeviceId: 'b',
       }),
@@ -36,7 +36,7 @@ describe('computeSamePrincipalCoordinationSkipOwn — internal multi-device inbo
       computeSamePrincipalCoordinationSkipOwn({
         hasDb: true,
         handshakeId: hs,
-        record: { handshake_type: 'internal' },
+        record: { same_principal: true },
         capsuleSenderDeviceId: 'HOST-PC',
         localDeviceId: 'HOST-PC',
       }),
@@ -48,7 +48,7 @@ describe('computeSamePrincipalCoordinationSkipOwn — internal multi-device inbo
       computeSamePrincipalCoordinationSkipOwn({
         hasDb: true,
         handshakeId: hs,
-        record: { handshake_type: 'internal' },
+        record: { same_principal: true },
         capsuleSenderDeviceId: 'SANDBOX-PC',
         localDeviceId: 'HOST-PC',
       }),
@@ -60,7 +60,7 @@ describe('computeSamePrincipalCoordinationSkipOwn — internal multi-device inbo
       computeSamePrincipalCoordinationSkipOwn({
         hasDb: true,
         handshakeId: hs,
-        record: { handshake_type: 'internal' },
+        record: { same_principal: true },
         capsuleSenderDeviceId: '',
         localDeviceId: 'HOST-PC',
       }),
@@ -70,7 +70,7 @@ describe('computeSamePrincipalCoordinationSkipOwn — internal multi-device inbo
       computeSamePrincipalCoordinationSkipOwn({
         hasDb: true,
         handshakeId: hs,
-        record: { handshake_type: 'internal' },
+        record: { same_principal: true },
         capsuleSenderDeviceId: '   ',
         localDeviceId: 'HOST-PC',
       }),
@@ -82,7 +82,7 @@ describe('computeSamePrincipalCoordinationSkipOwn — internal multi-device inbo
       computeSamePrincipalCoordinationSkipOwn({
         hasDb: true,
         handshakeId: hs,
-        record: { handshake_type: 'internal' },
+        record: { same_principal: true },
         capsuleSenderDeviceId: 'SANDBOX-PC',
         localDeviceId: '',
       }),
@@ -109,7 +109,7 @@ describe('computeSamePrincipalCoordinationSkipOwn — internal multi-device inbo
         record: null,
         capsuleSenderDeviceId: 'SANDBOX-PC',
         localDeviceId: 'HOST-PC',
-        capsuleHandshakeType: 'internal',
+        capsuleDeclaresSamePrincipal: true,
       }),
     ).toBe(false)
   })
@@ -122,7 +122,7 @@ describe('computeSamePrincipalCoordinationSkipOwn — internal multi-device inbo
         record: null,
         capsuleSenderDeviceId: 'HOST-PC',
         localDeviceId: 'HOST-PC',
-        capsuleHandshakeType: 'internal',
+        capsuleDeclaresSamePrincipal: true,
       }),
     ).toBe(true)
   })
@@ -135,7 +135,7 @@ describe('computeSamePrincipalCoordinationSkipOwn — internal multi-device inbo
         record: null,
         capsuleSenderDeviceId: '',
         localDeviceId: 'HOST-PC',
-        capsuleHandshakeType: 'internal',
+        capsuleDeclaresSamePrincipal: true,
       }),
     ).toBe(false)
   })
@@ -145,7 +145,7 @@ describe('computeSamePrincipalCoordinationSkipOwn — internal multi-device inbo
       computeSamePrincipalCoordinationSkipOwn({
         hasDb: false,
         handshakeId: hs,
-        record: { handshake_type: 'internal' },
+        record: { same_principal: true },
         capsuleSenderDeviceId: 'A',
         localDeviceId: 'B',
       }),
@@ -155,7 +155,7 @@ describe('computeSamePrincipalCoordinationSkipOwn — internal multi-device inbo
       computeSamePrincipalCoordinationSkipOwn({
         hasDb: true,
         handshakeId: 'unknown',
-        record: { handshake_type: 'internal' },
+        record: { same_principal: true },
         capsuleSenderDeviceId: 'A',
         localDeviceId: 'B',
       }),

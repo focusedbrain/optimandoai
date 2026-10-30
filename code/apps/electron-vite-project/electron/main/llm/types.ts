@@ -3,6 +3,8 @@
  * Core TypeScript interfaces for local LLM management
  */
 
+import type { AiProvenance } from '../../../../../packages/shared/src/aiProvenance'
+
 export type ModelTier = 'lightweight' | 'balanced' | 'performance' | 'high-end'
 export type PerformanceEstimate = 'fast' | 'usable' | 'slow' | 'unusable'
 export type OsType = 'windows' | 'macos' | 'linux'
@@ -130,6 +132,8 @@ export interface ChatResponse {
   loadDuration?: number
   promptEvalCount?: number
   evalCount?: number
+  /** Art. 50 AI provenance attached at generation boundary. */
+  provenance?: AiProvenance
 }
 
 /**

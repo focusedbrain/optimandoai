@@ -5,7 +5,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { x25519 } from '@noble/curves/ed25519'
 import { HandshakeState, type HandshakeRecord } from '../../../handshake/types'
-import { sealServiceRpcPayload } from '../../../serviceRpc/sealedServiceRpc'
+import { sealServiceRpcPayloadAuthenticated } from '../../../serviceRpc/sealedServiceRpc'
 import { buildSealedServiceRpcRelayCapsule } from '../relaySend'
 import { makeIngestionPollRequestWire } from '../receiver'
 import { INGESTION_POLL_SCHEMA_VERSION } from '../wire'
@@ -31,6 +31,13 @@ import type { IngestionPollErrorWire, IngestionPollResultWire } from '../wire'
 const getInstanceId = vi.hoisted(() => vi.fn(() => 'dev-ws-1'))
 const isEffectiveSandboxNode = vi.hoisted(() => vi.fn((_db: unknown) => false))
 const webContentsSend = vi.hoisted(() => vi.fn())
+
+
+// Relay receivers require sender-authenticated (v2) envelopes (roadmap 0.26): seal like the product does.
+const sealServiceRpcPayload = (
+  record: HandshakeRecord,
+  input: Parameters<typeof sealServiceRpcPayloadAuthenticated>[1],
+) => sealServiceRpcPayloadAuthenticated(record, input, record.local_x25519_private_key_b64)
 
 vi.mock('../../../orchestrator/orchestratorModeStore', () => ({
   getInstanceId: () => getInstanceId(),
@@ -74,7 +81,7 @@ function party(uid: string) {
 
 const hostRecord = {
   handshake_id: handshakeId,
-  handshake_type: 'internal',
+  same_principal: true,
   state: HandshakeState.ACTIVE,
   local_role: 'initiator',
   initiator: party('u1'),
@@ -92,7 +99,7 @@ const hostRecord = {
 
 const sandboxRecord = {
   handshake_id: handshakeId,
-  handshake_type: 'internal',
+  same_principal: true,
   state: HandshakeState.ACTIVE,
   local_role: 'acceptor',
   initiator: party('u1'),

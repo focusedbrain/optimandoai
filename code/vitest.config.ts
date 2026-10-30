@@ -48,6 +48,10 @@ export default defineConfig({
       { find: '@jest/globals', replacement: path.resolve(repoRoot, 'node_modules/vitest/dist/index.js') },
       { find: '@repo/ingestion-core', replacement: path.resolve(repoRoot, 'packages/ingestion-core/src/index.ts') },
       {
+        find: '@repo/shared-beap-ui',
+        replacement: path.resolve(repoRoot, 'packages/shared-beap-ui/src/index.ts'),
+      },
+      {
         find: '@ext/handshake/handshakeRpc',
         replacement: path.resolve(repoRoot, 'apps/electron-vite-project/src/shims/handshakeRpc.ts'),
       },
@@ -56,6 +60,8 @@ export default defineConfig({
     ],
   },
   test: {
+    // shared-beap-ui side-effect-imports its CSS; Node tests do not need it.
+    css: false,
     // Global setup: CSS.escape polyfill + JSDOM viewport defaults.
     // B-8.4d-iii-5b: fixes TypeError in fieldScanner / datavault tests.
     setupFiles: [path.resolve(repoRoot, 'test/setup.ts')],

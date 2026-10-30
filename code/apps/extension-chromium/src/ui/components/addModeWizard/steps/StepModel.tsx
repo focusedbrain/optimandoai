@@ -73,7 +73,7 @@ export function StepModel({
             const fb = await fetchInstalledLocalModelNames()
             names = fb.names ?? []
             if (names.length > 0) {
-              setModelsHint('Using models from WR Desk (could not reach this endpoint’s /api/tags).')
+              setModelsHint('Using models from Optirando (could not reach this endpoint’s /api/tags).')
             } else if (!fb.ok && fb.error) {
               setModelsHint(fb.error)
             } else if (fb.ollamaInstalled === false || fb.ollamaRunning === false) {

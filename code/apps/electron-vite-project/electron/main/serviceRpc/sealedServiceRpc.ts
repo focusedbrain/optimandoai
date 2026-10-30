@@ -19,16 +19,33 @@ import type { HandshakeRecord } from '../handshake/types'
 export const SEALED_SERVICE_RPC_ENVELOPE_TYPE = SEALED_SERVICE_RPC_CAPSULE_TYPE
 export { SEALED_SERVICE_RPC_CAPSULE_TYPE }
 export const SEALED_SERVICE_RPC_SCHEMA_VERSION = 1 as const
+/**
+ * Roadmap 0.26 — sender-authenticated envelope for the relay service-RPC paths.
+ * The key additionally mixes the SENDER's static device X25519 key (static-static DH,
+ * as in NaCl `box`), so only the holder of the device key pinned on the handshake can
+ * produce an envelope the receiver opens. `expires_at` and `message_id` are bound in
+ * the AAD; the receiver refuses expired, too-far-future and replayed envelopes.
+ * v1 stays for the in-capsule `context_blocks_sealed` (canonical capsule form).
+ */
+export const SEALED_SERVICE_RPC_SCHEMA_VERSION_AUTH = 2 as const
 
 /** Domain-separate from quarantine-blob-v1 (quarantine-encrypt/index.ts:42). */
 const HKDF_INFO = 'wrdesk-service-rpc-v1'
+const HKDF_INFO_AUTH = 'wrdesk-service-rpc-v2-auth'
 const SALT_BYTES = 16
 const NONCE_BYTES = 12
 const KEY_BYTES = 32
 
+/** Default lifetime of an authenticated envelope (relay store-and-forward window). */
+export const SEALED_RPC_DEFAULT_TTL_MS = 10 * 60 * 1000
+/** Receivers refuse an `expires_at` further away than this (bounds the replay cache). */
+export const SEALED_RPC_MAX_TTL_MS = 24 * 60 * 60 * 1000
+/** Clock skew tolerated on `expires_at`. */
+const SEALED_RPC_CLOCK_SKEW_MS = 2 * 60 * 1000
+
 export interface SealedServiceRpcEnvelope {
   readonly envelope_type: typeof SEALED_SERVICE_RPC_ENVELOPE_TYPE
-  readonly schema_version: typeof SEALED_SERVICE_RPC_SCHEMA_VERSION
+  readonly schema_version: typeof SEALED_SERVICE_RPC_SCHEMA_VERSION | typeof SEALED_SERVICE_RPC_SCHEMA_VERSION_AUTH
   readonly handshake_id: string
   readonly sender_device_id: string
   readonly receiver_device_id: string
@@ -37,6 +54,10 @@ export interface SealedServiceRpcEnvelope {
   readonly nonce_b64: string
   /** AES-256-GCM ciphertext with auth tag appended (matches quarantine convention). */
   readonly ciphertext_b64: string
+  /** v2 only: epoch ms after which the receiver refuses the envelope. */
+  readonly expires_at?: number
+  /** v2 only: unique id; a receiver opens each id at most once. */
+  readonly message_id?: string
 }
 
 export interface SealServiceRpcInput {
@@ -93,7 +114,50 @@ export function buildSealedServiceRpcAad(input: {
   return Buffer.from(`${hid}|${sender}|${receiver}`, 'utf8')
 }
 
-export function resolvePeerX25519PubForSeal(record: HandshakeRecord): SealServiceRpcResult | { pubB64: string } {
+/** v2 AAD: routing plus expiry and message id, so neither can be changed in transit. */
+function buildAuthenticatedAad(input: {
+  handshake_id: string
+  sender_device_id: string
+  receiver_device_id: string
+  expires_at: number
+  message_id: string
+}): Buffer {
+  return Buffer.concat([
+    Buffer.from('v2|', 'utf8'),
+    buildSealedServiceRpcAad(input),
+    Buffer.from(`|${input.expires_at}|${input.message_id}`, 'utf8'),
+  ])
+}
+
+/** v2 key: HKDF over DH(ephemeral, recipient) || DH(sender static, recipient). */
+function deriveAuthenticatedKey(ss1: Uint8Array, ss2: Uint8Array, salt: Buffer): Buffer {
+  const ikm = Buffer.concat([Buffer.from(ss1), Buffer.from(ss2)])
+  const key = Buffer.from(hkdfSync('sha256', ikm, salt, Buffer.from(HKDF_INFO_AUTH, 'utf-8'), KEY_BYTES))
+  ikm.fill(0)
+  return key
+}
+
+// ── Replay guard (v2) ─────────────────────────────────────────────────────────
+// message_id → expires_at. Entries live until their envelope expires; the TTL cap
+// (SEALED_RPC_MAX_TTL_MS) bounds the cache. In-memory: after a restart, an envelope
+// can be opened once more only within its own short lifetime.
+const seenMessageIds = new Map<string, number>()
+
+function pruneSeen(nowMs: number): void {
+  for (const [id, exp] of seenMessageIds) {
+    if (exp + SEALED_RPC_CLOCK_SKEW_MS < nowMs) seenMessageIds.delete(id)
+  }
+}
+
+/** Test-only. */
+export function __resetSealedRpcReplayGuardForTests(): void {
+  seenMessageIds.clear()
+}
+
+/** Key lookups never succeed with an envelope — they fail or yield the key. */
+type KeyLookupFailure = { readonly ok: false; readonly code: string; readonly message: string }
+
+export function resolvePeerX25519PubForSeal(record: HandshakeRecord): KeyLookupFailure | { pubB64: string } {
   const pubB64 = trimNonEmpty(record.peer_x25519_public_key_b64)
   if (!pubB64) {
     return {
@@ -116,7 +180,7 @@ export function resolvePeerX25519PubForSeal(record: HandshakeRecord): SealServic
 export function resolveLocalX25519PrivForOpen(
   record: HandshakeRecord,
   fallbackPrivB64?: string | null,
-): OpenServiceRpcResult | { privB64: string } {
+): KeyLookupFailure | { privB64: string } {
   // Legacy handshakes carry the X25519 private key on the record. Post device-key
   // migration the private key lives ONLY in the orchestrator-DB device key store, so
   // the caller resolves it there and passes it as `fallbackPrivB64`. Fail-closed either way.
@@ -170,11 +234,26 @@ function validateEnvelopeShape(envelope: SealedServiceRpcEnvelope): OpenServiceR
       message: `unsupported envelope_type ${String(envelope.envelope_type)}`,
     }
   }
-  if (envelope.schema_version !== SEALED_SERVICE_RPC_SCHEMA_VERSION) {
+  if (
+    envelope.schema_version !== SEALED_SERVICE_RPC_SCHEMA_VERSION &&
+    envelope.schema_version !== SEALED_SERVICE_RPC_SCHEMA_VERSION_AUTH
+  ) {
     return {
       ok: false,
       code: 'E_SEALED_RPC_INVALID_ENVELOPE',
       message: `unsupported schema_version ${String(envelope.schema_version)}`,
+    }
+  }
+  if (
+    envelope.schema_version === SEALED_SERVICE_RPC_SCHEMA_VERSION_AUTH &&
+    (typeof envelope.expires_at !== 'number' ||
+      !Number.isFinite(envelope.expires_at) ||
+      !trimNonEmpty(envelope.message_id))
+  ) {
+    return {
+      ok: false,
+      code: 'E_SEALED_RPC_INVALID_ENVELOPE',
+      message: 'authenticated envelope requires expires_at and message_id',
     }
   }
   if (
@@ -207,7 +286,7 @@ export function sealServiceRpcPayload(
   if (routingErr) return routingErr
 
   const peer = resolvePeerX25519PubForSeal(record)
-  if ('ok' in peer && peer.ok === false) return peer
+  if ('ok' in peer) return peer
 
   const recipientPubBytes = decodeX25519PubB64(peer.pubB64)
   if (!recipientPubBytes) {
@@ -262,6 +341,136 @@ export function sealServiceRpcPayload(
 }
 
 /**
+ * Seal a sender-authenticated (v2) envelope. `senderStaticPrivB64` is THIS device's
+ * static X25519 private key — the one whose public half the peer has pinned on the
+ * handshake as `peer_x25519_public_key_b64`.
+ */
+export function sealServiceRpcPayloadAuthenticated(
+  record: HandshakeRecord,
+  input: SealServiceRpcInput,
+  senderStaticPrivB64: string | null | undefined,
+  opts: { ttlMs?: number; nowMs?: number; messageId?: string } = {},
+): SealServiceRpcResult {
+  const routingErr = validateSealInput(record, input)
+  if (routingErr) return routingErr
+
+  const peer = resolvePeerX25519PubForSeal(record)
+  if ('ok' in peer) return peer
+  const recipientPubBytes = decodeX25519PubB64(peer.pubB64)
+  if (!recipientPubBytes) {
+    return { ok: false, code: 'E_SEALED_RPC_INVALID_PEER_X25519', message: 'peer_x25519_public_key_b64 must decode to 32 bytes' }
+  }
+  const senderPriv = decodeX25519PrivB64(trimNonEmpty(senderStaticPrivB64))
+  if (!senderPriv) {
+    return {
+      ok: false,
+      code: 'E_SEALED_RPC_MISSING_LOCAL_X25519',
+      message: 'local static X25519 private key unavailable — cannot seal an authenticated envelope (no unauthenticated fallback)',
+    }
+  }
+
+  const ttlMs = Math.min(Math.max(1, opts.ttlMs ?? SEALED_RPC_DEFAULT_TTL_MS), SEALED_RPC_MAX_TTL_MS)
+  const expiresAt = (opts.nowMs ?? Date.now()) + ttlMs
+  const messageId = trimNonEmpty(opts.messageId) || randomBytes(16).toString('hex')
+  const routing = {
+    handshake_id: input.handshake_id.trim(),
+    sender_device_id: input.sender_device_id.trim(),
+    receiver_device_id: input.receiver_device_id.trim(),
+  }
+  const plaintext = Buffer.from(normalizePlaintextJson(input.plaintextJson), 'utf8')
+  const aad = buildAuthenticatedAad({ ...routing, expires_at: expiresAt, message_id: messageId })
+
+  try {
+    const ephemeralPriv = x25519.utils.randomPrivateKey()
+    const ephemeralPub = x25519.getPublicKey(ephemeralPriv)
+    const ss1 = x25519.getSharedSecret(ephemeralPriv, new Uint8Array(recipientPubBytes))
+    const ss2 = x25519.getSharedSecret(new Uint8Array(senderPriv), new Uint8Array(recipientPubBytes))
+    const salt = randomBytes(SALT_BYTES)
+    const derivedKey = deriveAuthenticatedKey(ss1, ss2, salt)
+
+    const nonce = randomBytes(NONCE_BYTES)
+    const cipher = createCipheriv('aes-256-gcm', derivedKey, nonce)
+    cipher.setAAD(aad)
+    const ct = Buffer.concat([cipher.update(plaintext), cipher.final()])
+    const tag = cipher.getAuthTag()
+
+    derivedKey.fill(0)
+    ss1.fill(0)
+    ss2.fill(0)
+    ephemeralPriv.fill(0)
+    senderPriv.fill(0)
+
+    return {
+      ok: true,
+      envelope: {
+        envelope_type: SEALED_SERVICE_RPC_ENVELOPE_TYPE,
+        schema_version: SEALED_SERVICE_RPC_SCHEMA_VERSION_AUTH,
+        ...routing,
+        sender_ephemeral_x25519_pub_b64: Buffer.from(ephemeralPub).toString('base64'),
+        salt_b64: salt.toString('base64'),
+        nonce_b64: nonce.toString('base64'),
+        ciphertext_b64: Buffer.concat([ct, tag]).toString('base64'),
+        expires_at: expiresAt,
+        message_id: messageId,
+      },
+    }
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    return { ok: false, code: 'E_SEALED_RPC_SEAL_FAILED', message: msg }
+  }
+}
+
+/** Resolve this device's static X25519 private key the same way the open path does. */
+async function resolveLocalStaticPrivB64(record: HandshakeRecord): Promise<string> {
+  const onRecord = trimNonEmpty(record.local_x25519_private_key_b64)
+  if (onRecord) return onRecord
+  try {
+    const { getDeviceX25519KeyPair } = await import('../device-keys/deviceKeyStore')
+    const deviceKp = await getDeviceX25519KeyPair()
+    return trimNonEmpty(deviceKp.privateKey)
+  } catch {
+    return ''
+  }
+}
+
+/** Seal a v2 envelope, resolving this device's static key (record, then device key store). */
+export async function sealServiceRpcPayloadAuthenticatedResolvingLocalKey(
+  record: HandshakeRecord,
+  input: SealServiceRpcInput,
+  opts: { ttlMs?: number } = {},
+): Promise<SealServiceRpcResult> {
+  return sealServiceRpcPayloadAuthenticated(record, input, await resolveLocalStaticPrivB64(record), opts)
+}
+
+export interface OpenServiceRpcOptions {
+  /** Refuse v1 (unauthenticated) envelopes — set on every relay service-RPC receiver. */
+  readonly requireAuthenticated?: boolean
+  readonly nowMs?: number
+}
+
+/**
+ * Replay guard for v2 envelopes. Opening is stateless (relay dispatch lets several
+ * handlers open one envelope to decide by inner type); the handler that TAKES the
+ * message claims its id once, after its inner-type check. A second claim of the same
+ * id is a replay. Receivers that are idempotent themselves (they answer a relay
+ * redelivery from their own cache and never repeat the effect) need not claim.
+ * v1 envelopes carry no id and always claim successfully.
+ */
+export function claimSealedServiceRpcMessage(
+  envelope: SealedServiceRpcEnvelope,
+  nowMs: number = Date.now(),
+): { readonly ok: true } | { readonly ok: false; readonly code: 'E_SEALED_RPC_REPLAY'; readonly message: string } {
+  if (envelope.schema_version !== SEALED_SERVICE_RPC_SCHEMA_VERSION_AUTH) return { ok: true }
+  const messageId = trimNonEmpty(envelope.message_id)
+  if (seenMessageIds.has(messageId)) {
+    return { ok: false, code: 'E_SEALED_RPC_REPLAY', message: 'sealed envelope message_id already handled' }
+  }
+  pruneSeen(nowMs)
+  seenMessageIds.set(messageId, envelope.expires_at as number)
+  return { ok: true }
+}
+
+/**
  * Open a sealed service-RPC envelope using the local device's X25519 private key.
  *
  * The private key is resolved from the handshake record (legacy) or, when absent there,
@@ -274,6 +483,7 @@ export function openServiceRpcPayload(
   record: HandshakeRecord,
   envelope: SealedServiceRpcEnvelope,
   localX25519PrivB64Override?: string | null,
+  opts: OpenServiceRpcOptions = {},
 ): OpenServiceRpcResult {
   const shapeErr = validateEnvelopeShape(envelope)
   if (shapeErr) return shapeErr
@@ -287,8 +497,19 @@ export function openServiceRpcPayload(
     }
   }
 
+  if (envelope.schema_version === SEALED_SERVICE_RPC_SCHEMA_VERSION_AUTH) {
+    return openAuthenticated(record, envelope, localX25519PrivB64Override, opts.nowMs ?? Date.now())
+  }
+  if (opts.requireAuthenticated) {
+    return {
+      ok: false,
+      code: 'E_SEALED_RPC_UNAUTHENTICATED',
+      message: 'unauthenticated (v1) envelope refused on this path — sender must run a build with authenticated service RPC',
+    }
+  }
+
   const local = resolveLocalX25519PrivForOpen(record, localX25519PrivB64Override)
-  if ('ok' in local && local.ok === false) return local
+  if ('ok' in local) return local
 
   const privBytes = decodeX25519PrivB64(local.privB64)
   const senderPubBytes = decodeX25519PubB64(envelope.sender_ephemeral_x25519_pub_b64)
@@ -345,6 +566,73 @@ export function openServiceRpcPayload(
   }
 }
 
+function openAuthenticated(
+  record: HandshakeRecord,
+  envelope: SealedServiceRpcEnvelope,
+  localX25519PrivB64Override: string | null | undefined,
+  nowMs: number,
+): OpenServiceRpcResult {
+  const expiresAt = envelope.expires_at as number
+  const messageId = (envelope.message_id as string).trim()
+  if (expiresAt + SEALED_RPC_CLOCK_SKEW_MS < nowMs) {
+    return { ok: false, code: 'E_SEALED_RPC_EXPIRED', message: 'sealed envelope expired' }
+  }
+  if (expiresAt > nowMs + SEALED_RPC_MAX_TTL_MS + SEALED_RPC_CLOCK_SKEW_MS) {
+    return { ok: false, code: 'E_SEALED_RPC_EXPIRY_TOO_FAR', message: 'sealed envelope expires_at is too far in the future' }
+  }
+
+  const local = resolveLocalX25519PrivForOpen(record, localX25519PrivB64Override)
+  if ('ok' in local) return local
+  const peer = resolvePeerX25519PubForSeal(record)
+  if ('ok' in peer) {
+    return { ok: false, code: peer.code, message: `${peer.message} (needed to authenticate the sender)` }
+  }
+
+  const privBytes = decodeX25519PrivB64(local.privB64)
+  const ephPubBytes = decodeX25519PubB64(envelope.sender_ephemeral_x25519_pub_b64)
+  const senderStaticPubBytes = decodeX25519PubB64(peer.pubB64)
+  if (!privBytes || !ephPubBytes || !senderStaticPubBytes) {
+    return { ok: false, code: 'E_SEALED_RPC_INVALID_ENVELOPE', message: 'invalid X25519 key material in envelope or record' }
+  }
+
+  const aad = buildAuthenticatedAad({
+    handshake_id: envelope.handshake_id,
+    sender_device_id: envelope.sender_device_id,
+    receiver_device_id: envelope.receiver_device_id,
+    expires_at: expiresAt,
+    message_id: messageId,
+  })
+
+  try {
+    const ss1 = x25519.getSharedSecret(new Uint8Array(privBytes), new Uint8Array(ephPubBytes))
+    const ss2 = x25519.getSharedSecret(new Uint8Array(privBytes), new Uint8Array(senderStaticPubBytes))
+    const derivedKey = deriveAuthenticatedKey(ss1, ss2, Buffer.from(envelope.salt_b64, 'base64'))
+    ss1.fill(0)
+    ss2.fill(0)
+    privBytes.fill(0)
+
+    const nonce = Buffer.from(envelope.nonce_b64, 'base64')
+    const ciphertextWithTag = Buffer.from(envelope.ciphertext_b64, 'base64')
+    if (ciphertextWithTag.length < 16) {
+      derivedKey.fill(0)
+      return { ok: false, code: 'E_SEALED_RPC_DECRYPT_FAILED', message: 'ciphertext too short' }
+    }
+    const tag = ciphertextWithTag.subarray(ciphertextWithTag.length - 16)
+    const ciphertext = ciphertextWithTag.subarray(0, ciphertextWithTag.length - 16)
+    const decipher = createDecipheriv('aes-256-gcm', derivedKey, nonce)
+    decipher.setAAD(aad)
+    decipher.setAuthTag(tag)
+    const plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()])
+    derivedKey.fill(0)
+    return { ok: true, plaintextJson: plaintext.toString('utf8') }
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    // A failed tag here means: wrong recipient key, tampering, or a sender that does not
+    // hold the device key pinned on this handshake.
+    return { ok: false, code: 'E_SEALED_RPC_DECRYPT_FAILED', message: msg }
+  }
+}
+
 /**
  * Open a sealed service-RPC envelope, resolving the local device's X25519 private key from
  * the SAME store the seal path / qBEAP decrypt use (INV-CRYPTO-REUSE):
@@ -361,16 +649,9 @@ export function openServiceRpcPayload(
 export async function openServiceRpcPayloadResolvingLocalKey(
   record: HandshakeRecord,
   envelope: SealedServiceRpcEnvelope,
+  opts: OpenServiceRpcOptions = {},
 ): Promise<OpenServiceRpcResult> {
-  let localPrivB64 = trimNonEmpty(record.local_x25519_private_key_b64)
-  if (!localPrivB64) {
-    try {
-      const { getDeviceX25519KeyPair } = await import('../device-keys/deviceKeyStore')
-      const deviceKp = await getDeviceX25519KeyPair()
-      localPrivB64 = trimNonEmpty(deviceKp.privateKey)
-    } catch {
-      // Leave empty — openServiceRpcPayload fails closed with MISSING_LOCAL_X25519 (no plaintext).
-    }
-  }
-  return openServiceRpcPayload(record, envelope, localPrivB64 || undefined)
+  // Empty → openServiceRpcPayload fails closed with MISSING_LOCAL_X25519 (no plaintext).
+  const localPrivB64 = await resolveLocalStaticPrivB64(record)
+  return openServiceRpcPayload(record, envelope, localPrivB64 || undefined, opts)
 }

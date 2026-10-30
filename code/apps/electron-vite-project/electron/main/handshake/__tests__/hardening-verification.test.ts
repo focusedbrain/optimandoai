@@ -29,7 +29,6 @@ vi.mock('electron', () => ({
 import { buildTestSession } from '../sessionFactory'
 import { createHandshakeTestDb } from './handshakeTestDb'
 import { migrateIngestionTables } from '../../ingestion/persistenceDb'
-import { handleIngestionRPC } from '../../ingestion/ipc'
 import {
   handleHandshakeRPC,
   setSSOSessionProvider,
@@ -51,6 +50,17 @@ import { HandshakeState } from '../types'
 import type { SSOSession } from '../types'
 import { updateHandshakeSigningKeys, updateHandshakeCounterpartyKey, updateHandshakeContextSyncEnqueued } from '../db'
 import { MOCK_EXTENSION_X25519_PUBLIC_B64 } from './mockKeypair'
+import {
+  installInMemoryConnectOffers,
+  uninstallInMemoryConnectOffers,
+  submitCapsuleThroughConsentGate,
+} from './connectOfferConsentTestKit'
+import { afterEach } from 'vitest'
+
+// Phase 4: inbound initiates stage a Connect offer; the kit consents and
+// re-runs the pipeline so post-formation assertions still exercise real rows.
+beforeEach(() => installInMemoryConnectOffers())
+afterEach(() => uninstallInMemoryConnectOffers())
 
 function aliceSession(): SSOSession {
   return buildTestSession({
@@ -105,19 +115,7 @@ async function setupHandshakeWithKeypairs(
 }
 
 async function submitCapsule(capsuleJson: string, db: any, session: SSOSession) {
-  return handleIngestionRPC(
-    'ingestion.ingest',
-    {
-      rawInput: {
-        body: capsuleJson,
-        mime_type: 'application/vnd.beap+json',
-      },
-      sourceType: 'email',
-      transportMeta: { channel_id: 'test', mime_type: 'application/vnd.beap+json' },
-    },
-    db,
-    session,
-  )
+  return submitCapsuleThroughConsentGate(capsuleJson, db, session, { channelId: 'test' })
 }
 
 describe('Hardening Verification — Fix 1: capsule_hash', () => {

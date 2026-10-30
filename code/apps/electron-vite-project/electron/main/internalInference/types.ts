@@ -3,6 +3,8 @@
  * Not user-visible BEAP inbox; not coordination relay in MVP.
  */
 
+import type { AiProvenance } from '../../../../../packages/shared/src/aiProvenance'
+
 export const INTERNAL_INFERENCE_SCHEMA_VERSION = 1
 
 export type InternalServiceMessageType =
@@ -48,6 +50,8 @@ export interface InternalInferenceResultWire extends InternalServiceEnvelopeBase
   output: string
   usage?: Record<string, unknown>
   duration_ms: number
+  /** Art. 50 AI provenance attached at generation boundary (backward-compatible optional field). */
+  provenance?: AiProvenance
 }
 
 export interface InternalInferenceErrorWire {

@@ -489,7 +489,7 @@ export const HandshakeDetailsPanel: React.FC<HandshakeDetailsPanelProps> = ({
                   isPro={isPro}
                 />
               )}
-              {handshake.handshake_type === 'internal' && (
+              {handshake.same_principal === true && (
                 <>
                   <DetailRow label="Type" value="Internal (same account)" isPro={isPro} />
                   {handshake.initiator_device_name && (

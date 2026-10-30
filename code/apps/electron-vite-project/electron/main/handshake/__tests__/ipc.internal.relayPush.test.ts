@@ -131,7 +131,7 @@ describe.skipIf(!sqliteAvailable)('handshake.initiate internal — coordination 
         receiverUserId: 'user-int',
         receiverEmail: 'user-int@test.com',
         fromAccountId: 'acct-alice-1',
-        handshake_type: 'internal',
+        profile_id: 'internal_device',
         device_role: 'host',
         device_name: 'HostBox',
         counterparty_device_id: PEER_ID,
@@ -156,7 +156,7 @@ describe.skipIf(!sqliteAvailable)('handshake.initiate internal — coordination 
     expect(regOpts).toMatchObject({
       initiator_device_id: INSTANCE_ID,
       acceptor_device_id: PEER_ID,
-      handshake_type: 'internal',
+      same_principal: true,
     })
 
     // Outbound queue → POST to <coordination_url>/beap/capsule.
@@ -205,7 +205,7 @@ describe.skipIf(!sqliteAvailable)('handshake.initiate internal — coordination 
         receiverUserId: 'user-int',
         receiverEmail: 'user-int@test.com',
         fromAccountId: 'acct-alice-1',
-        handshake_type: 'internal',
+        profile_id: 'internal_device',
         device_role: 'host',
         device_name: 'HostBox',
         counterparty_device_id: PEER_ID,

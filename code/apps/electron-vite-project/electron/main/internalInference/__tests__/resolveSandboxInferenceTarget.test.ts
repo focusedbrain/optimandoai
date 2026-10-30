@@ -43,7 +43,7 @@ vi.mock('../../handshake/db', () => ({
   getHandshakeRecord: vi.fn(() => ({
     handshake_id: 'hs-a',
     state: 'ACTIVE',
-    handshake_type: 'internal',
+    same_principal: true,
     internal_coordination_identity_complete: true,
     initiator_coordination_device_id: 'dev-sbx',
     acceptor_coordination_device_id: 'dev-host',

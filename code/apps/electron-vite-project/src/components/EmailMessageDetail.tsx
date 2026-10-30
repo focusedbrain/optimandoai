@@ -4,6 +4,10 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import {
+  ChannelProvenanceAlert,
+  channelProvenanceAlertRecordFromUnknown,
+} from '@repo/shared-beap-ui'
 import type { InboxMessage } from '../stores/useEmailInboxStore'
 import { useEmailInboxStore } from '../stores/useEmailInboxStore'
 import InboxAttachmentRow from './InboxAttachmentRow'
@@ -11,6 +15,7 @@ import LinkWarningDialog from './LinkWarningDialog'
 import SandboxLinkInfoDialog from './SandboxLinkInfoDialog'
 import { openAppExternalUrl } from '../lib/openAppExternalUrl'
 import BeapMessageSafeLinkParts from './BeapMessageSafeLinkParts'
+import { WrCodePanel } from './WrCodePanel'
 import { beapInboxMessageBodyToLinkParts, extractLinkParts } from '../utils/safeLinks'
 import { deriveInboxMessageKind } from '../lib/inboxMessageKind'
 import {
@@ -376,6 +381,8 @@ export default function EmailMessageDetail({
   } | null>(null)
   const [hostSandboxBusy, setHostSandboxBusy] = useState(false)
   const [hostSandboxInlineFeedback, setHostSandboxInlineFeedback] = useState<SandboxCloneFeedbackView | null>(null)
+  const [wrCodeOpen, setWrCodeOpen] = useState(false)
+  useEffect(() => setWrCodeOpen(false), [message?.id])
   const {
     selectedAttachmentId: storeSelectedAttachmentId,
     selectAttachment,
@@ -420,6 +427,11 @@ export default function EmailMessageDetail({
       return null
     }
   }, [message?.depackaged_metadata])
+
+  const channelProvenanceAlertRecord = useMemo(
+    () => channelProvenanceAlertRecordFromUnknown(parsedDepackagedMeta),
+    [parsedDepackagedMeta],
+  )
 
   const parsedPackage = useMemo(() => {
     if (!message?.beap_package_json) return null
@@ -1223,6 +1235,7 @@ export default function EmailMessageDetail({
           orchestratorMode === 'sandbox' ||
           (internalSandboxListReady && authoritativeDeviceInternalRole === 'sandbox')
         }
+        channelProvenanceRecord={channelProvenanceAlertRecord}
       />
       <SandboxLinkInfoDialog
         isOpen={linkSandboxInfoOpen}
@@ -1360,10 +1373,19 @@ export default function EmailMessageDetail({
                 type="button"
                 onClick={handleDelete}
                 className="inbox-detail-toolbar-text-btn inbox-detail-toolbar-text-btn--danger"
-                aria-label="Remove from WRDesk inbox"
-                title="Remove from WRDesk inbox only — does not delete from Gmail, Outlook, or the origin mailbox"
+                aria-label="Remove from Optirando inbox"
+                title="Remove from Optirando inbox only — does not delete from Gmail, Outlook, or the origin mailbox"
               >
                 Remove
+              </button>
+              <button
+                type="button"
+                onClick={() => setWrCodeOpen((open) => !open)}
+                className="inbox-detail-toolbar-text-btn"
+                aria-expanded={wrCodeOpen}
+                title="Enter a WR Code, or find WR Codes in this message"
+              >
+                WR Code
               </button>
             </div>
             {showDetailActionEnd ? (
@@ -1428,6 +1450,13 @@ export default function EmailMessageDetail({
             <div>{formatDate(message.received_at)}</div>
           </div>
         </div>
+
+        <ChannelProvenanceAlert
+          record={channelProvenanceAlertRecord}
+          surface="electron-email-message-detail"
+        />
+
+        {wrCodeOpen ? <WrCodePanel messageId={message.id} onClose={() => setWrCodeOpen(false)} /> : null}
 
         {/* Body — pBEAP/qBEAP split only for real native BEAP; sandbox clones use depackaged-style body like Host depackaged rows */}
         <div style={{ marginBottom: 20 }}>

@@ -1,18 +1,22 @@
+import { samePrincipalFullClaim } from '@repo/ingestion-core'
 import type { HandshakeRecord } from '../handshake/types'
 import { getInstanceId } from '../orchestrator/orchestratorModeStore'
 import { getP2PConfig } from '../p2p/p2pConfig'
 import { InternalInferenceErrorCode } from './errors'
 import { isHostSandboxPairEligible } from './hostAiInternalPairingLedger'
 
-function samePrincipal(r: HandshakeRecord): boolean {
-  const a = r.initiator?.wrdesk_user_id
-  const b = r.acceptor?.wrdesk_user_id
-  return typeof a === 'string' && typeof b === 'string' && a.length > 0 && a === b
-}
-
-/** Exported for `listTargets` / ledger filtering — same check as `assertRecordForServiceRpc` (without identity-complete gate). */
+/**
+ * Exported for `listTargets` / ledger filtering — same check as
+ * `assertRecordForServiceRpc` (without identity-complete gate).
+ *
+ * Full-claim same-principal [VII.3.8–3.10]: every claim present on both bound
+ * parties must match exactly (issuer included); a wrdesk-id-only agreement
+ * under differing emails/issuers is NOT the same principal. Strictly tighter
+ * than the previous wrdesk-only comparison — never looser.
+ */
 export function handshakeSamePrincipal(r: HandshakeRecord): boolean {
-  return samePrincipal(r)
+  if (!r.initiator || !r.acceptor) return false
+  return samePrincipalFullClaim(r.initiator, r.acceptor).ok
 }
 
 function normHostSandboxRole(v: unknown): 'host' | 'sandbox' | null {

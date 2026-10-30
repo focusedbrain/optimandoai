@@ -21,7 +21,7 @@ export type InferenceDirectHttpTrustReason =
   /** All handshake criteria satisfied (ACTIVE, internal, same principal, sandbox→host, identity complete, bearer). */
   | 'handshake_bound'
   | 'state_not_active'
-  | 'handshake_type_not_internal'
+  | 'record_not_same_principal'
   | 'not_same_principal'
   | 'not_sandbox_to_host'
   | 'identity_not_complete'
@@ -85,8 +85,8 @@ export function inferenceDirectHttpTrust(input: {
   if (r.state !== HandshakeState.ACTIVE) {
     return { trusted: false, reason: 'state_not_active', normalizedUrl: null }
   }
-  if (r.handshake_type !== 'internal') {
-    return { trusted: false, reason: 'handshake_type_not_internal', normalizedUrl: null }
+  if (r.same_principal !== true) {
+    return { trusted: false, reason: 'record_not_same_principal', normalizedUrl: null }
   }
   if (!handshakeSamePrincipal(r)) {
     return { trusted: false, reason: 'not_same_principal', normalizedUrl: null }

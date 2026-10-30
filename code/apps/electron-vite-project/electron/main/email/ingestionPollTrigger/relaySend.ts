@@ -11,7 +11,7 @@ import { getCoordinationOidcToken } from '../../handshake/ipc'
 import { getP2PConfig } from '../../p2p/p2pConfig'
 import { normalizeCoordinationUrlForLocalDial } from '../../p2p/coordinationUrlLocalDial'
 import {
-  sealServiceRpcPayload,
+  sealServiceRpcPayloadAuthenticatedResolvingLocalKey,
   type SealedServiceRpcEnvelope,
   type SealServiceRpcInput,
 } from '../../serviceRpc/sealedServiceRpc'
@@ -40,14 +40,18 @@ export function buildSealedServiceRpcRelayCapsule(envelope: SealedServiceRpcEnve
     salt_b64: envelope.salt_b64,
     nonce_b64: envelope.nonce_b64,
     ciphertext_b64: envelope.ciphertext_b64,
+    ...(envelope.schema_version === 2
+      ? { expires_at: envelope.expires_at, message_id: envelope.message_id }
+      : {}),
   }
 }
 
-export function sealServiceRpcForRelay(
+/** Relay service-RPC envelopes are always sender-authenticated (roadmap 0.26). */
+export async function sealServiceRpcForRelay(
   record: HandshakeRecord,
   input: SealServiceRpcInput,
-): { readonly ok: true; readonly envelope: SealedServiceRpcEnvelope } | { readonly ok: false; readonly code: string; readonly message: string } {
-  return sealServiceRpcPayload(record, input)
+): Promise<{ readonly ok: true; readonly envelope: SealedServiceRpcEnvelope } | { readonly ok: false; readonly code: string; readonly message: string }> {
+  return sealServiceRpcPayloadAuthenticatedResolvingLocalKey(record, input)
 }
 
 export async function sendSealedServiceRpcViaCoordinationRelay(

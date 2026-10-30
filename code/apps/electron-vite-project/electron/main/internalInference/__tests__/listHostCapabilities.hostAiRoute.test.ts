@@ -102,7 +102,7 @@ function baseRecord(over: Partial<HandshakeRecord> = {}): HandshakeRecord {
     initiator_coordination_device_id: 'dev-sand-1',
     acceptor_coordination_device_id: 'dev-host-1',
     internal_coordination_identity_complete: true,
-    handshake_type: 'internal',
+    same_principal: true,
     p2p_endpoint: 'https://relay.example/beap/ingest/relay?x=1',
     local_p2p_auth_token: 't',
     counterparty_p2p_token: 'pt',

@@ -28,7 +28,7 @@ function internalInitiatorRow(
     local_role: 'initiator',
     sharing_mode: 'reciprocal',
     reciprocal_allowed: true,
-    handshake_type: 'internal',
+    same_principal: true,
     initiator_device_name: 'A',
     acceptor_device_name: 'B',
     initiator_device_role: 'host',

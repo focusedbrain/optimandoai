@@ -6,6 +6,8 @@
  * across the email gateway, MCP tools, and UI.
  */
 
+import type { AiProvenance } from '../../../../../packages/shared/src/aiProvenance'
+
 // =============================================================================
 // Provider Configuration
 // =============================================================================
@@ -579,6 +581,12 @@ export interface SanitizedMessageDetail extends SanitizedMessage {
     messageId?: string
     inReplyTo?: string
     references?: string[]
+    /**
+     * `Authentication-Results` values the receiving gateway wrote, for the
+     * Channel Provenance Record [IX.3.1]. Providers that cannot surface them
+     * leave this unset, and the CPR records `unverifiable` — never a pass.
+     */
+    authenticationResults?: string[]
   }
 
   /**
@@ -737,6 +745,14 @@ export interface SendEmailPayload {
   
   /** Reference message IDs (for threading) */
   references?: string[]
+
+  /**
+   * Art. 50 Layer A machine-readable AI provenance.
+   * When present and shouldApplyMachineMarking(provenance) is true, X-AI-Generated
+   * and X-AI-Provenance MIME headers are injected by the outbound carrier (gmail.ts).
+   * Not user-optional — editorial responsibility exempts visible label only, not MIME.
+   */
+  provenance?: AiProvenance
 }
 
 /**

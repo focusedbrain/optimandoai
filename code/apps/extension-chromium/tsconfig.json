@@ -13,7 +13,8 @@
     "baseUrl": ".",
     "paths": {
       "@shared/*": ["../../packages/shared/src/*"],
-      "@shared-extension/*": ["../../packages/shared-extension/src/*"]
+      "@shared-extension/*": ["../../packages/shared-extension/src/*"],
+      "@repo/shared-beap-ui": ["../../packages/shared-beap-ui/src/index.ts"]
     }
   },
   "exclude": ["**/__tests__/**"]

@@ -309,7 +309,7 @@ export default function BeapInboxFirstRun({
           </p>
           <ul style={{ fontSize: '11px', color: mutedColor, lineHeight: 1.6, margin: '0 0 10px 16px', padding: 0 }}>
             <li><strong>Email</strong> — attach .beap to an email</li>
-            <li><strong>P2P</strong> — send directly to another WR Desk orchestrator</li>
+            <li><strong>P2P</strong> — send directly to another Optirando orchestrator</li>
             <li><strong>Download</strong> — save .beap file and transfer manually</li>
           </ul>
           <button

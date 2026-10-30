@@ -13,11 +13,15 @@
  *   - context_block_proofs validated and persisted
  */
 
-import { describe, test, expect, beforeEach, vi } from 'vitest'
+import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest'
 import { buildTestSession } from '../sessionFactory'
 import { createHandshakeTestDb } from './handshakeTestDb'
 import { migrateIngestionTables } from '../../ingestion/persistenceDb'
-import { handleIngestionRPC } from '../../ingestion/ipc'
+import {
+  installInMemoryConnectOffers,
+  uninstallInMemoryConnectOffers,
+  submitCapsuleThroughConsentGate,
+} from './connectOfferConsentTestKit'
 import {
   handleHandshakeRPC,
   setSSOSessionProvider,
@@ -55,20 +59,13 @@ function bobSession(): SSOSession {
   })
 }
 
+// Phase 4 [IX.3.1]: inbound initiates stage a Connect offer; the kit consents
+// and re-runs the one pipeline behind the consent gate.
+beforeEach(() => installInMemoryConnectOffers())
+afterEach(() => uninstallInMemoryConnectOffers())
+
 async function submitCapsule(capsuleJson: string, db: any, session: SSOSession) {
-  return handleIngestionRPC(
-    'ingestion.ingest',
-    {
-      rawInput: {
-        body: capsuleJson,
-        mime_type: 'application/vnd.beap+json',
-      },
-      sourceType: 'email',
-      transportMeta: { channel_id: 'test', mime_type: 'application/vnd.beap+json' },
-    },
-    db,
-    session,
-  )
+  return submitCapsuleThroughConsentGate(capsuleJson, db, session, { channelId: 'test' })
 }
 
 describe('Handshake E2E — Hardened', () => {

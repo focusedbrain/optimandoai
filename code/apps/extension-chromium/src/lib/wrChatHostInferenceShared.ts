@@ -146,7 +146,7 @@ export function buildHostInternalMessagesFromSimpleChat(
 }
 
 const BRIDGE_UNAVAILABLE =
-  'Host inference bridge unavailable for WR Chat. Use WR Desk dashboard WR Chat, or ensure the desktop app is running in sandbox mode with a paired Host.'
+  'Host inference bridge unavailable for WR Chat. Use Optirando dashboard WR Chat, or ensure the desktop app is running in sandbox mode with a paired Host.'
 
 export async function postWrChatHostInternalCompletionHttp(args: {
   baseUrl: string

@@ -5,7 +5,7 @@ import {
 } from '../internalCoordinationWire'
 
 const completeInternal = {
-  handshake_type: 'internal' as const,
+  same_principal: true as const,
   internal_coordination_identity_complete: true as const,
   initiator_device_role: 'host' as const,
   acceptor_device_role: 'sandbox' as const,
@@ -18,7 +18,7 @@ describe('coordinationDevicePairForInternalRecord', () => {
     expect(
       coordinationDevicePairForInternalRecord(
         {
-          handshake_type: 'standard',
+          same_principal: false,
           local_role: 'initiator',
           initiator_coordination_device_id: 'a',
           acceptor_coordination_device_id: 'b',
@@ -33,7 +33,7 @@ describe('coordinationDevicePairForInternalRecord', () => {
     expect(
       coordinationDevicePairForInternalRecord(
         {
-          handshake_type: 'internal',
+          same_principal: true,
           local_role: 'initiator',
           initiator_coordination_device_id: 'a',
           acceptor_coordination_device_id: 'b',

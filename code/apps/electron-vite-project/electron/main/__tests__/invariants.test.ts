@@ -177,11 +177,21 @@ describe('System Invariants', () => {
     expect(decision.target).not.toBe('handshake_pipeline')
   })
 
-  // Invariant 4: Authorization gate always invoked before tool execution
-  test('4: authorizeToolInvocation is called before any tool execution', async () => {
-    const auditEntries: any[] = []
-    const activeRow = makeHandshakeRow()
-    const db = makeMockDb({ 'hs-001': activeRow }, auditEntries)
+  // Invariant 4: Authorization gate always invoked before tool execution.
+  // Phase 5 (V4): the gate requires a fresh, tapped, Intent-Hash-bound
+  // consent record — an ACTIVE handshake alone executes nothing.
+  test('4: authorizeToolInvocation (per-tap consent) is called before any tool execution', async () => {
+    const Database = (await import('better-sqlite3')).default
+    const { migrateHandshakeTables, insertHandshakeRecord } = await import('../handshake/db')
+    const { buildActiveHandshakeRecord } = await import('../handshake/__tests__/helpers')
+    const { prepareExecutionConsent, confirmExecutionConsent } = await import('../execution/executionConsent')
+    const { setEvidenceDbProvider } = await import('../handshake/evidenceChain')
+
+    const db = new Database(':memory:')
+    db.pragma('foreign_keys = ON')
+    migrateHandshakeTables(db)
+    insertHandshakeRecord(db, buildActiveHandshakeRecord())
+    setEvidenceDbProvider(() => db)
 
     let toolExecuted = false
     registerTool('read-context', async () => {
@@ -189,28 +199,36 @@ describe('System Invariants', () => {
       return { data: 'result' }
     })
 
-    await executeToolRequest(db, {
-      request_id: 'req-001',
-      handshake_id: 'hs-001',
-      tool_name: 'read-context',
-      parameters: {},
-      requested_at: new Date().toISOString(),
-      origin: 'local_ui',
-    })
+    try {
+      const req = {
+        request_id: 'req-001',
+        handshake_id: 'hs-001',
+        tool_name: 'read-context',
+        parameters: {},
+        requested_at: new Date().toISOString(),
+        origin: 'local_ui' as const,
+      }
 
-    expect(toolExecuted).toBe(true)
+      // Without a consent tap: refused, no execution.
+      const refused = await executeToolRequest(db, req)
+      expect(refused.success).toBe(false)
+      expect(toolExecuted).toBe(false)
 
-    // Audit entries should include at least one authorization record
-    // (inserted by authorizeToolInvocation) PLUS one execution audit record.
-    // The authorization audit is from authorizeToolInvocation, and the
-    // execution audit is from executeToolRequest's step 5.
-    const authAuditEntries = auditEntries.filter(e =>
-      e.sql.includes('INSERT') && (
-        JSON.stringify(e.args).includes('TOOL_AUTHORIZED') ||
-        JSON.stringify(e.args).includes('TOOL_EXECUTION_SUCCESS')
-      ),
-    )
-    expect(authAuditEntries.length).toBeGreaterThanOrEqual(2)
+      // With a tapped consent: executes.
+      const prep = prepareExecutionConsent(db, { ...req, scope_id: undefined, purpose_id: undefined })
+      confirmExecutionConsent(db, prep.consent_id, 'local-user-001')
+      const allowed = await executeToolRequest(db, { ...req, consent_ref: prep.consent_id })
+      expect(allowed.success).toBe(true)
+      expect(toolExecuted).toBe(true)
+
+      const actions = (db.prepare(`SELECT action FROM audit_log WHERE handshake_id = 'hs-001'`).all() as Array<{ action: string }>)
+        .map((r) => r.action)
+      expect(actions).toContain('TOOL_AUTHORIZED')
+      expect(actions).toContain('TOOL_EXECUTION_SUCCESS')
+    } finally {
+      setEvidenceDbProvider(null)
+      db.close()
+    }
   })
 
   // Invariant 5: Validator is the sole ValidatedCapsule factory (static scan)

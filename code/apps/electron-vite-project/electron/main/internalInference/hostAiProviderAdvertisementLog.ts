@@ -196,7 +196,7 @@ export async function buildHostAiProviderAdvertisementPayload(input: {
   let diagnosticPublishHandshakeId: string | null = null
   if (dbProv) {
     try {
-      const rows = listHandshakeRecords(dbProv as any, { state: HandshakeState.ACTIVE, handshake_type: 'internal' })
+      const rows = listHandshakeRecords(dbProv as any, { state: HandshakeState.ACTIVE, same_principal: true })
       for (const r0 of rows) {
         const eff = getEffectiveHostAiRoleForHandshake(r0, currentId, String(mode))
         if (eff.can_publish_host_endpoint) {

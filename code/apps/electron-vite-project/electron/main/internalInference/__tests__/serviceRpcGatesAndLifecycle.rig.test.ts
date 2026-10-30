@@ -29,7 +29,7 @@ import type { HandshakeRecord } from '../../handshake/types'
 /** Minimal record carrying only the fields `assertRecordForServiceRpc` inspects. */
 function record(overrides: Partial<HandshakeRecord> = {}): HandshakeRecord {
   return {
-    handshake_type: 'internal',
+    same_principal: true,
     state: 'ACTIVE',
     initiator: { wrdesk_user_id: 'same-user' },
     acceptor: { wrdesk_user_id: 'same-user' },
@@ -65,7 +65,7 @@ describe('service-RPC access gates (RemoteHandshakeExecutor template)', () => {
   })
 
   it('REJECTS a non-internal handshake → POLICY_FORBIDDEN', () => {
-    const g = assertRecordForServiceRpc(record({ handshake_type: 'normal' } as Partial<HandshakeRecord>))
+    const g = assertRecordForServiceRpc(record({ same_principal: false } as Partial<HandshakeRecord>))
     expect(g.ok).toBe(false)
     expect((g as { code: string }).code).toBe(InternalInferenceErrorCode.POLICY_FORBIDDEN)
   })

@@ -281,11 +281,18 @@ function mapToRawEmailMessage(
 ): RawEmailMessage {
   const id = detail.id
   const headerBlock =
-    detail.headers?.messageId || detail.headers?.inReplyTo || detail.headers?.references
+    detail.headers?.messageId ||
+    detail.headers?.inReplyTo ||
+    detail.headers?.references ||
+    detail.headers?.authenticationResults
       ? {
           ...(detail.headers.messageId ? { messageId: detail.headers.messageId } : {}),
           ...(detail.headers.inReplyTo ? { inReplyTo: detail.headers.inReplyTo } : {}),
           ...(detail.headers.references ? { references: detail.headers.references } : {}),
+          // CPR material [IX.3.1] — consumed by the producer and discarded.
+          ...(detail.headers.authenticationResults
+            ? { authenticationResults: detail.headers.authenticationResults }
+            : {}),
         }
       : undefined
 

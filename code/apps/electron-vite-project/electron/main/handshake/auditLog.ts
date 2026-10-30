@@ -6,11 +6,19 @@
 
 import type { AuditLogEntry, VerifiedCapsuleInput, HandshakeRecord, ReasonCode } from './types'
 
+/**
+ * Version-gated wire marker (Phase 2): capsules verified under legacy v≤2
+ * rules are marked 'legacy_v2' in evidence records; capsules whose canonical
+ * v3 envelope verified are marked 'canonical_v3'.
+ */
+export type WireFormatMarker = 'legacy_v2' | 'canonical_v3'
+
 export function buildSuccessAuditEntry(
   input: VerifiedCapsuleInput,
   record: HandshakeRecord,
   durationMs: number,
   blocksCount: number,
+  wireFormat: WireFormatMarker = 'legacy_v2',
 ): AuditLogEntry {
   return {
     timestamp: new Date().toISOString(),
@@ -27,6 +35,7 @@ export function buildSuccessAuditEntry(
       sharing_mode: record.sharing_mode,
       state: record.state,
       seq: input.seq,
+      wire_format: wireFormat,
     },
   }
 }
@@ -36,6 +45,7 @@ export function buildDenialAuditEntry(
   reason: ReasonCode,
   failedStep: string,
   durationMs: number,
+  wireFormat: WireFormatMarker = 'legacy_v2',
 ): AuditLogEntry {
   return {
     timestamp: new Date().toISOString(),
@@ -48,6 +58,7 @@ export function buildDenialAuditEntry(
     actor_wrdesk_user_id: input.sender_wrdesk_user_id,
     metadata: {
       seq: input.seq,
+      wire_format: wireFormat,
     },
   }
 }

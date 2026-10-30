@@ -9,6 +9,7 @@ import { getHandshakeRecord } from '../handshake/db'
 import { getInstanceId } from '../orchestrator/orchestratorModeStore'
 import { isEffectiveSandboxNode } from '../sandbox/sandboxOutboundPolicy'
 import {
+  claimSealedServiceRpcMessage,
   openServiceRpcPayloadResolvingLocalKey,
 } from '../serviceRpc/sealedServiceRpc'
 import {
@@ -59,7 +60,7 @@ export async function tryHandleHostAiSealedInferenceResultRelayCapsule(
     return true
   }
 
-  const opened = await openServiceRpcPayloadResolvingLocalKey(record, envelope)
+  const opened = await openServiceRpcPayloadResolvingLocalKey(record, envelope, { requireAuthenticated: true })
   if (!opened.ok) {
     console.warn(`${L} drop reason=open_failed code=${opened.code} handshake=${envelope.handshake_id}`)
     ctx.sendAck([ctx.relayMessageId])
@@ -69,6 +70,13 @@ export async function tryHandleHostAiSealedInferenceResultRelayCapsule(
   const innerType = innerTypeFromPlaintext(opened.plaintextJson)
   if (!innerType || !isHostAiInferenceResultOrErrorRelayInnerType(innerType)) {
     return false
+  }
+
+  const claimed = claimSealedServiceRpcMessage(envelope)
+  if (!claimed.ok) {
+    console.warn(`${L} drop reason=replay code=${claimed.code} handshake=${envelope.handshake_id}`)
+    ctx.sendAck([ctx.relayMessageId])
+    return true
   }
 
   ctx.sendAck([ctx.relayMessageId])
@@ -94,6 +102,7 @@ export async function tryHandleHostAiSealedInferenceResultRelayCapsule(
       output: wire.output,
       model: wire.model,
       duration_ms: wire.duration_ms,
+      ...(wire.provenance !== undefined ? { provenance: wire.provenance } : {}),
     }
   } else {
     pr = {

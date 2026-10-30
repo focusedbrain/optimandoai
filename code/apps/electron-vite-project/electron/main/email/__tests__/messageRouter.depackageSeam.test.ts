@@ -192,12 +192,39 @@ describe.skipIf(!Database)('B2 depackage-seam consumer (flag-on, in-process)', (
     const raw: any = {
       messageId: 'ext-3', from: { address: 'a@b.com' }, to: [], subject: 's',
       date: new Date().toISOString(),
-      rawRfc822: eml(['Subject: pkg', 'Content-Type: text/plain'], PBEAP_PKG),
+      // [Order 02 / 2A] The carrier path is reachable only for a
+      // channel-authenticated message, so the fixture now carries an aligned
+      // DKIM pass. Without it this asserts the suppression case below, not the
+      // carrier case it is named for.
+      rawRfc822: eml(
+        ['Subject: pkg', 'Content-Type: text/plain', 'Authentication-Results: mx.test; dkim=pass header.d=b.com'],
+        PBEAP_PKG,
+      ),
     }
     const res = await detectAndRouteMessage(db, 'acc', raw, SESSION)
     expect(res.type).toBe('beap')
     const row = db.prepare('SELECT * FROM inbox_messages WHERE id = ?').get(res.inboxMessageId) as any
     expect(row.source_type).toBe('email_beap')
+  })
+
+  it('2A: identical carrier mail WITHOUT channel authentication is never parsed as BEAP', async () => {
+    // Same bytes as the test above minus the Authentication-Results header. A
+    // failing `channel_pass` (D5) short-circuits WR parsing and code extraction
+    // entirely: the package is not extracted, the row is plain, and no
+    // affordance is derived from it [Order 02 / 2A].
+    const raw: any = {
+      messageId: 'ext-3-unauth', from: { address: 'a@b.com' }, to: [], subject: 's',
+      date: new Date().toISOString(),
+      rawRfc822: eml(['Subject: pkg', 'Content-Type: text/plain'], PBEAP_PKG),
+    }
+    const res = await detectAndRouteMessage(db, 'acc', raw, SESSION)
+    expect(res.type).toBe('plain')
+    const row = db.prepare('SELECT * FROM inbox_messages WHERE id = ?').get(res.inboxMessageId) as any
+    expect(row.source_type).not.toBe('email_beap')
+    // The CPR still rides along — the message is evidenced, it simply has no
+    // authenticated channel.
+    const meta = JSON.parse(row.depackaged_metadata)
+    expect(meta.channel_provenance.channel_pass).toBe(false)
   })
 
   it('INV-7: ambiguous classification → quarantine with mapped reason', async () => {

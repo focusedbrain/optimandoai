@@ -1,9 +1,17 @@
 /**
  * LinkWarningDialog — Mandatory gate before opening external links from BEAP inbox bodies.
  * Open link is disabled until the user checks the risk acknowledgement.
+ *
+ * The §IX.3.1 rule-8 channel provenance alert (when supplied) is a separate,
+ * non-dismissible surface — it does not share the risk-checkbox acknowledgement
+ * state and cannot be cleared from this dialog.
  */
 
 import React, { useEffect, useState } from 'react'
+import {
+  ChannelProvenanceAlert,
+  type ChannelProvenanceAlertRecord,
+} from '@repo/shared-beap-ui'
 import { BeapInboxSandboxCloneIcon } from './BeapInboxSandboxCloneIcon'
 
 export interface LinkWarningDialogProps {
@@ -23,6 +31,11 @@ export interface LinkWarningDialogProps {
    * never offer the Sandbox clone action (defense in depth; parent should already hide clone).
    */
   showSandboxOrchestratorWarning?: boolean
+  /**
+   * Optional CPR projection for the carrying message. When the trigger holds,
+   * the shared unsuppressible alert renders above the link-risk copy.
+   */
+  channelProvenanceRecord?: ChannelProvenanceAlertRecord | null
 }
 
 const BODY_PRIMARY =
@@ -53,6 +66,7 @@ export default function LinkWarningDialog({
   onSandbox,
   sandboxBusy = false,
   showSandboxOrchestratorWarning = false,
+  channelProvenanceRecord = null,
 }: LinkWarningDialogProps) {
   const [riskAccepted, setRiskAccepted] = useState(false)
   const showCloneToSandbox = Boolean(showSandboxAction && onSandbox && !showSandboxOrchestratorWarning)
@@ -85,6 +99,10 @@ export default function LinkWarningDialog({
         <h2 id="link-warning-title" className="link-warning-title">
           Open external link?
         </h2>
+        <ChannelProvenanceAlert
+          record={channelProvenanceRecord}
+          surface="electron-link-warning-dialog"
+        />
         <div className="link-warning-body">
           <p className="link-warning-para link-warning-para--primary">{BODY_PRIMARY}</p>
           {showSandboxOrchestratorWarning ? (

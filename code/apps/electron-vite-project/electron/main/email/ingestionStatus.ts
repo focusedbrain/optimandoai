@@ -21,8 +21,11 @@
  *   PAUSED_HOST_DELEGATED      ← this node is host, host correctly not polling,
  *                                 sandbox not yet confirmed fetching
  *                                 (syncOrchestrator.ts:466 ingestion_delegated_to_sandbox)
- *   DEGRADED_HELD_MESSAGES     ← fetch ok, but per-message depackage/deliver
- *                                 failures (sandboxIngestion.ts held > 0, status='ok')
+ *   DEGRADED_HELD_MESSAGES     ← fetch ok, but some messages could not be
+ *                                 unpacked (sandboxIngestion.ts held_depackage_failed)
+ *   PAUSED_DELIVERY_FAILED     ← the sandbox fetched and unpacked mail the host
+ *                                 never received (held_delivery_failed, or a host
+ *                                 ack with delivered < depackaged)
  *
  * INV-5: result carries reasons/counters only — never message content, tokens,
  * or any Annex I PII. Callers must not log IngestionAccountStatus.lastPollErrors.
@@ -37,6 +40,7 @@ import { getLastSandboxPollOutcomes } from './sandboxIngestion'
 import { resolveSandboxTopologyKind, type SandboxTopologyKind } from '../handshake/sandboxTopologyKind'
 import { getLastHostIngestionPollAcks } from './ingestionPollTrigger/hostAckStore'
 import {
+  hostAckIndicatesDeliveryFailed,
   hostAckIndicatesMissingReadProvider,
   hostAckIndicatesPollUnreachable,
   sandboxDedicatedMissingReadProvider,
@@ -55,6 +59,7 @@ export type IngestionStatusCode =
   | 'PAUSED_SANDBOX_UNREACHABLE'
   | 'PAUSED_HOST_DELEGATED'
   | 'DEGRADED_HELD_MESSAGES'
+  | 'PAUSED_DELIVERY_FAILED'
 
 /** Per-account token + last-poll counters (INV-5: counts only, no content). */
 export interface IngestionAccountStatus {
@@ -165,6 +170,9 @@ export async function resolveIngestionStatus(accountIds: readonly string[]): Pro
     if (hostAckIndicatesPollUnreachable(hostTriggerAcks, accountIds)) {
       return { ...base, code: 'PAUSED_SANDBOX_UNREACHABLE' }
     }
+    if (hostAckIndicatesDeliveryFailed(hostTriggerAcks, accountIds)) {
+      return { ...base, code: 'PAUSED_DELIVERY_FAILED' }
+    }
     return { ...base, code: 'PAUSED_HOST_DELEGATED' }
   }
 
@@ -199,11 +207,18 @@ export async function resolveIngestionStatus(accountIds: readonly string[]): Pro
       return { ...base, code: 'PAUSED_SANDBOX_UNREACHABLE' }
     }
 
-    // DEGRADED_HELD_MESSAGES: fetched ok but individual messages are held
-    // in depackage/deliver. sandboxIngestion.ts held counter > 0, status='ok'.
+    // PAUSED_DELIVERY_FAILED: unpacked here, but the host never received it.
+    if (pollEntries.some((a) => a.lastPollStatus === 'held_delivery_failed')) {
+      return { ...base, code: 'PAUSED_DELIVERY_FAILED' }
+    }
+
+    // DEGRADED_HELD_MESSAGES: fetched ok but individual messages could not be unpacked
+    // (or a legacy 'ok' result that still held messages — never green).
     const anyOk = pollEntries.some((a) => a.lastPollStatus === 'ok')
-    const anyHeld = pollEntries.some((a) => (a.lastPollHeld ?? 0) > 0)
-    if (anyOk && anyHeld) {
+    if (
+      pollEntries.some((a) => a.lastPollStatus === 'held_depackage_failed') ||
+      (anyOk && pollEntries.some((a) => (a.lastPollHeld ?? 0) > 0))
+    ) {
       return { ...base, code: 'DEGRADED_HELD_MESSAGES' }
     }
 

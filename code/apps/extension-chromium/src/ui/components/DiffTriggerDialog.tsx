@@ -1,6 +1,6 @@
 /**
  * Modal for configuring WR Chat folder diff watchers (LIST + EDIT).
- * Folder selection is picker-first (WR Desk / Electron); manual path is an advanced fallback.
+ * Folder selection is picker-first (Optirando / Electron); manual path is an advanced fallback.
  */
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
@@ -295,7 +295,7 @@ export const DiffTriggerDialog: React.FC<DiffTriggerDialogProps> = ({
             </div>
             <p style={{ margin: '0 0 16px', fontSize: 12, lineHeight: 1.5, color: labelColor }}>
               Watch folders for file changes and send diffs into WR Chat. Pick a folder from disk — no typing required
-              when WR Desk is running.
+              when Optirando is running.
             </p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
               {hostOffline ? (
@@ -626,7 +626,7 @@ export const DiffTriggerDialog: React.FC<DiffTriggerDialogProps> = ({
                   </>
                 ) : (
                   <p style={{ fontSize: 11, color: labelColor, marginBottom: 10, lineHeight: 1.45 }}>
-                    Open this screen from <strong>WR Desk</strong> to use the native folder picker. Otherwise paste an
+                    Open this screen from <strong>Optirando</strong> to use the native folder picker. Otherwise paste an
                     absolute path below.
                   </p>
                 )}

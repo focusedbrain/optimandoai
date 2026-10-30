@@ -23,12 +23,17 @@ alwaysApply: true
 - **No Host AI refresh** (Sandbox-only affordance).
 - **No self-target** — Host does not offer internal Host↔Sandbox inference as a target to itself.
 
-**Transport:**
+**Transport (decision D-38, 2026-10-30 — supersedes "relay carries `p2p_signal` only"):**
 
-- **Relay** carries **`p2p_signal` only** (offer/answer/ICE control), not inference bodies.
-- **DataChannel** for **capabilities** and **inference** bytes when P2P is up and flags allow.
+- The coordination relay is **blind**: it sees routing metadata (`handshake_id`, device ids, capsule type, size, expiry, message id) and **ciphertext only** — never plaintext content, keys, or tokens of the inner payload.
+- It carries exactly three internal families between the same principal's Host and Sandbox:
+  1. **`p2p_signal`** — offer/answer/ICE control (plaintext control, no content).
+  2. **Sealed service RPC** (`sealed_service_rpc_v1` capsule, **schema_version 2**): Host AI inference request/result when no DataChannel is up, ingestion poll trigger/result, and **sandbox→host delivery of depackaged mail**. Every envelope is E2E encrypted to the receiver's device key, **sender-authenticated** (static-static X25519 bound to the device key pinned on the handshake), carries `expires_at` + `message_id`, and the accepting handler claims the id once (`claimSealedServiceRpcMessage`). Relay receivers refuse v1 envelopes (`requireAuthenticated`).
+  3. Handshake capsules (`initiate`/`accept`/`context_sync`/`refresh`/`revoke`) as before.
+- **No plaintext fallback** anywhere on this path: if sealing fails, nothing is sent.
+- **DataChannel** stays preferred for **capabilities** and **inference** bytes when P2P is up and flags allow; the sealed relay is the store-and-forward path, not a plaintext stream.
 - **Direct HTTP** is **transitional / fallback** only (`p2pInferenceFlags`, `transportDecide`); not the long-term primary once DC is proven.
-- **No inference payload** on the **wrdesk coordination relay** — no prompt/result streaming through the generic relay path; DC or allowed HTTP direct path only.
+- Size: a sealed capsule must stay under the relay/validator limits (10 MB validator, 15 MB relay); larger payloads fail loudly, never silently truncate.
 
 **Security:**
 
@@ -43,7 +48,8 @@ alwaysApply: true
 
 ## Do not
 
-- **Carry inference over BEAP capsules** — Do not send inference prompts/results through `/beap/capsule` or the capsule ingest path. Internal inference uses **HTTP `/beap/ingest` (where enabled)** and/or **P2P signaling + DataChannel** as designed, not the inbox capsule family.
+- **Carry inference over BEAP message capsules** — Do not send inference prompts/results as inbox/message capsules. Internal inference uses the **DataChannel**, the **sealed service RPC v2** relay envelope, or **HTTP `/beap/ingest` (where enabled)** — never the inbox capsule family.
+- **Send unauthenticated (v1) sealed service RPC on a relay path** — relay senders use `sealServiceRpcPayloadAuthenticatedResolvingLocalKey`; v1 stays only for the in-capsule `context_blocks_sealed` canonical form.
 - **Reuse the BEAP inbox path for inference RPC** — Inbox, orchestration, and `p2p_signal` are separate concerns; do not route inference RPCs through the same pipeline as `direct_beap` / `email_beap` message handling.
 - **Enqueue inference in `p2p_pending_beap`** — Do not insert inference service messages there; regression: `internalInference.directHost.regression.test.ts` (internal_inference_request does not enqueue `p2p_pending_beap`).
 - **Weaken `assertRecordForServiceRpc`** — This gate restricts Host inference to **internal, same-principal, ACTIVE, identity-complete** handshakes. Do not relax checks for “convenience”; extend tests in `policy.internalInference.test.ts` if behavior changes.

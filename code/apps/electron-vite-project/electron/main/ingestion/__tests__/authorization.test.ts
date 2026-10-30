@@ -1,231 +1,183 @@
-import { describe, test, expect } from 'vitest'
+/**
+ * Execution Authorization Gate — Phase 5 (V4) per-tap consent model.
+ *
+ * Execution grants are deleted: no standing GRANTED_TOOLS set, no
+ * ACTIVE-handshake blanket authorization. Authorization requires a fresh,
+ * single-use, Intent-Hash-bound human consent record [VII.10.1, IX.19.2].
+ */
+
+import { describe, test, expect, beforeEach, afterEach } from 'vitest'
+import Database from 'better-sqlite3'
 import { authorizeToolInvocation } from '../../enforcement/authorizeToolInvocation'
 import type { ToolInvocationRequest } from '../../enforcement/authorizeToolInvocation'
+import {
+  prepareExecutionConsent,
+  confirmExecutionConsent,
+} from '../../execution/executionConsent'
+import { setEvidenceDbProvider } from '../../handshake/evidenceChain'
+import { migrateHandshakeTables, insertHandshakeRecord } from '../../handshake/db'
+import { HandshakeState } from '../../handshake/types'
+import { buildActiveHandshakeRecord } from '../../handshake/__tests__/helpers'
 
-function makeMockDb(records: Record<string, any> = {}, auditEntries: any[] = []) {
-  return {
-    prepare: (sql: string) => ({
-      run: (...args: any[]) => { auditEntries.push({ sql, args }) },
-      get: (...args: any[]) => {
-        if (sql.includes('handshakes') && sql.includes('handshake_id') && args.length > 0) {
-          return records[args[0]] ?? undefined
-        }
-        return undefined
-      },
-      all: (...args: any[]) => {
-        if (sql.includes('handshakes')) {
-          return Object.values(records)
-        }
-        return []
-      },
-    }),
-    transaction: (fn: any) => fn,
-  }
-}
+const HS = 'hs-001'
 
-function makeHandshakeRow(overrides?: any) {
-  return {
-    handshake_id: 'hs-001',
-    relationship_id: 'rel-001',
-    state: 'ACTIVE',
-    initiator_json: JSON.stringify({ email: 'a@b.com', wrdesk_user_id: 'u-1', iss: 'i', sub: 's' }),
-    acceptor_json: JSON.stringify({ email: 'c@d.com', wrdesk_user_id: 'u-2', iss: 'i', sub: 's' }),
-    local_role: 'acceptor',
-    sharing_mode: 'reciprocal',
-    reciprocal_allowed: 1,
-    tier_snapshot_json: JSON.stringify({ claimedTier: null, computedTier: 'free', effectiveTier: 'free', signals: { plan: 'free', hardwareAttestation: null, dnsVerification: null, wrStampStatus: null }, downgraded: false }),
-    current_tier_signals_json: JSON.stringify({ plan: 'free', hardwareAttestation: null, dnsVerification: null, wrStampStatus: null }),
-    last_seq_sent: 0,
-    last_seq_received: 0,
-    last_capsule_hash_sent: '',
-    last_capsule_hash_received: 'a'.repeat(64),
-    effective_policy_json: JSON.stringify({
-      allowedScopes: ['*'],
-      effectiveTier: 'free',
-      allowsCloudEscalation: false,
-      allowsExport: false,
-      onRevocationDeleteBlocks: false,
-      effectiveExternalProcessing: 'none',
-      reciprocalAllowed: true,
-      effectiveSharingModes: ['receive-only', 'reciprocal'],
-    }),
-    external_processing: 'none',
-    created_at: new Date().toISOString(),
-    activated_at: new Date().toISOString(),
-    expires_at: new Date(Date.now() + 86400000).toISOString(),
-    revoked_at: null,
-    revocation_source: null,
-    initiator_wrdesk_policy_hash: 'a'.repeat(64),
-    initiator_wrdesk_policy_version: '1.0',
-    acceptor_wrdesk_policy_hash: 'b'.repeat(64),
-    acceptor_wrdesk_policy_version: '1.0',
-    ...overrides,
-  }
-}
+let db: InstanceType<typeof Database>
+
+beforeEach(() => {
+  db = new Database(':memory:')
+  db.pragma('foreign_keys = ON')
+  migrateHandshakeTables(db)
+  insertHandshakeRecord(db, buildActiveHandshakeRecord())
+  setEvidenceDbProvider(() => db)
+})
+
+afterEach(() => {
+  setEvidenceDbProvider(null)
+  try { db.close() } catch { /* noop */ }
+})
 
 function makeRequest(overrides?: Partial<ToolInvocationRequest>): ToolInvocationRequest {
   return {
-    handshake_id: 'hs-001',
+    request_id: 'req-001',
+    handshake_id: HS,
     tool_name: 'read-context',
     parameters: {},
     requested_scope: 'test-scope',
     requested_purpose: 'testing',
+    origin: 'extension',
     ...overrides,
   }
 }
 
-describe('Execution Authorization Gate', () => {
-  // Test 15: Handshake inactive → denied
+/** Prepare + tap a consent for the exact request; returns the consent id. */
+function consentFor(req: ToolInvocationRequest): string {
+  const prep = prepareExecutionConsent(db, {
+    request_id: req.request_id,
+    handshake_id: req.handshake_id,
+    tool_name: req.tool_name,
+    scope_id: req.requested_scope,
+    purpose_id: req.requested_purpose,
+    parameters: req.parameters,
+    origin: req.origin,
+  })
+  const tap = confirmExecutionConsent(db, prep.consent_id, 'local-user-001')
+  expect(tap.ok).toBe(true)
+  return prep.consent_id
+}
+
+describe('Execution Authorization Gate (per-tap consent)', () => {
   test('handshake not found → HANDSHAKE_INACTIVE', () => {
-    const db = makeMockDb()
+    const req = makeRequest({ handshake_id: 'hs-missing' })
+    const result = authorizeToolInvocation(db, req)
+    expect(result.authorized).toBe(false)
+    if (!result.authorized) expect(result.reason).toBe('HANDSHAKE_INACTIVE')
+  })
+
+  test('handshake revoked → HANDSHAKE_REVOKED (even with tapped consent)', () => {
+    const req = makeRequest()
+    const consentId = consentFor(req)
+    db.prepare(`UPDATE handshakes SET state = ? WHERE handshake_id = ?`).run(HandshakeState.REVOKED, HS)
+    const result = authorizeToolInvocation(db, { ...req, consent_ref: consentId })
+    expect(result.authorized).toBe(false)
+    if (!result.authorized) expect(result.reason).toBe('HANDSHAKE_REVOKED')
+  })
+
+  test('no consent reference → CONSENT_REQUIRED (ACTIVE handshake is never sufficient)', () => {
     const result = authorizeToolInvocation(db, makeRequest())
     expect(result.authorized).toBe(false)
-    if (!result.authorized) {
-      expect(result.reason).toBe('HANDSHAKE_INACTIVE')
-    }
+    if (!result.authorized) expect(result.reason).toBe('CONSENT_REQUIRED')
   })
 
-  // Test 16: Handshake revoked → denied
-  test('handshake revoked → HANDSHAKE_REVOKED', () => {
-    const db = makeMockDb({ 'hs-001': makeHandshakeRow({ state: 'REVOKED' }) })
-    const result = authorizeToolInvocation(db, makeRequest())
-    expect(result.authorized).toBe(false)
-    if (!result.authorized) {
-      expect(result.reason).toBe('HANDSHAKE_REVOKED')
-    }
-  })
-
-  // Test 17: Tool not granted → denied
-  test('unknown tool → TOOL_NOT_GRANTED', () => {
-    const db = makeMockDb({ 'hs-001': makeHandshakeRow() })
-    const result = authorizeToolInvocation(db, makeRequest({ tool_name: 'delete-everything' }))
-    expect(result.authorized).toBe(false)
-    if (!result.authorized) {
-      expect(result.reason).toBe('TOOL_NOT_GRANTED')
-    }
-  })
-
-  // Test 18: Scope not allowed → denied
-  test('scope not in policy → SCOPE_NOT_ALLOWED', () => {
-    const restrictedPolicy = {
-      allowedScopes: ['allowed-scope'],
-      effectiveTier: 'free',
-      allowsCloudEscalation: false,
-      allowsExport: false,
-      onRevocationDeleteBlocks: false,
-      effectiveExternalProcessing: 'none',
-      reciprocalAllowed: true,
-      effectiveSharingModes: ['receive-only', 'reciprocal'],
-    }
-    const db = makeMockDb({
-      'hs-001': makeHandshakeRow({
-        effective_policy_json: JSON.stringify(restrictedPolicy),
-      }),
+  test('prepared but untapped consent → CONSENT_NOT_TAPPED (no auto-accept)', () => {
+    const req = makeRequest()
+    const prep = prepareExecutionConsent(db, {
+      request_id: req.request_id,
+      handshake_id: req.handshake_id,
+      tool_name: req.tool_name,
+      scope_id: req.requested_scope,
+      purpose_id: req.requested_purpose,
+      parameters: req.parameters,
+      origin: req.origin,
     })
-    const result = authorizeToolInvocation(db, makeRequest({ requested_scope: 'forbidden-scope' }))
+    const result = authorizeToolInvocation(db, { ...req, consent_ref: prep.consent_id })
     expect(result.authorized).toBe(false)
-    if (!result.authorized) {
-      expect(result.reason).toBe('SCOPE_NOT_ALLOWED')
+    if (!result.authorized) expect(result.reason).toBe('CONSENT_NOT_TAPPED')
+  })
+
+  test('valid tapped consent → authorized, consent returned', () => {
+    const req = makeRequest()
+    const consentId = consentFor(req)
+    const result = authorizeToolInvocation(db, { ...req, consent_ref: consentId })
+    expect(result.authorized).toBe(true)
+    if (result.authorized) {
+      expect(result.consent.consent_id).toBe(consentId)
+      expect(result.consent.intent_hash).toMatch(/^[0-9a-f]{64}$/)
     }
   })
 
-  // Test 19: Parameters out of constraints → denied
+  test('request diverging from presented preview → INTENT_HASH_MISMATCH deviation [IX.19.2]', () => {
+    const req = makeRequest({ parameters: { path: '/safe' } })
+    const consentId = consentFor(req)
+    const result = authorizeToolInvocation(db, {
+      ...req,
+      parameters: { path: '/etc/shadow' },
+      consent_ref: consentId,
+    })
+    expect(result.authorized).toBe(false)
+    if (!result.authorized) {
+      expect(result.reason).toBe('INTENT_HASH_MISMATCH')
+      expect(result.deviation).toBe(true)
+    }
+  })
+
+  test('any tool name is consentable — there is no standing granted-tools set', () => {
+    // The old GRANTED_TOOLS allowlist is gone; the consent tap names the exact
+    // action and is the sole authorization.
+    const req = makeRequest({ tool_name: 'some-future-tool' })
+    const consentId = consentFor(req)
+    const result = authorizeToolInvocation(db, { ...req, consent_ref: consentId })
+    expect(result.authorized).toBe(true)
+  })
+
   test('oversized parameter → PARAMETER_CONSTRAINT_VIOLATION', () => {
-    const db = makeMockDb({ 'hs-001': makeHandshakeRow() })
-    const result = authorizeToolInvocation(db, makeRequest({
-      parameters: { data: 'x'.repeat(1_000_001) },
-    }))
+    const req = makeRequest({ parameters: { data: 'x'.repeat(1_000_001) } })
+    const consentId = consentFor(req)
+    const result = authorizeToolInvocation(db, { ...req, consent_ref: consentId })
     expect(result.authorized).toBe(false)
-    if (!result.authorized) {
-      expect(result.reason).toBe('PARAMETER_CONSTRAINT_VIOLATION')
-    }
+    if (!result.authorized) expect(result.reason).toBe('PARAMETER_CONSTRAINT_VIOLATION')
   })
 
-  // Test 20: Valid authorization → allowed + audit
-  test('valid request → authorized', () => {
-    const auditEntries: any[] = []
-    const db = makeMockDb({ 'hs-001': makeHandshakeRow() }, auditEntries)
-    const result = authorizeToolInvocation(db, makeRequest())
-    expect(result.authorized).toBe(true)
-  })
-
-  // Additional: Cloud escalation denied
-  test('cloud-escalation when policy denies → PURPOSE_MISMATCH', () => {
-    const db = makeMockDb({ 'hs-001': makeHandshakeRow() })
-    const result = authorizeToolInvocation(db, makeRequest({ tool_name: 'cloud-escalation' }))
+  test('expired handshake → HANDSHAKE_INACTIVE (defense-in-depth)', () => {
+    db.prepare(`UPDATE handshakes SET expires_at = ? WHERE handshake_id = ?`).run(
+      new Date(Date.now() - 86400000).toISOString(),
+      HS,
+    )
+    const req = makeRequest()
+    const consentId = consentFor(req)
+    const result = authorizeToolInvocation(db, { ...req, consent_ref: consentId })
     expect(result.authorized).toBe(false)
-    if (!result.authorized) {
-      expect(result.reason).toBe('PURPOSE_MISMATCH')
-    }
+    if (!result.authorized) expect(result.reason).toBe('HANDSHAKE_INACTIVE')
   })
 
-  // Additional: Export denied
-  test('export-context when policy denies → PURPOSE_MISMATCH', () => {
-    const db = makeMockDb({ 'hs-001': makeHandshakeRow() })
-    const result = authorizeToolInvocation(db, makeRequest({ tool_name: 'export-context' }))
-    expect(result.authorized).toBe(false)
-    if (!result.authorized) {
-      expect(result.reason).toBe('PURPOSE_MISMATCH')
-    }
-  })
-
-  // Additional: Expired handshake
-  test('expired handshake → HANDSHAKE_INACTIVE', () => {
-    const db = makeMockDb({
-      'hs-001': makeHandshakeRow({
-        expires_at: new Date(Date.now() - 86400000).toISOString(),
-      }),
-    })
-    const result = authorizeToolInvocation(db, makeRequest())
-    expect(result.authorized).toBe(false)
-    if (!result.authorized) {
-      expect(result.reason).toBe('HANDSHAKE_INACTIVE')
-    }
-  })
-
-  // Additional: PENDING_ACCEPT state
   test('pending handshake → HANDSHAKE_INACTIVE', () => {
-    const db = makeMockDb({
-      'hs-001': makeHandshakeRow({ state: 'PENDING_ACCEPT' }),
-    })
-    const result = authorizeToolInvocation(db, makeRequest())
+    db.prepare(`UPDATE handshakes SET state = ? WHERE handshake_id = ?`).run(HandshakeState.PENDING_ACCEPT, HS)
+    const req = makeRequest()
+    const consentId = consentFor(req)
+    const result = authorizeToolInvocation(db, { ...req, consent_ref: consentId })
     expect(result.authorized).toBe(false)
-    if (!result.authorized) {
-      expect(result.reason).toBe('HANDSHAKE_INACTIVE')
+    if (!result.authorized) expect(result.reason).toBe('HANDSHAKE_INACTIVE')
+  })
+
+  test('kill switch refuses everything — never restores a consent-free path', () => {
+    process.env.WRDESK_EXECUTION_CONSENT_TAP = '0'
+    try {
+      const req = makeRequest()
+      const consentId = consentFor(req)
+      const result = authorizeToolInvocation(db, { ...req, consent_ref: consentId })
+      expect(result.authorized).toBe(false)
+      if (!result.authorized) expect(result.reason).toBe('EXECUTION_DISABLED')
+    } finally {
+      delete process.env.WRDESK_EXECUTION_CONSENT_TAP
     }
-  })
-
-  // Decision B (B-8.4d-i): Defense-in-depth — expired handshakes are denied at
-  // authorization regardless of state. Guards against the background expiry process
-  // running late or a stale state transition leaving the record as ACTIVE past its
-  // expiry window.
-  test('state ACTIVE but expires_at past → HANDSHAKE_INACTIVE (defense-in-depth against stale state from background expiry process)', () => {
-    const db = makeMockDb({
-      'hs-001': makeHandshakeRow({
-        state: 'ACTIVE',
-        expires_at: new Date(Date.now() - 86400000).toISOString(),
-      }),
-    })
-    const result = authorizeToolInvocation(db, makeRequest())
-    expect(result.authorized).toBe(false)
-    if (!result.authorized) {
-      expect(result.reason).toBe('HANDSHAKE_INACTIVE')
-    }
-  })
-
-  // Additional: Wildcard scope allows any
-  test('wildcard scope allows any requested scope', () => {
-    const db = makeMockDb({ 'hs-001': makeHandshakeRow() })
-    const result = authorizeToolInvocation(db, makeRequest({
-      requested_scope: 'any-random-scope',
-    }))
-    expect(result.authorized).toBe(true)
-  })
-
-  // Additional: semantic-search is a granted tool
-  test('semantic-search is a granted tool', () => {
-    const db = makeMockDb({ 'hs-001': makeHandshakeRow() })
-    const result = authorizeToolInvocation(db, makeRequest({ tool_name: 'semantic-search' }))
-    expect(result.authorized).toBe(true)
   })
 })

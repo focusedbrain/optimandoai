@@ -112,7 +112,7 @@ export type ProcessingRetention = 'NONE' | 'SESSION' | 'PERSISTENT'
 export interface ProcessingProvider {
   /**
    * Human-readable provider name.
-   * Example: "WR Desk Local LLM", "Anthropic Claude"
+   * Example: "Optirando Local LLM", "Anthropic Claude"
    */
   name: string
 

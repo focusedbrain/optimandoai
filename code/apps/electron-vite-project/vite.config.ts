@@ -52,6 +52,23 @@ function gitMetaFromClosestRepo(fromDir: string): { branch: string; commit: stri
 const RUNTIME_IDENTITY_GIT_META = gitMetaFromClosestRepo(root)
 const BUILD_TIMESTAMP_ISO = new Date().toISOString()
 
+/**
+ * WR Code trust flavor (electron/main/wrc/wrcBuildFlavor.ts). `release` unless
+ * `pnpm run build:wrc-test` sets WRDESK_WRC_BUILD_FLAVOR=wrc-test. Outside a
+ * test build the test registry module is replaced by its empty stub, and
+ * scripts/verify-wrc-build-flavor.cjs checks the bundle for it.
+ */
+const WRC_BUILD_FLAVOR = process.env.WRDESK_WRC_BUILD_FLAVOR === 'wrc-test' ? 'wrc-test' : 'release'
+const WRC_TEST_REGISTRY_ALIAS =
+  WRC_BUILD_FLAVOR === 'wrc-test'
+    ? []
+    : [
+        {
+          find: /^\.\/wrcTestRegistry$/,
+          replacement: path.join(root, 'electron/main/wrc/wrcTestRegistry.release-stub.ts'),
+        },
+      ]
+
 const oauthId =
   process.env.GOOGLE_OAUTH_CLIENT_ID?.trim() ||
   process.env.WR_DESK_GOOGLE_OAUTH_CLIENT_ID?.trim() ||
@@ -69,6 +86,7 @@ export default defineConfig({
     __WR_RUNTIME_GIT_BRANCH__: JSON.stringify(RUNTIME_IDENTITY_GIT_META.branch),
     __WR_RUNTIME_GIT_COMMIT__: JSON.stringify(RUNTIME_IDENTITY_GIT_META.commit),
     __WR_BUILD_TIMESTAMP__: JSON.stringify(BUILD_TIMESTAMP_ISO),
+    __WRC_BUILD_FLAVOR__: JSON.stringify(WRC_BUILD_FLAVOR),
   },
   resolve: {
     alias: [
@@ -101,6 +119,10 @@ export default defineConfig({
             __WRDESK_HOST_AI_P2P_BUNDLE_DEFAULTS_ON__: true,
             __BUILD_TIME_GOOGLE_OAUTH_CLIENT_ID__: JSON.stringify(oauthId),
             __BUILD_TIME_GOOGLE_OAUTH_CLIENT_SECRET__: JSON.stringify(oauthSecret),
+            __WRC_BUILD_FLAVOR__: JSON.stringify(WRC_BUILD_FLAVOR),
+          },
+          resolve: {
+            alias: WRC_TEST_REGISTRY_ALIAS,
           },
           plugins: [
             {

@@ -91,10 +91,10 @@ vi.mock('../../handshake/ipc', () => ({
 }))
 
 const listHandshakeRecordsMock = vi.fn<
-  (db: unknown, filter: { state?: string; handshake_type?: string }) => HandshakeRecord[]
+  (db: unknown, filter: { state?: string; same_principal?: boolean }) => HandshakeRecord[]
 >()
 vi.mock('../../handshake/db', () => ({
-  listHandshakeRecords: (db: unknown, filter: { state?: string; handshake_type?: string }) =>
+  listHandshakeRecords: (db: unknown, filter: { state?: string; same_principal?: boolean }) =>
     listHandshakeRecordsMock(db, filter),
 }))
 
@@ -243,7 +243,7 @@ function handshakeBeapPoisonedSandboxLedgerNoPeerAd(): HandshakeRecord {
     initiator_coordination_device_id: 'dev-sand-coord-1',
     acceptor_coordination_device_id: 'dev-host-coord-1',
     internal_coordination_identity_complete: true,
-    handshake_type: 'internal',
+    same_principal: true,
     /** Poisoned MVP row — equals local MVP BEAP; no peer-Host verified BEAP ⇒ peer_host_endpoint_missing when no relay ad */
     p2p_endpoint: LOCAL_BEAP_OTHER,
     local_p2p_auth_token: 'tok-local',

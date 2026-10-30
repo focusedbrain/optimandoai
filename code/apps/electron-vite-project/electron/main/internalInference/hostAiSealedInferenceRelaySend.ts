@@ -9,7 +9,7 @@ import { randomUUID } from 'crypto'
 import { getHandshakeRecord } from '../handshake/db'
 import type { HandshakeRecord } from '../handshake/types'
 import {
-  sealServiceRpcPayload,
+  sealServiceRpcPayloadAuthenticatedResolvingLocalKey,
 } from '../serviceRpc/sealedServiceRpc'
 import {
   buildSealedServiceRpcRelayCapsule,
@@ -104,7 +104,7 @@ export async function sendSealedHostAiInferenceRequest(params: {
     return { ok: false, code: 'PAYLOAD_SIZE_EXCEEDED', message: 'request exceeds sealed capsule limit' }
   }
 
-  const sealed = sealServiceRpcPayload(ar.record, {
+  const sealed = await sealServiceRpcPayloadAuthenticatedResolvingLocalKey(ar.record, {
     handshake_id: hid,
     sender_device_id: localDeviceId,
     receiver_device_id: hostDeviceId,

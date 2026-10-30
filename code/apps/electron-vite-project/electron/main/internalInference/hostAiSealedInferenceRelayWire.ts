@@ -3,6 +3,8 @@
  * Carried inside sealed_service_rpc_v1 envelopes (X25519+HKDF+AES-256-GCM).
  * INV-ENCRYPT: prompt/completion lives ONLY inside ciphertext — relay sees routing + opaque blob.
  */
+import type { AiProvenance } from '../../../../../packages/shared/src/aiProvenance'
+import { isAiProvenance } from '../../../../../packages/shared/src/aiProvenance'
 
 export const HOST_AI_INFERENCE_REQUEST_INNER_TYPE = 'host_ai_inference_request_v1' as const
 export const HOST_AI_INFERENCE_RESULT_INNER_TYPE = 'host_ai_inference_result_v1' as const
@@ -33,6 +35,8 @@ export interface HostAiInferenceResultRelayWire {
   readonly model: string
   readonly output: string
   readonly duration_ms: number
+  /** Art. 50 AI provenance — optional, absent on older Host peers. */
+  readonly provenance?: AiProvenance
 }
 
 export interface HostAiInferenceErrorRelayWire {
@@ -121,20 +125,19 @@ export function parseHostAiInferenceResultOrErrorFromPlaintext(
     return { ok: false, message: 'missing request_id' }
   }
   if (o.type === HOST_AI_INFERENCE_RESULT_INNER_TYPE) {
-    return {
-      ok: true,
-      wire: {
-        type: HOST_AI_INFERENCE_RESULT_INNER_TYPE,
-        schema_version: HOST_AI_INFERENCE_RELAY_SCHEMA_VERSION,
-        request_id: rid,
-        handshake_id: typeof o.handshake_id === 'string' ? o.handshake_id.trim() : '',
-        sender_device_id: typeof o.sender_device_id === 'string' ? o.sender_device_id.trim() : '',
-        receiver_device_id: typeof o.receiver_device_id === 'string' ? o.receiver_device_id.trim() : '',
-        model: typeof o.model === 'string' ? o.model : '',
-        output: typeof o.output === 'string' ? o.output : '',
-        duration_ms: typeof o.duration_ms === 'number' ? o.duration_ms : 0,
-      },
+    const parsed: HostAiInferenceResultRelayWire = {
+      type: HOST_AI_INFERENCE_RESULT_INNER_TYPE,
+      schema_version: HOST_AI_INFERENCE_RELAY_SCHEMA_VERSION,
+      request_id: rid,
+      handshake_id: typeof o.handshake_id === 'string' ? o.handshake_id.trim() : '',
+      sender_device_id: typeof o.sender_device_id === 'string' ? o.sender_device_id.trim() : '',
+      receiver_device_id: typeof o.receiver_device_id === 'string' ? o.receiver_device_id.trim() : '',
+      model: typeof o.model === 'string' ? o.model : '',
+      output: typeof o.output === 'string' ? o.output : '',
+      duration_ms: typeof o.duration_ms === 'number' ? o.duration_ms : 0,
+      ...(isAiProvenance(o.provenance) ? { provenance: o.provenance } : {}),
     }
+    return { ok: true, wire: parsed }
   }
   return {
     ok: true,

@@ -8,7 +8,7 @@ import { HandshakeState, type HandshakeRecord } from '../../../handshake/types'
 import { SEALED_SERVICE_RPC_CAPSULE_TYPE } from '@repo/ingestion-core'
 import {
   openServiceRpcPayload,
-  sealServiceRpcPayload,
+  sealServiceRpcPayloadAuthenticated,
 } from '../../../serviceRpc/sealedServiceRpc'
 import { buildSealedServiceRpcRelayCapsule } from '../relaySend'
 import { makeIngestionPollRequestWire } from '../receiver'
@@ -21,6 +21,13 @@ import {
   tryHandleIngestionPollRelayCapsule,
 } from '../relayCapsuleHandler'
 import { INGESTION_POLL_SCHEMA_VERSION } from '../wire'
+
+
+// Relay receivers require sender-authenticated (v2) envelopes (roadmap 0.26): seal like the product does.
+const sealServiceRpcPayload = (
+  record: HandshakeRecord,
+  input: Parameters<typeof sealServiceRpcPayloadAuthenticated>[1],
+) => sealServiceRpcPayloadAuthenticated(record, input, record.local_x25519_private_key_b64)
 
 const getInstanceId = vi.hoisted(() => vi.fn(() => 'dev-sand-1'))
 const sendSealedRelay = vi.hoisted(() => vi.fn(async () => ({ ok: true as const })))
@@ -56,7 +63,7 @@ function party(uid: string) {
 
 const hostRecord = {
   handshake_id: handshakeId,
-  handshake_type: 'internal',
+  same_principal: true,
   state: HandshakeState.ACTIVE,
   local_role: 'initiator',
   initiator: party('u1'),
@@ -74,7 +81,7 @@ const hostRecord = {
 
 const sandboxRecord = {
   handshake_id: handshakeId,
-  handshake_type: 'internal',
+  same_principal: true,
   state: HandshakeState.ACTIVE,
   local_role: 'acceptor',
   initiator: party('u1'),
@@ -243,15 +250,21 @@ describe('handleIngestionPollRelayCapsule (A4)', () => {
 
     expect(runPoll).not.toHaveBeenCalled()
     expect(sendSealedRelay).toHaveBeenCalledTimes(1)
-    const [, , responseEnvelope] = sendSealedRelay.mock.calls[0] as [unknown, HandshakeRecord, { ciphertext_b64: string }]
-    const opened = openServiceRpcPayload(hostRecord, {
-      ...responseEnvelope,
-      envelope_type: SEALED_SERVICE_RPC_CAPSULE_TYPE,
-      schema_version: 1,
-      handshake_id: handshakeId,
-      sender_device_id: 'dev-sand-1',
-      receiver_device_id: 'dev-ws-1',
-    })
+    const [, , responseEnvelope] = sendSealedRelay.mock.calls[0] as [unknown, HandshakeRecord, { ciphertext_b64: string; schema_version: number }]
+    // The sandbox's response is a sender-authenticated v2 envelope (roadmap 0.26).
+    expect(responseEnvelope.schema_version).toBe(2)
+    const opened = openServiceRpcPayload(
+      hostRecord,
+      {
+        ...(responseEnvelope as unknown as Parameters<typeof openServiceRpcPayload>[1]),
+        envelope_type: SEALED_SERVICE_RPC_CAPSULE_TYPE,
+        handshake_id: handshakeId,
+        sender_device_id: 'dev-sand-1',
+        receiver_device_id: 'dev-ws-1',
+      },
+      undefined,
+      { requireAuthenticated: true },
+    )
     expect(opened.ok).toBe(true)
     if (!opened.ok) return
     expect(JSON.parse(opened.plaintextJson).type).toBe('ingestion_poll_error')

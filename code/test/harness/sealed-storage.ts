@@ -119,6 +119,8 @@ export function createHarnessDb(): HarnessDatabase {
       from_name TEXT,
       source_type TEXT,
       account_id TEXT,
+      validated_at TEXT,
+      validation_reason TEXT,
       seal TEXT,
       seal_input_json TEXT,
       seal_key_source TEXT NOT NULL DEFAULT 'vmk'

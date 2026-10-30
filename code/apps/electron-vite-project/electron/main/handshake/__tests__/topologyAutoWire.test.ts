@@ -39,7 +39,7 @@ vi.mock('../db', () => ({
 function makeRecord(overrides: Partial<{
   handshake_id: string
   state: HandshakeState
-  handshake_type: string
+  same_principal: boolean
   local_role: 'initiator' | 'acceptor'
   initiator_device_role: 'host' | 'sandbox' | null
   acceptor_device_role: 'host' | 'sandbox' | null
@@ -48,7 +48,7 @@ function makeRecord(overrides: Partial<{
   return {
     handshake_id: 'hs-test-1',
     state: HandshakeState.ACTIVE,
-    handshake_type: 'internal',
+    same_principal: true,
     local_role: 'initiator' as const,
     initiator_device_role: 'host' as const,
     acceptor_device_role: 'sandbox' as const,
@@ -129,7 +129,7 @@ describe('topologyAutoWire — autoWireTopologyForHandshake', () => {
     const { autoWireTopologyForHandshake } = await import('../topologyAutoWire')
     const { addLinkedTopologyEntry } = await import('../../orchestrator/orchestratorModeStore')
 
-    autoWireTopologyForHandshake(makeRecord({ handshake_type: 'standard' }))
+    autoWireTopologyForHandshake(makeRecord({ same_principal: false }))
     expect(addLinkedTopologyEntry).not.toHaveBeenCalled()
   })
 

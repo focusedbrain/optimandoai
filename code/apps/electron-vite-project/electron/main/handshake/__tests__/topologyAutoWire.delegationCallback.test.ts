@@ -42,7 +42,7 @@ function activeInternalRecord(
   const isInitiator = true // local is always initiator in these tests for simplicity
   return {
     handshake_id: handshakeId,
-    handshake_type: 'internal',
+    same_principal: true,
     state: HandshakeState.ACTIVE,
     internal_coordination_identity_complete: true,
     local_role: isInitiator ? 'initiator' : 'acceptor',
@@ -84,7 +84,7 @@ describe('topologyAutoWire — delegation callback (UX-1 D4)', () => {
     // Sandbox accepted: local_role=acceptor, acceptor=sandbox, initiator=host
     const record = {
       handshake_id: 'hs-xyz',
-      handshake_type: 'internal',
+      same_principal: true,
       state: HandshakeState.ACTIVE,
       internal_coordination_identity_complete: true,
       local_role: 'acceptor',
@@ -105,7 +105,7 @@ describe('topologyAutoWire — delegation callback (UX-1 D4)', () => {
 
     const record = {
       handshake_id: 'hs-pending',
-      handshake_type: 'internal',
+      same_principal: true,
       state: HandshakeState.INITIATED,
       internal_coordination_identity_complete: true,
       local_role: 'initiator',

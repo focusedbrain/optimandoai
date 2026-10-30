@@ -58,7 +58,7 @@ function baseInternal(
     initiator_coordination_device_id: 'dev-sand-1',
     acceptor_coordination_device_id: 'dev-host-1',
     internal_coordination_identity_complete: true,
-    handshake_type: 'internal',
+    same_principal: true,
     p2p_endpoint: p2pEndpoint,
     ...over,
   } as HandshakeRecord

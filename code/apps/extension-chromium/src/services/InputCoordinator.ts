@@ -64,6 +64,7 @@ import type {
   UnifiedTriggerConfig,
   EventTagCondition
 } from '../automation/types'
+import { stripRetiredConditions } from '../automation/conditions/retiredConditions'
 
 /**
  * Configuration for the Input Coordinator
@@ -1321,7 +1322,7 @@ export class InputCoordinator {
   }
 
   /**
-   * Evaluate event tag conditions (WRCode, sender whitelist, keywords, website)
+   * Evaluate event tag conditions (sender whitelist, keywords, website)
    */
   private evaluateEventTagConditions(
     trigger: any,
@@ -1331,7 +1332,7 @@ export class InputCoordinator {
     const conditions: Array<{ type: string; passed: boolean; details: string }> = []
     let allPassed = true
     
-    const eventTagConditions = trigger.eventTagConditions || []
+    const eventTagConditions = stripRetiredConditions(trigger.eventTagConditions)
     
     this.log(`Evaluating conditions for trigger:`, {
       hasEventTagConditions: eventTagConditions.length,
@@ -1345,25 +1346,13 @@ export class InputCoordinator {
       let details = ''
       
       switch (condition.type) {
-        case 'wrcode_valid':
-          // WRCode validation - check if email has valid WRCode stamp
-          // For now, skip if not required or if not an email channel
-          if (condition.required) {
-            // In a real implementation, this would check the WRCode validation result
-            passed = true // Placeholder - would check classifiedInput metadata
-            details = passed ? 'WRCode validation passed' : 'WRCode validation required but not present'
-          } else {
-            passed = true
-            details = 'WRCode not required'
-          }
-          break
-          
         case 'sender_whitelist':
-          // Sender whitelist - only for email channel
+          // Same rule: `classifiedInput` has no sender address (its sources are
+          // inline chat and OCR, never a mail channel), so a configured
+          // whitelist cannot be satisfied and must not be reported as checked.
           if (condition.allowedSenders && condition.allowedSenders.length > 0) {
-            // Would check against sender address from classifiedInput
-            passed = true // Placeholder
-            details = `Sender whitelist check (${condition.allowedSenders.length} addresses)`
+            passed = false
+            details = `Sender whitelist configured (${condition.allowedSenders.length} addresses), but this input carries no sender address to check`
           } else {
             passed = true
             details = 'No sender whitelist configured'
@@ -1409,7 +1398,10 @@ export class InputCoordinator {
           break
           
         default:
-          passed = true
+          // Fail CLOSED, matching `EventTagMatcher.evaluateCondition`. A
+          // condition type this build cannot evaluate is a condition it cannot
+          // honour, so the trigger must not fire on the strength of it.
+          passed = false
           details = `Unknown condition type: ${condition.type}`
       }
       

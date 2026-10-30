@@ -41,7 +41,7 @@ function baseRecord(over: Partial<HandshakeRecord> = {}): HandshakeRecord {
     p2p_endpoint: 'http://peer.example/beap/ingest',
     local_p2p_auth_token: 't',
     counterparty_p2p_token: 'pt',
-    handshake_type: 'internal',
+    same_principal: true,
     internal_coordination_repair_needed: false,
     internal_coordination_identity_complete: true,
     initiator_device_name: 'S',

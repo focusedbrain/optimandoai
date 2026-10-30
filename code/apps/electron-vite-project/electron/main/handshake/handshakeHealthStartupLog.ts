@@ -55,7 +55,7 @@ export function logHandshakeHealthStartupLines(db: unknown): void {
       let localRole: string
       let peerRole: string
       let peerDev: string
-      if (r.handshake_type === 'internal') {
+      if (r.same_principal === true) {
         const dr = deriveInternalHostAiPeerRoles(r, localId)
         if (dr.ok) {
           localRole = dr.localRole

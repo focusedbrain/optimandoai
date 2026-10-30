@@ -1,9 +1,10 @@
+import type { AiProvenance } from '../../../../../packages/shared/src/aiProvenance'
 import { InternalInferenceErrorCode } from './errors'
 
 const DEFAULT_TIMEOUT_MS = 30_000
 
 export type PendingResult =
-  | { kind: 'result'; output: string; model?: string; duration_ms?: number }
+  | { kind: 'result'; output: string; model?: string; duration_ms?: number; provenance?: AiProvenance }
   | { kind: 'error'; code: string; message: string }
 
 const pending = new Map<

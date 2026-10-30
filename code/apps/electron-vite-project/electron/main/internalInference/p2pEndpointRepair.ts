@@ -183,7 +183,7 @@ export async function hydrateHostAdvertisedMapFromLedger(
       skipped++
       continue
     }
-    if (rec.handshake_type !== 'internal' || rec.state !== HandshakeState.ACTIVE) {
+    if (rec.same_principal !== true || rec.state !== HandshakeState.ACTIVE) {
       skipped++
       continue
     }
@@ -1090,7 +1090,7 @@ export function runP2pEndpointRepairPass(db: any, context: string): void {
   const mode = getOrchestratorMode().mode
   const ledgerRoles = getHostAiLedgerRoleSummaryFromDb(db, getInstanceId().trim(), String(mode))
 
-  const rows = listHandshakeRecords(db, { state: HandshakeState.ACTIVE, handshake_type: 'internal' })
+  const rows = listHandshakeRecords(db, { state: HandshakeState.ACTIVE, same_principal: true })
   for (const r of rows) {
     const ar = assertRecordForServiceRpc(r)
     if (!ar.ok) continue

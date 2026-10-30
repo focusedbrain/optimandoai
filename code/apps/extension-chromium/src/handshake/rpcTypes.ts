@@ -56,7 +56,8 @@ export interface HandshakeRecord {
   readonly localX25519PublicKey?: string
   /** Intended recipient email from the initiate capsule (acceptor-side); same as initiator email for internal handshakes. */
   readonly receiver_email?: string | null
-  readonly handshake_type?: 'internal' | 'standard' | null
+  /** Phase 4 (Q9): same-principal admission situation — profile-registry parameter (internal_device profile; "Cross-Device" is the UI label). */
+  readonly same_principal?: boolean | null
   readonly initiator_device_name?: string | null
   readonly acceptor_device_name?: string | null
   readonly initiator_device_role?: 'host' | 'sandbox' | null
@@ -79,6 +80,10 @@ export interface HandshakeRecord {
   readonly internal_coordination_identity_complete?: boolean
   /** True when device ids or routing are inconsistent — user should repair pairing */
   readonly internal_coordination_repair_needed?: boolean
+  /** Staged Connect offer (Phase 4): accepting it is the consent event. */
+  readonly connect_offer_id?: string | null
+  /** Staged Connect offer only: the preview main hashed; its hash goes back with the accept (HC5). */
+  readonly connect_offer_preview?: unknown
 }
 
 // ── Context block proof (hash-only, no content in handshake capsules) ──

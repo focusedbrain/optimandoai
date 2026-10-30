@@ -81,7 +81,7 @@ export function confirmOriginDeleteIfNeeded(
   if (relevantAccountIds.length === 0) {
     if (n > 1) {
       return window.confirm(
-        `${countLine}\n\nThis removes them from WRDesk only (not from your mail provider).\n\nContinue?`,
+        `${countLine}\n\nThis removes them from Optirando only (not from your mail provider).\n\nContinue?`,
       )
     }
     return true
@@ -95,7 +95,7 @@ export function confirmOriginDeleteIfNeeded(
     '',
     'Smart Sync is enabled for this account.',
     '',
-    'WRDesk will remove the message locally AND move it to Trash / Deleted Items on your mail provider (recoverable there, not permanent).',
+    'Optirando will remove the message locally AND move it to Trash / Deleted Items on your mail provider (recoverable there, not permanent).',
     '',
   ]
 

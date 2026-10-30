@@ -71,7 +71,7 @@ export async function runHandshakeHealthRemoteCheckAfterRelayConnect(
     }
 
     for (const r of rows) {
-      if (r.handshake_type !== 'internal') continue
+      if (r.same_principal !== true) continue
       const uidI = r.initiator?.wrdesk_user_id
       const uidA = r.acceptor?.wrdesk_user_id
       if (typeof uidI !== 'string' || typeof uidA !== 'string' || uidI !== uidA) {

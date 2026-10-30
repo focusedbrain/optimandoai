@@ -39,7 +39,7 @@ interface HandshakeRecord {
   p2p_endpoint?: string | null
   context_sync_pending?: boolean
   policy_selections?: PolicySelection | { cloud_ai?: boolean; internal_ai?: boolean }
-  handshake_type?: 'internal' | 'standard' | null
+  same_principal?: boolean | null
   initiator_device_name?: string | null
   acceptor_device_name?: string | null
   initiator_device_role?: 'host' | 'sandbox' | null
@@ -362,7 +362,7 @@ export default function RelationshipDetail({ record, contextBlockCount, vaultSta
         <SecureContextSyncPendingBanner
           handshakeId={record.handshake_id}
           vaultUnlocked={vaultStatus?.isUnlocked !== false}
-          handshakeType={record.handshake_type}
+          samePrincipal={record.same_principal === true}
           internalCoordinationIdentityComplete={record.internal_coordination_identity_complete}
         />
       )}

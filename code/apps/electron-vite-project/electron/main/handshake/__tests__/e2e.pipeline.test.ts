@@ -24,7 +24,7 @@
  * In single-process tests, use distinct IDs for the sender vs receiver session.
  */
 
-import { describe, test, expect, beforeEach } from 'vitest'
+import { describe, test, expect, beforeEach, afterEach } from 'vitest'
 import {
   buildInitiateCapsule,
   buildAcceptCapsule,
@@ -38,11 +38,18 @@ import { deriveRelationshipId } from '../relationshipId'
 import { buildTestSession } from '../sessionFactory'
 import { buildDefaultReceiverPolicy } from '../types'
 import { submitCapsuleViaRpc } from '../capsuleTransport'
-import { handleIngestionRPC } from '../../ingestion/ipc'
 import { migrateIngestionTables } from '../../ingestion/persistenceDb'
 import type { SSOSession } from '../types'
 import { HandshakeState } from '../types'
 import { createHandshakeTestDb } from './handshakeTestDb'
+import {
+  installInMemoryConnectOffers,
+  uninstallInMemoryConnectOffers,
+  submitCapsuleThroughConsentGate,
+} from './connectOfferConsentTestKit'
+
+beforeEach(() => installInMemoryConnectOffers())
+afterEach(() => uninstallInMemoryConnectOffers())
 
 // ── Session factories ──
 
@@ -63,21 +70,15 @@ function receiverSession(): SSOSession {
 }
 
 // ── Submit helper ──
+// Phase 4 [IX.3.1]: inbound initiates stage a Connect offer; the kit consents
+// and re-runs the one pipeline, so record assertions exercise the real
+// staged → consent → record path.
 
 async function submitCapsule(capsule: any, db: any, session: SSOSession) {
-  return handleIngestionRPC(
-    'ingestion.ingest',
-    {
-      rawInput: {
-        body: JSON.stringify(capsule),
-        mime_type: 'application/vnd.beap+json',
-      },
-      sourceType: 'internal' as any,
-      transportMeta: { channel_id: 'test' },
-    },
-    db,
-    session,
-  )
+  return submitCapsuleThroughConsentGate(JSON.stringify(capsule), db, session, {
+    sourceType: 'internal',
+    channelId: 'test',
+  })
 }
 
 // ── Tests ──
@@ -297,7 +298,11 @@ describe('BEAP Pipeline E2E — Happy Path', () => {
 
     expect(result.success).toBe(true)
     expect(result.distribution_target).toBe('handshake_pipeline')
-    expect(result.handshake_result?.handshakeRecord?.state).toBe(HandshakeState.PENDING_REVIEW)
+    // Phase 4 [IX.3.1]: without a consent event the pipeline stages a Connect
+    // offer — it never creates a relationship row.
+    expect(result.handshake_result?.staged).toBe(true)
+    expect(result.handshake_result?.offerId).toBeTruthy()
+    expect(result.handshake_result?.handshakeRecord).toBeNull()
   })
 
   // ── P11: G11 — ownership check (same user → fail) ──

@@ -135,11 +135,13 @@ function deleteOldBuilds() {
     return
   }
   const rmOpts = { recursive: true, force: true }
+  // The release build and the `build:wrc-test` build live side by side.
+  const keepNames = new Set([keep, `${keep}-wrc-test`])
   for (const name of fs.readdirSync(BUILD_BASE)) {
     const full = path.join(BUILD_BASE, name)
     try {
       if (!fs.statSync(full).isDirectory()) continue
-      if (name === keep) {
+      if (keepNames.has(name)) {
         console.log(`[kill-wr-desk] Keeping active output dir: ${full}`)
         continue
       }

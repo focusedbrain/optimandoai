@@ -31,6 +31,7 @@ import {
 } from './p2pHealth'
 import { getInstanceId } from '../orchestrator/orchestratorModeStore'
 import { computeSamePrincipalCoordinationSkipOwn } from './coordinationSamePrincipalInbound'
+import { wireDeclaresSamePrincipal } from '../handshake/samePrincipalWire'
 import { requestCoordinationFlushQueued } from './coordinationFlushQueued'
 import {
   normalizeCoordinationUrlForLocalDial,
@@ -208,7 +209,7 @@ async function processCapsuleInternal(
       /* Vitest / non-Electron */
     }
 
-    let handshakeTypeForLog: string | null = null
+    let samePrincipalForLog: boolean | null = null
     let recordLookup: 'skipped' | 'found' | 'missing' = 'skipped'
     let senderDeviceForLog = ''
     let localDeviceForLog = ''
@@ -218,9 +219,9 @@ async function processCapsuleInternal(
       record = getHandshakeRecord(db, handshakeId)
       if (record) {
         recordLookup = 'found'
-        handshakeTypeForLog = record.handshake_type ?? null
+        samePrincipalForLog = record.same_principal === true
         localRoleForLog = record.local_role
-        if (record.handshake_type === 'internal') {
+        if (record.same_principal === true) {
           senderDeviceForLog = capDevice
           localDeviceForLog = localDevice
         }
@@ -229,10 +230,8 @@ async function processCapsuleInternal(
       }
     }
 
-    const wireHandshakeType =
-      typeof capObj.handshake_type === 'string' ? capObj.handshake_type.trim() : ''
-    const isInternalInboundContext =
-      record?.handshake_type === 'internal' || wireHandshakeType === 'internal'
+    const wireSamePrincipal = wireDeclaresSamePrincipal(capObj)
+    const isInternalInboundContext = record?.same_principal === true || wireSamePrincipal
 
     if (isInternalInboundContext && (!capDevice || !localDevice)) {
       const reasonCode = 'INTERNAL_WS_INBOUND_DEVICE_IDENTITY_INCOMPLETE'
@@ -247,8 +246,8 @@ async function processCapsuleInternal(
           relay_message_id: id,
           handshake_id: handshakeId,
           capsule_type: capsuleType,
-          record_handshake_type: record?.handshake_type ?? null,
-          wire_handshake_type: wireHandshakeType || null,
+          record_same_principal: record ? record.same_principal === true : null,
+          wire_same_principal: wireSamePrincipal,
           has_capsule_sender_device_id: Boolean(capDevice),
           has_local_orchestrator_device_id: Boolean(localDevice),
           decision: 'quarantine_no_ack',
@@ -268,8 +267,8 @@ async function processCapsuleInternal(
               relay_message_id: id,
               handshake_id: handshakeId,
               capsule_type: capsuleType,
-              record_handshake_type: record?.handshake_type ?? null,
-              wire_handshake_type: wireHandshakeType || null,
+              record_same_principal: record ? record.same_principal === true : null,
+              wire_same_principal: wireSamePrincipal,
             }),
           })
         } catch {
@@ -285,9 +284,9 @@ async function processCapsuleInternal(
       record,
       capsuleSenderDeviceId: capDevice,
       localDeviceId: localDevice,
-      capsuleHandshakeType: wireHandshakeType || null,
+      capsuleDeclaresSamePrincipal: wireSamePrincipal,
     })
-    if (handshakeTypeForLog === 'internal' || recordLookup !== 'found') {
+    if (samePrincipalForLog === true || recordLookup !== 'found') {
       console.log(
         '[Coordination][hs-trace]',
         JSON.stringify({
@@ -295,7 +294,7 @@ async function processCapsuleInternal(
           ts: new Date().toISOString(),
           relay_message_id: id,
           handshake_id: handshakeId,
-          handshake_type: handshakeTypeForLog,
+          same_principal: samePrincipalForLog,
           record_lookup: recordLookup,
           capsule_type: capsuleType,
           sender_wrdesk_user_id: capsuleSenderId || null,
@@ -504,6 +503,19 @@ async function processCapsuleInternal(
     }
     console.log('[Coordination] processHandshakeCapsule returned: success=', handshakeResult.success, 'reason=', (handshakeResult as any).reason ?? 'n/a')
 
+    if (handshakeResult.success && !handshakeResult.handshakeRecord) {
+      // Phase 4 (Q1): inbound initiate staged as a Connect offer — no
+      // relationship row exists until consent [IX.3.1].
+      console.log('[Coordination] Inbound initiate staged as Connect offer:', {
+        handshake_id: handshakeId,
+        offer_id: (handshakeResult as { offerId?: string }).offerId ?? null,
+      })
+      setP2PHealthCoordinationLastPush()
+      onHandshakeUpdated?.()
+      sendAckFn([id])
+      return
+    }
+
     if (handshakeResult.success) {
       const capRebuilt = rebuildResult.capsule as { capsule_type?: unknown; capsule_hash?: unknown }
       maybeEnqueueInitialContextSyncAfterInboundAccept(db, ssoSession, {
@@ -522,7 +534,7 @@ async function processCapsuleInternal(
 
       const record = handshakeResult.handshakeRecord!
 
-      if (record.handshake_type === 'internal') {
+      if (record.same_principal === true) {
         let ldIngest = ''
         try {
           ldIngest = getInstanceId()?.trim() ?? ''
@@ -539,7 +551,7 @@ async function processCapsuleInternal(
             ts: new Date().toISOString(),
             relay_message_id: id,
             handshake_id: record.handshake_id,
-            handshake_type: record.handshake_type,
+            same_principal: record.same_principal === true,
             capsule_type:
               typeof capIngest.capsule_type === 'string' ? capIngest.capsule_type : capsuleType,
             sender_wrdesk_user_id:
@@ -717,6 +729,17 @@ export function createCoordinationWsClient(
 
   const connect = async (): Promise<void> => {
     intentionalShutdown = false
+    // One socket per client. The relay keeps one connection per (user, device) and
+    // terminates the older one when a second arrives; a second socket from this client
+    // therefore evicts the first, whose close used to start yet another connect — an
+    // endless eviction loop. A caller that finds a socket open or opening waits for it.
+    if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+      return
+    }
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer)
+      reconnectTimer = null
+    }
     if (!config.use_coordination || !config.coordination_enabled) {
       console.log('[Coordination] Skipping connect: use_coordination=', config.use_coordination, 'coordination_enabled=', config.coordination_enabled)
       return
@@ -813,16 +836,25 @@ export function createCoordinationWsClient(
     )
     console.log('[Coordination] Connecting to relay WebSocket:', wsUrl.replace(/\?.*/, ''))
 
+    // A concurrent connect() may have opened a socket while this one awaited the token.
+    if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+      return
+    }
+
     return new Promise((resolve, reject) => {
+      let sock: WebSocket
       try {
-        ws = new WebSocket(url)
+        sock = new WebSocket(url)
+        ws = sock
       } catch (err: any) {
         setP2PHealthCoordinationError(err?.message ?? 'WebSocket connect failed')
         reject(err)
         return
       }
+      const settle = { done: false }
 
-      ws.on('open', () => {
+      sock.on('open', () => {
+        settle.done = true
         const ssoOpen = getSsoSession()
         const openSnap = relayIdentitySnapshot(ssoOpen)
         const openDev = getCanonicalRelayDeviceId()
@@ -878,7 +910,7 @@ export function createCoordinationWsClient(
         }
       })
 
-      ws.on('message', (data: Buffer | string) => {
+      sock.on('message', (data: Buffer | string) => {
         bumpActivity()
         try {
           const text = typeof data === 'string' ? data : data.toString('utf8')
@@ -995,7 +1027,7 @@ export function createCoordinationWsClient(
                   : null)
               if (db && hidTrace) {
                 const trRec = getHandshakeRecord(db, hidTrace)
-                if (trRec?.handshake_type === 'internal') {
+                if (trRec?.same_principal === true) {
                   let ldRecv = ''
                   try {
                     ldRecv = getInstanceId()?.trim() ?? ''
@@ -1011,7 +1043,7 @@ export function createCoordinationWsClient(
                       ts: new Date().toISOString(),
                       relay_message_id: msg.id,
                       handshake_id: hidTrace,
-                      handshake_type: trRec.handshake_type,
+                      same_principal: trRec.same_principal === true,
                       capsule_type:
                         typeof cap.capsule_type === 'string' ? cap.capsule_type : null,
                       sender_wrdesk_user_id:
@@ -1064,7 +1096,19 @@ export function createCoordinationWsClient(
         }
       })
 
-      ws.on('close', () => {
+      sock.on('close', (code: number, reason: Buffer) => {
+        const reasonText = reason?.length ? reason.toString('utf8').slice(0, 120) : ''
+        if (ws !== sock) {
+          // A socket this client already replaced (or shut down) closed late: it must not
+          // touch the current socket's state or start another connect.
+          console.log('[RELAY_WS_LIFECYCLE] close_stale_socket', JSON.stringify({ code, reason: reasonText }))
+          return
+        }
+        console.log('[RELAY_WS_LIFECYCLE] close', JSON.stringify({ code, reason: reasonText, intentional: intentionalShutdown }))
+        if (!settle.done) {
+          settle.done = true
+          reject(new Error(`coordination_ws_closed_before_open:${code}`))
+        }
         ws = null
         _coordinationWsJsonSender = null
         stopHeartbeat()
@@ -1078,16 +1122,17 @@ export function createCoordinationWsClient(
         scheduleReconnect()
       })
 
-      ws.on('error', (err: Error) => {
+      sock.on('error', (err: Error) => {
+        if (ws !== sock) return
         setP2PHealthCoordinationError(err?.message ?? 'WebSocket error')
       })
 
-      ws.on('ping', () => {
+      sock.on('ping', () => {
         bumpActivity()
-        ws?.pong()
+        sock.pong()
       })
 
-      ws.on('pong', () => {
+      sock.on('pong', () => {
         bumpActivity()
       })
     })

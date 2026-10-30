@@ -196,7 +196,7 @@ export const RecipientHandshakeSelect: React.FC<RecipientHandshakeSelectProps> =
           Could not load handshakes: {fetchError}
         </div>
         <div style={{ fontSize: '11px', color: mutedColor, lineHeight: 1.5, marginBottom: '12px' }}>
-          Make sure WR Desk™ is running and your vault is unlocked.
+          Make sure Optirando™ is running and your vault is unlocked.
         </div>
         {onRetry && (
           <button

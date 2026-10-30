@@ -1,0 +1,21 @@
+---
+description: graphify knowledge graph context
+alwaysApply: true
+---
+
+This project can build a Graphify knowledge graph under `graphify-out/` (generated locally; not committed). Scope/exclusions: `.graphifyignore` and `code/.graphifyignore`.
+
+**When exploring architecture, prefer Graphify if a local graph exists:**
+- `graphify query "<question>"` — scoped subgraph for codebase or architecture questions
+- `graphify path "<A>" "<B>"` — dependency path between two symbols
+- `graphify explain "<concept>"` — nodes related to a concept
+
+If `graphify-out/graph.json` is missing, regenerate with AST-only Graphify against `code/` (respect `.graphifyignore`; do not ingest PDFs), then query. Treat Graphify edges as hints — always source-verify before concluding.
+
+Only use Read/Grep/Glob directly when:
+1. Graphify has already oriented you and you need specific lines
+2. Graphify is unavailable and regeneration is not practical
+
+- If `graphify-out/wiki/index.md` exists, navigate it instead of reading raw files
+- Read `graphify-out/GRAPH_REPORT.md` only for broad architecture review when query/path/explain are insufficient
+- After substantial code changes, run `graphify update .` locally to refresh the graph (AST-only)

@@ -17,7 +17,7 @@ vi.mock('../../handshake/db', () => ({
   getHandshakeRecord: vi.fn(() => ({
     handshake_id: 'hs-sealed',
     state: 'ACTIVE',
-    handshake_type: 'internal',
+    same_principal: true,
     local_device_id: 'sbx-dev',
     peer_device_id: 'host-dev',
   })),
@@ -29,7 +29,7 @@ vi.mock('../policy', () => ({
     record: {
       handshake_id: 'hs-sealed',
       state: 'ACTIVE',
-      handshake_type: 'internal',
+      same_principal: true,
     },
   })),
   assertSandboxRequestToHost: vi.fn(() => ({ ok: true })),

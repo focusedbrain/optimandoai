@@ -71,10 +71,10 @@ vi.mock('../../handshake/ipc', () => ({
 }))
 
 const listHandshakeRecordsMock = vi.fn<
-  (db: unknown, filter: { state?: string; handshake_type?: string }) => HandshakeRecord[]
+  (db: unknown, filter: { state?: string; same_principal?: boolean }) => HandshakeRecord[]
 >()
 vi.mock('../../handshake/db', () => ({
-  listHandshakeRecords: (db: unknown, filter: { state?: string; handshake_type?: string }) =>
+  listHandshakeRecords: (db: unknown, filter: { state?: string; same_principal?: boolean }) =>
     listHandshakeRecordsMock(db, filter),
 }))
 
@@ -268,7 +268,7 @@ function activeInternalSandboxToHost(over: Partial<HandshakeRecord> = {}): Hands
     p2p_endpoint: 'http://192.168.1.10:51249/beap/ingest',
     local_p2p_auth_token: 'tok',
     counterparty_p2p_token: 'peer-tok',
-    handshake_type: 'internal',
+    same_principal: true,
     sharing_mode: null,
     reciprocal_allowed: false,
     tier_snapshot: {} as any,
@@ -410,7 +410,7 @@ describe('STEP 8 — listInferenceTargets / target discovery', () => {
   it('external (non-internal) handshake row is ignored', async () => {
     isSandboxModeMock.mockReturnValue(true)
     const ext = activeInternalSandboxToHost({
-      handshake_type: 'standard' as any,
+      same_principal: false as any,
     })
     listHandshakeRecordsMock.mockReturnValue([ext])
     const r = await listSandboxHostInternalInferenceTargets()
@@ -979,7 +979,7 @@ describe('STEP 8 — Production safety (unit contracts)', () => {
 
   it('(4) standard/external handshake: no Host AI target', async () => {
     isSandboxModeMock.mockReturnValue(true)
-    listHandshakeRecordsMock.mockReturnValue([activeInternalSandboxToHost({ handshake_type: 'standard' as any })])
+    listHandshakeRecordsMock.mockReturnValue([activeInternalSandboxToHost({ same_principal: false as any })])
     const r = await listSandboxHostInternalInferenceTargets()
     expect(r.targets).toHaveLength(0)
   })
@@ -990,7 +990,7 @@ describe('STEP 8 — Production safety (unit contracts)', () => {
     const { resetP2pInferenceFlagsForTests } = await import('../p2pInferenceFlags')
     resetP2pInferenceFlagsForTests()
     isSandboxModeMock.mockReturnValue(true)
-    listHandshakeRecordsMock.mockReturnValue([activeInternalSandboxToHost({ handshake_type: 'standard' as any })])
+    listHandshakeRecordsMock.mockReturnValue([activeInternalSandboxToHost({ same_principal: false as any })])
     const r = await listSandboxHostInternalInferenceTargets()
     expect(r.targets).toHaveLength(0)
     vi.unstubAllEnvs()
@@ -1244,7 +1244,7 @@ describe('STEP 10 — named regression (main: listSandboxHostInternalInferenceTa
   it('(7) external (non-internal) handshake: no Host AI target', async () => {
     isSandboxModeMock.mockReturnValue(true)
     listHandshakeRecordsMock.mockReturnValue([
-      activeInternalSandboxToHost({ handshake_type: 'standard' as any }),
+      activeInternalSandboxToHost({ same_principal: false as any }),
     ])
     const r = await listSandboxHostInternalInferenceTargets()
     expect(r.targets).toEqual([])

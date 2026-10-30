@@ -177,7 +177,7 @@ export function BackendConfigLightbox({ isOpen, onClose, theme = 'default' }: Ba
     const maxAttempts = 25; // 25 seconds - give time for app to start
     
     setNotification({ 
-      message: 'Please start WR Desk from the Start Menu. Waiting for app...', 
+      message: 'Please start Optirando from the Start Menu. Waiting for app...', 
       type: 'success' 
     });
     
@@ -194,7 +194,7 @@ export function BackendConfigLightbox({ isOpen, onClose, theme = 'default' }: Ba
         clearInterval(pollInterval);
         setIsLaunchingApp(false);
         setNotification({ 
-          message: 'Could not detect app. Please launch WR Desk from Start Menu or desktop shortcut.', 
+          message: 'Could not detect app. Please launch Optirando from Start Menu or desktop shortcut.', 
           type: 'error' 
         });
         setTimeout(() => setNotification(null), 8000);
@@ -289,7 +289,7 @@ export function BackendConfigLightbox({ isOpen, onClose, theme = 'default' }: Ba
         if (result.error?.includes('timed out') || result.error?.includes('Abort')) {
           errorMsg = 'Connection timeout - Desktop app may not be responding';
         } else if (result.error?.includes('Network error') || result.error?.includes('Failed to fetch')) {
-          errorMsg = 'Cannot connect to desktop app - Check if WR Desk™ is running';
+          errorMsg = 'Cannot connect to desktop app - Check if Optirando™ is running';
         }
         
         setNotification({ message: errorMsg, type: 'error' });
@@ -398,7 +398,7 @@ export function BackendConfigLightbox({ isOpen, onClose, theme = 'default' }: Ba
                 <span style={{ fontWeight: 600, fontSize: '14px', color: t.warning }}>Desktop App Not Running</span>
               </div>
               <p style={{ fontSize: '13px', color: t.textMuted, margin: '0 0 12px 0', lineHeight: 1.5 }}>
-                The WR Desk™ desktop app is required for database and LLM connections. Please start it from:
+                The Optirando™ desktop app is required for database and LLM connections. Please start it from:
               </p>
               <div style={{
                 background: 'rgba(0,0,0,0.2)',
@@ -409,7 +409,7 @@ export function BackendConfigLightbox({ isOpen, onClose, theme = 'default' }: Ba
                 color: t.textMuted,
                 marginBottom: '14px',
               }}>
-                Start Menu → WR Desk™<br />
+                Start Menu → Optirando™<br />
                 <span style={{ opacity: 0.7 }}>or check your system tray (bottom-right corner)</span>
               </div>
               <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
@@ -421,7 +421,7 @@ export function BackendConfigLightbox({ isOpen, onClose, theme = 'default' }: Ba
                     whiteSpace: 'nowrap',
                   }}
                 >
-                  {isLaunchingApp ? '⏳ Starting...' : '🚀 Launch WR Desk™'}
+                  {isLaunchingApp ? '⏳ Starting...' : '🚀 Launch Optirando™'}
                 </button>
                 <span style={{ fontSize: '12px', color: t.textMuted }}>
                   {isLaunchingApp ? 'Waiting for app to start...' : 'Click to start the desktop app'}
@@ -539,7 +539,7 @@ export function BackendConfigLightbox({ isOpen, onClose, theme = 'default' }: Ba
                     fontSize: '12px',
                   }}>
                     <div style={{ fontWeight: 600, marginBottom: '10px', color: t.success }}>🔗 DBeaver Connection Info</div>
-                    <div style={{ marginBottom: '5px', color: t.textMuted }}><strong style={{ color: t.text }}>Connection:</strong> Local PostgreSQL (WR Desk)</div>
+                    <div style={{ marginBottom: '5px', color: t.textMuted }}><strong style={{ color: t.text }}>Connection:</strong> Local PostgreSQL (Optirando)</div>
                     <div style={{ marginBottom: '5px', color: t.textMuted }}><strong style={{ color: t.text }}>Username:</strong> {config.postgres.config.user}</div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: t.textMuted }}>
                       <strong style={{ color: t.text }}>Password:</strong>
@@ -564,7 +564,7 @@ export function BackendConfigLightbox({ isOpen, onClose, theme = 'default' }: Ba
                           const result = await electronRpc('db.launchDbeaver', { postgresConfig: config.postgres.config });
                           const data = rpcData(result);
                           if (result.success && data?.ok) {
-                            setNotification({ message: 'DBeaver launched! Look for "Local PostgreSQL (WR Desk)" connection.', type: 'success' });
+                            setNotification({ message: 'DBeaver launched! Look for "Local PostgreSQL (Optirando)" connection.', type: 'success' });
                             setTimeout(() => setNotification(null), 10000);
                           } else {
                             setNotification({ message: (data?.message as string) || result.error || 'Could not launch DBeaver.', type: 'error' });

@@ -163,7 +163,7 @@ export async function sandboxMaybeRequestHostDirectBeapAdvertisement(
     return
   }
 
-  const rows = listHandshakeRecords(db, { state: HandshakeState.ACTIVE, handshake_type: 'internal' })
+  const rows = listHandshakeRecords(db, { state: HandshakeState.ACTIVE, same_principal: true })
   for (const r of rows) {
     const hid = String(r.handshake_id ?? '').trim()
     if (!hid) continue

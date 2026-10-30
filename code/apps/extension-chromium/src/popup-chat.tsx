@@ -5,7 +5,7 @@
  * Uses shared components from the UI library.
  * 
  * AUTH-GATED UI:
- * - When NOT logged in: shows ONLY WRDesk logo + Sign In + Create Account
+ * - When NOT logged in: shows ONLY Optirando logo + Sign In + Create Account
  * - When logged in: shows full dashboard UI
  * 
  * MIRRORS the docked sidepanel structure exactly:
@@ -370,7 +370,7 @@ function PopupChatApp() {
         console.log('[AUTH] SSO failed. Reason:', reason);
         if (response?.electronNotRunning) {
           setElectronNotRunning(true);
-          setLoginError('WR Desk Orchestrator is not running.');
+          setLoginError('Optirando Orchestrator is not running.');
           chrome.runtime.sendMessage({ type: 'OPEN_WRDESK_HOME_IF_NEEDED' });
         } else {
           setElectronNotRunning(false);
@@ -1871,7 +1871,7 @@ function PopupChatApp() {
               borderBottom: `1px solid ${borderColor}`,
             }}
           >
-            No email account connected. Set up an account in the WR Desk Inbox settings (desktop app), or use{' '}
+            No email account connected. Set up an account in the Optirando Inbox settings (desktop app), or use{' '}
             <strong>Connect Email</strong> above.
           </div>
         ) : null}
@@ -2173,25 +2173,22 @@ function PopupChatApp() {
         padding: '40px 24px',
         gap: '24px'
       }}>
-        {/* WRDesk Logo */}
+        {/* Optirando Logo */}
         <div style={{ textAlign: 'center' }}>
-          <img 
-            src={chrome.runtime.getURL('wrdesk-logo.png')}
-            alt="WR Desk"
+          <img
+            src={chrome.runtime.getURL('optirando-logo.png')}
+            alt="Optirando"
             style={{
-              width: '180px',
+              width: '220px',
               height: 'auto',
-              marginBottom: '16px'
+              maxWidth: '100%',
+              objectFit: 'contain',
+              marginBottom: '12px'
+            }}
+            onError={(e) => {
+              ;(e.currentTarget as HTMLImageElement).src = chrome.runtime.getURL('optirando-symbol.png')
             }}
           />
-          <p style={{
-            fontSize: '13px',
-            color: mutedColor,
-            margin: '0 0 8px 0',
-            lineHeight: '1.5'
-          }}>
-            Workflow-Ready Desk
-          </p>
           <p style={{
             fontSize: '11px',
             color: mutedColor,
@@ -2283,7 +2280,7 @@ function PopupChatApp() {
                   textAlign: 'center',
                   lineHeight: '1.5',
                 }}>
-                  WR Desk Orchestrator is not running.
+                  Optirando Orchestrator is not running.
                 </p>
                 <p style={{
                   fontSize: '11px',
@@ -2293,12 +2290,12 @@ function PopupChatApp() {
                   lineHeight: '1.5',
                 }}>
                   {platformOs === 'linux'
-                    ? 'Please start WR Desk from your application menu.'
-                    : <>Please start WR Desk from the Start menu.</>}
+                    ? 'Please start Optirando from your application menu.'
+                    : <>Please start Optirando from the Start menu.</>}
                 </p>
                 {launchTimedOut ? (
                   <p style={{ fontSize: '11px', color: theme === 'standard' ? '#dc2626' : '#f87171', margin: '4px 0 0', textAlign: 'center' }}>
-                    Could not connect. Please make sure WR Desk is running and try again.
+                    Could not connect. Please make sure Optirando is running and try again.
                   </p>
                 ) : null}
                 <button

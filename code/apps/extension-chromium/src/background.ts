@@ -5,6 +5,7 @@ import { extractAllTabsDom } from './utils/watchdogDomExtract'
 import { maybePresentOrchestratorDisplayGridSession } from './services/presentOrchestratorDisplayGridSession'
 import { findOpenSessionSurface } from './services/sessionSurfaceResolver'
 import { activateSessionForOptimization } from './services/sessionActivationForOptimization'
+import { createLaunchSecretFetch, isStaleLaunchSecretResponse } from './rpc/launchSecretFetch'
 
 import { RUN_MODE_ALLOCATED_SESSION_TYPE } from './services/runModeAllocatedSessionAutomation'
 import type { CustomModeRuntimeConfig } from './shared/ui/customModeRuntime'
@@ -268,7 +269,7 @@ async function triggerPendingBeapRun(sessionKey: string): Promise<void> {
 
 try {
   const m = chrome.runtime.getManifest()
-  console.info('[WR Desk] Service worker started', {
+  console.info('[Optirando] Service worker started', {
     manifestVersion: m.version,
     buildStamp: import.meta.env.VITE_EXT_BUILD_STAMP ?? 'dev',
   })
@@ -565,6 +566,27 @@ async function ensureLaunchSecret(maxWaitMs = 10000): Promise<boolean> {
 
   return !!_launchSecret;
 }
+
+/**
+ * Wait until the WebSocket handshake replaces a secret the app rejected (it makes a new
+ * one on every start). Keeps the old value if no handshake arrives in time.
+ */
+async function awaitFreshLaunchSecret(stale: string | null, maxWaitMs = 6000): Promise<boolean> {
+  // Connects now if the socket is down, instead of waiting for the backoff timer.
+  try { await connectToWebSocketServer(); } catch { /* ignore */ }
+  const start = Date.now();
+  while (Date.now() - start < maxWaitMs) {
+    if (_launchSecret && _launchSecret !== stale) return true;
+    await new Promise(r => setTimeout(r, 250));
+  }
+  return false;
+}
+
+/** fetch() to the desktop app with X-Launch-Secret; one retry after an app restart. */
+const electronFetch = createLaunchSecretFetch({
+  getSecret: () => _launchSecret,
+  awaitFreshSecret: (stale) => awaitFreshLaunchSecret(stale),
+})
 
 function _cacheVsbt(token: string | null) {
   _cachedVsbt = token
@@ -1090,7 +1112,7 @@ async function electronRequest(
   if (!electronRunning) {
     return { 
       ok: false, 
-      error: 'WR Deskâ„¢ desktop app is not running. Please start it manually or check if it is installed.',
+      error: 'Optirando™ desktop app is not running. Please start it manually or check if it is installed.',
       errorCode: 'ELECTRON_NOT_RUNNING'
     };
   }
@@ -1107,6 +1129,9 @@ async function electronRequest(
     }
   }
 
+  // After an app restart the cached launch secret is stale until the handshake: retry once, outside the backoff budget.
+  let launchSecretRefreshed = false;
+
   // Retry loop with exponential backoff
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     if (attempt > 0) {
@@ -1118,7 +1143,7 @@ async function electronRequest(
         if (!(await ensureElectronRunning())) {
           return {
             ok: false,
-            error: 'WR Deskâ„¢ desktop app stopped unexpectedly. Please restart it.',
+            error: 'Optirando™ desktop app stopped unexpectedly. Please restart it.',
             errorCode: 'ELECTRON_STOPPED'
           };
         }
@@ -1133,8 +1158,9 @@ async function electronRequest(
     try {
       // Inject per-launch auth secret into every request
       const mergedHeaders = new Headers((options as any)?.headers)
-      if (_launchSecret) {
-        mergedHeaders.set('X-Launch-Secret', _launchSecret)
+      const sentSecret = _launchSecret
+      if (sentSecret) {
+        mergedHeaders.set('X-Launch-Secret', sentSecret)
       }
       const response = await fetch(url, {
         ...options,
@@ -1142,6 +1168,14 @@ async function electronRequest(
         signal: controller.signal
       });
       clearTimeout(timeoutId);
+
+      if (!launchSecretRefreshed && (await isStaleLaunchSecretResponse(response))) {
+        launchSecretRefreshed = true
+        if (await awaitFreshLaunchSecret(sentSecret)) {
+          attempt--
+          continue
+        }
+      }
 
       const contentType = response.headers.get('content-type') || '';
 
@@ -1181,7 +1215,7 @@ async function electronRequest(
       }
 
       const data = await response.json();
-      /** WR Desk APIs use `{ ok: boolean, data?, error? }` with HTTP 200 â€” honor body.ok for truthful success. */
+      /** Optirando APIs use `{ ok: boolean, data?, error? }` with HTTP 200 â€” honor body.ok for truthful success. */
       if (data && typeof data === 'object' && 'ok' in data && data.ok === false) {
         const body = data as {
           ok?: boolean
@@ -1226,7 +1260,7 @@ async function electronRequest(
       }
 
       if (err.message?.includes('Failed to fetch') || err.message?.includes('NetworkError')) {
-        lastError = 'Cannot connect to WR Deskâ„¢ desktop app';
+        lastError = 'Cannot connect to Optirando™ desktop app';
         lastErrorCode = 'NETWORK_ERROR';
         continue;
       }
@@ -1239,7 +1273,7 @@ async function electronRequest(
   // All retries exhausted
   return { 
     ok: false, 
-    error: `${lastError}. Please try again or restart WR Deskâ„¢.`,
+    error: `${lastError}. Please try again or restart Optirando™.`,
     errorCode: lastErrorCode
   };
 }
@@ -1311,18 +1345,18 @@ async function syncApiKeysToElectron(keysArg?: Record<string, string> | null): P
   if (!ready) {
     console.warn('[BG] syncApiKeysToElectron: launch secret not ready â€” skipping')
     await setApiKeySyncPending(true)
-    return { ok: false, error: 'Launch secret not ready â€” open WR Desk desktop app' }
+    return { ok: false, error: 'Launch secret not ready â€” open Optirando desktop app' }
   }
   const apiKeys: Partial<Record<'OpenAI' | 'Claude' | 'Gemini' | 'Grok', string>> = {}
   for (const k of ['OpenAI', 'Claude', 'Gemini', 'Grok'] as const) {
     const v = keys[k]
     if (typeof v === 'string' && v.trim()) apiKeys[k] = v.trim()
   }
-  const hasAny = Object.keys(apiKeys).length > 0
+  // A stored key is not consent to cloud use (roadmap 0.15): the sync carries keys only.
   const body = {
     apiKeys,
-    preference: hasAny ? ('auto' as const) : ('local' as const),
-    useCloudForImages: hasAny,
+    preference: 'local' as const,
+    useCloudForImages: false,
     optimandoFlatKeys: keys,
   }
   const res = await electronRequest('/api/ocr/config', {
@@ -2406,14 +2440,14 @@ async function checkAndLaunchElectronApp(sendResponse: (response: any) => void, 
       chrome.notifications.create(notificationId, {
         type: 'basic',
         iconUrl: chrome.runtime.getURL('icon-128.png'),
-        title: 'WR Desk Analysis Dashboard',
+        title: 'Optirando Analysis Dashboard',
         message: 'Click here to start the Analysis Dashboard, or start it from the Start Menu.',
         priority: 2,
         requireInteraction: true
       }, (createdNotificationId) => {
         if (chrome.runtime.lastError) {
           console.error('[BG] Failed to create notification:', chrome.runtime.lastError)
-          try { sendResponse({ success: false, error: 'Please start the WR Desk Analysis Dashboard from the Start Menu.' }) } catch {}
+          try { sendResponse({ success: false, error: 'Please start the Optirando Analysis Dashboard from the Start Menu.' }) } catch {}
           return
         }
         
@@ -2427,7 +2461,7 @@ async function checkAndLaunchElectronApp(sendResponse: (response: any) => void, 
             if (running) {
               try { sendResponse({ success: true }) } catch {}
             } else {
-              try { sendResponse({ success: false, error: 'Please start WR Desk from the Start Menu.' }) } catch {}
+              try { sendResponse({ success: false, error: 'Please start Optirando from the Start Menu.' }) } catch {}
             }
           }
         }
@@ -2488,7 +2522,7 @@ async function launchElectronAppDirect(): Promise<boolean> {
     // - Windows: Caused "Open Electron?" prompts and "Cannot find module" errors.
     // - Linux: Triggers "xdg-open Ã¶ffnen?" when protocol handler not registered
     //   (common in dev mode or when .desktop file doesn't register the handler).
-    // Users must start WR Desk manually from application menu or desktop shortcut.
+    // Users must start Optirando manually from application menu or desktop shortcut.
     // ============================================================================
 
     // Wait briefly and check if app is starting (user may have started manually)
@@ -2552,7 +2586,7 @@ async function launchElectronApp(sendResponse: (response: any) => void): Promise
       chrome.notifications.create({
         type: 'basic',
         iconUrl: chrome.runtime.getURL('icon-128.png'),
-        title: 'WR Desk Analysis Dashboard',
+        title: 'Optirando Analysis Dashboard',
         message: 'Could not start automatically. Please start WR Code from the Start Menu or desktop shortcut.',
         priority: 2,
         requireInteraction: false
@@ -3173,11 +3207,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         }
         
         // Step 1: Get auth URL from Electron (Electron starts loopback server but does NOT open browser)
-        const urlResponse = await fetch(`${ELECTRON_BASE_URL}/api/auth/login-url`, {
+        const urlResponse = await electronFetch(`${ELECTRON_BASE_URL}/api/auth/login-url`, {
           method: 'POST',
           headers: _electronHeaders(),
-          signal: AbortSignal.timeout(10000),
-        });
+        }, 10000);
         const urlData = await urlResponse.json();
         
         if (!urlData.ok || !urlData.authUrl) {
@@ -3190,11 +3223,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const authTab = await chrome.tabs.create({ url: urlData.authUrl, active: true });
         
         // Step 3: Wait for Electron to receive the callback (long-poll)
-        const waitResponse = await fetch(`${ELECTRON_BASE_URL}/api/auth/login-wait`, {
+        const waitResponse = await electronFetch(`${ELECTRON_BASE_URL}/api/auth/login-wait`, {
           method: 'POST',
           headers: _electronHeaders(),
-          signal: AbortSignal.timeout(130000), // 130s = Electron's 120s LOGIN_TIMEOUT_MS + 10s buffer
-        });
+        }, 130000); // 130s = Electron's 120s LOGIN_TIMEOUT_MS + 10s buffer
         const waitData = await waitResponse.json();
         
         if (waitData.ok) {
@@ -3252,11 +3284,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         // Ensure launch secret is available (may need WebSocket handshake)
         await ensureLaunchSecret(3000);
 
-        const response = await fetch(`${ELECTRON_BASE_URL}/api/auth/status`, {
+        const response = await electronFetch(`${ELECTRON_BASE_URL}/api/auth/status`, {
           method: 'GET',
           headers: _electronHeaders(),
-          signal: AbortSignal.timeout(5000),
-        });
+        }, 5000);
+        // A rejected request says nothing about the session; do not cache it as "logged out".
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const data = await response.json();
         if (DEBUG_AUTH_STATUS_LOG) {
         }
@@ -3335,11 +3368,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       };
       
       try {
-        const response = await fetch(`${ELECTRON_BASE_URL}/api/auth/logout`, {
+        const response = await electronFetch(`${ELECTRON_BASE_URL}/api/auth/logout`, {
           method: 'POST',
           headers: _electronHeaders(),
-          signal: AbortSignal.timeout(10000),
-        });
+        }, 10000);
         const data = await response.json();
         // Clear stored state
         await clearAuthState();
@@ -3354,7 +3386,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true; // Keep channel open for async response
   }
 
-  // Handle "Open WRDesk Home" - opens optirando.com if not already open (NO tab spam)
+  // Handle "Open Optirando Home" - opens optirando.com if not already open (NO tab spam)
   // Used when extension popup/sidepanel is opened in logged-out state
   if (msg && msg.type === 'OPEN_WRDESK_HOME_IF_NEEDED') {
     (async () => {
@@ -4071,8 +4103,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           chrome.notifications.create('wrdesk-launch-help', {
             type: 'basic',
             iconUrl: chrome.runtime.getURL('icon-128.png'),
-            title: 'WR Desk Dashboard',
-            message: 'Please start "WR Desk" from the Start Menu or desktop shortcut, then click Retry Connection.',
+            title: 'Optirando Dashboard',
+            message: 'Please start "Optirando" from the Start Menu or desktop shortcut, then click Retry Connection.',
             priority: 2,
             requireInteraction: true
           });
@@ -4080,14 +4112,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           // Always show manual instructions when launch fails
           sendResponse({ 
             success: false, 
-            error: 'Please start "WR Desk" from the Start Menu or desktop shortcut.',
+            error: 'Please start "Optirando" from the Start Menu or desktop shortcut.',
             showManualInstructions: true
           });
         } catch (err) {
           console.error('[BG] Failed to launch Electron:', err);
           sendResponse({ 
             success: false, 
-            error: 'Please start the WR Desk Dashboard manually from the Start Menu.',
+            error: 'Please start the Optirando Dashboard manually from the Start Menu.',
             showManualInstructions: true
           });
         }
@@ -4129,7 +4161,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           try { 
             sendResponse({ 
               success: false, 
-              error: 'Could not connect to WR Deskâ„¢. Make sure the Electron app is running.' 
+              error: 'Could not connect to Optirando™. Make sure the Electron app is running.' 
             }) 
           } catch {}
         }
@@ -4484,13 +4516,35 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       })
         .then(result => {
           if (result.ok && result.data?.content != null) {
-            sendResponse({ ok: true, data: { content: result.data.content } })
+            sendResponse({
+              ok: true,
+              data: {
+                content: result.data.content,
+                ...(result.data.provenance ? { provenance: result.data.provenance } : {}),
+              },
+            })
           } else {
             sendResponse({ ok: false, error: result.error || 'Draft generation failed' })
           }
         })
         .catch(err => {
           sendResponse({ ok: false, error: err?.message || 'Draft generation failed' })
+        })
+      return true
+    }
+
+    case 'ART50_LOG_EDITORIAL': {
+      electronRequest('/api/art50/editorial-responsibility', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provenance: msg.provenance }),
+      })
+        .then(result => {
+          if (result.ok) sendResponse({ ok: true, provenance: result.provenance ?? result.data?.provenance })
+          else sendResponse({ ok: false, error: result.error || 'editorial_log_failed' })
+        })
+        .catch(err => {
+          sendResponse({ ok: false, error: err?.message || 'editorial_log_failed' })
         })
       return true
     }

@@ -1302,7 +1302,8 @@ async function createWindow() {
   // Security: renderer isolation; tokens must never be exposed to renderer
   // Always create hidden - visibility is controlled by openDashboardWindow()
   win = new BrowserWindow({
-    title: 'WR Deskâ„¢',
+    title: 'Optirando™',
+    // Legacy filename; asset displays Optirando branding (256×256 symbol).
     icon: path.join(process.env.VITE_PUBLIC, 'wrdesk-logo.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
@@ -2299,9 +2300,10 @@ async function createWindow() {
 
 function createTray() {
   try {
+    // Legacy filename; asset displays Optirando branding (symbol for compact tray).
     tray = new Tray(path.join(process.env.VITE_PUBLIC, 'wrdesk-logo.png'))
     updateTrayMenu()
-    tray.setToolTip('WR Desk Orchestrator')
+    tray.setToolTip('Optirando Orchestrator')
 
     const handleTrayActivate = async () => {
       console.log('[TRAY] Tray icon activated')
@@ -2327,7 +2329,7 @@ function createTray() {
     }
     // Startup toast
     try {
-      new Notification({ title: 'WR Desk Orchestrator', body: 'Running in background. Use Alt+Shift+S or chat icons to capture.' }).show()
+      new Notification({ title: 'Optirando Orchestrator', body: 'Running in background. Use Alt+Shift+S or chat icons to capture.' }).show()
     } catch {}
   } catch {}
 }
@@ -2477,10 +2479,10 @@ app.on('second-instance', (_e, argv) => {
   if (arg) handleDeepLink(arg)
 })
 
-// Register protocols: wrcode (primary), wrdesk (Launch WR Desk button), opengiraffe (legacy)
+// Register protocols: wrcode (primary), wrdesk (Launch Optirando button; scheme id unchanged), opengiraffe (legacy)
 app.setAsDefaultProtocolClient('wrcode')
 try {
-  app.setAsDefaultProtocolClient('wrdesk') // Used by extension "Launch WR Desk" button
+  app.setAsDefaultProtocolClient('wrdesk') // Used by extension "Launch Optirando" button (protocol id unchanged)
 } catch (err) {
   console.log('[MAIN] Could not register wrdesk protocol (may already be registered):', err)
 }
@@ -2811,6 +2813,13 @@ app.whenReady().then(async () => {
         if (inboxRegErr instanceof Error && inboxRegErr.stack) {
           console.error('[MAIN] registerInboxHandlers stack:', inboxRegErr.stack)
         }
+      }
+      try {
+        const { registerArt50Ipc } = await import('./main/aiProvenance/art50Ipc')
+        registerArt50Ipc()
+        console.log('[MAIN] Art. 50 IPC handlers registered')
+      } catch (art50Err) {
+        console.error('[MAIN] registerArt50Ipc failed:', art50Err)
       }
       try {
         registerEmailHandlers(getInboxDb)
@@ -3367,7 +3376,20 @@ app.whenReady().then(async () => {
         if (!db && skipVaultContext && vaultRequiredMethods.includes(method)) {
           return { success: false, error: 'No active session. Please log in first.' }
         }
+        const { productRoutePreviewPinRefusal } = await import('./main/handshake/desktopAcceptTarget')
+        const pinRefusal = productRoutePreviewPinRefusal(db, method, p)
+        if (pinRefusal) return pinRefusal
         return (await handleHandshakeRPC(method, p, db)) as Record<string, unknown>
+      }
+
+      // WR Code (Annex XVI): every effect requires a signed-in account, so the
+      // whole wrc.* surface needs an active SSO session. No skipVaultContext
+      // escape exists for this prefix.
+      if (method.startsWith('wrc.')) {
+        if (!getCurrentSession()) {
+          return { success: false, error: 'No active session. Please log in first.' }
+        }
+        return (await handleHandshakeRPC(method, p, getLedgerDb())) as Record<string, unknown>
       }
 
       if (method.startsWith('ingestion.')) {
@@ -3707,7 +3729,7 @@ app.whenReady().then(async () => {
       }
     })
 
-    ipcMain.handle('handshake:accept', async (_e, id: string, sharingMode: string, fromAccountId: string, contextOpts?: { context_blocks?: any[]; profile_ids?: string[]; profile_items?: any[]; policy_selections?: { cloud_ai?: boolean; internal_ai?: boolean; ai_processing_mode?: string }; senderX25519PublicKeyB64?: string; sender_x25519_public_key_b64?: string; key_agreement?: { x25519_public_key_b64?: string; mlkem768_public_key_b64?: string }; senderMlkem768PublicKeyB64?: string; senderMlkem768SecretKeyB64?: string; device_name?: string; device_role?: 'host' | 'sandbox'; local_pairing_code_typed?: string; internal_peer_device_id?: string; internal_peer_device_role?: string; internal_peer_computer_name?: string; internal_peer_pairing_code?: string }) => {
+    ipcMain.handle('handshake:accept', async (_e, id: string, sharingMode: string, fromAccountId: string, contextOpts?: { context_blocks?: any[]; profile_ids?: string[]; profile_items?: any[]; policy_selections?: { cloud_ai?: boolean; internal_ai?: boolean; ai_processing_mode?: string }; senderX25519PublicKeyB64?: string; sender_x25519_public_key_b64?: string; key_agreement?: { x25519_public_key_b64?: string; mlkem768_public_key_b64?: string }; senderMlkem768PublicKeyB64?: string; senderMlkem768SecretKeyB64?: string; device_name?: string; device_role?: 'host' | 'sandbox'; local_pairing_code_typed?: string; internal_peer_device_id?: string; internal_peer_device_role?: string; internal_peer_computer_name?: string; internal_peer_pairing_code?: string; expected_preview_hash?: string }) => {
       try {
         const db = await getHandshakeDb()
         if (!db) return { success: false, error: 'No active session. Please log in first.' }
@@ -3724,16 +3746,23 @@ app.whenReady().then(async () => {
             }
           }
         } catch { /* vault not initialized â€” allow (keys in ledger) */ }
-        const { getHandshakeRecord } = await import('./main/handshake/db')
-        const acceptRecord = getHandshakeRecord(db, id)
-        if (!acceptRecord) {
+        const { resolveDesktopAcceptTarget, desktopAcceptPreviewPinError, PREVIEW_HASH_REQUIRED_COPY } = await import(
+          './main/handshake/desktopAcceptTarget'
+        )
+        // A pending request is usually a staged Connect offer with no record yet (Phase 4);
+        // handleHandshakeRPC handshake.accept turns the consent into the record.
+        const acceptTarget = resolveDesktopAcceptTarget(db, id)
+        if (!acceptTarget) {
           return { success: false, error: 'Handshake not found', reason: 'HANDSHAKE_NOT_FOUND' }
+        }
+        if (desktopAcceptPreviewPinError(acceptTarget, contextOpts?.expected_preview_hash)) {
+          return { success: false, reason: 'PREVIEW_HASH_REQUIRED', error: PREVIEW_HASH_REQUIRED_COPY }
         }
         // Before (split contract): isInternalAccept = contextOpts?.device_role === 'host' || 'sandbox'
         //   — could misclassify when device_role is missing/filtered.
-        // After: same source of truth as handleHandshakeRPC handshake.accept (record.handshake_type).
+        // After: same source of truth as handleHandshakeRPC handshake.accept (record.same_principal).
         // contextOpts.device_role remains for internal pairing/UX; it is not the X25519 guard signal.
-        const isInternalAccept = acceptRecord.handshake_type === 'internal'
+        const isInternalAccept = acceptTarget.samePrincipal
         const co = contextOpts
         const trimmedSenderX25519 =
           (typeof co?.senderX25519PublicKeyB64 === 'string' ? co.senderX25519PublicKeyB64.trim() : '') ||
@@ -3748,8 +3777,8 @@ app.whenReady().then(async () => {
             const { logNormalAcceptX25519BindingFailure } = await import('./main/handshake/ipc')
             logNormalAcceptX25519BindingFailure({
               handshake_id: id,
-              local_role: acceptRecord.local_role ?? null,
-              handshake_type: acceptRecord.handshake_type ?? null,
+              local_role: acceptTarget.localRole,
+              same_principal: acceptTarget.samePrincipal,
               params: {
                 senderX25519PublicKeyB64: co?.senderX25519PublicKeyB64,
                 key_agreement: co?.key_agreement,
@@ -3820,6 +3849,9 @@ app.whenReady().then(async () => {
         // accepts fail with INTERNAL_ENDPOINT_INCOMPLETE.
         if (typeof contextOpts?.local_pairing_code_typed === 'string' && contextOpts.local_pairing_code_typed.trim()) {
           params.local_pairing_code_typed = contextOpts.local_pairing_code_typed.trim()
+        }
+        if (typeof contextOpts?.expected_preview_hash === 'string') {
+          params.expected_preview_hash = contextOpts.expected_preview_hash
         }
         const result = await handleHandshakeRPC('handshake.accept', params, db)
         if (!result?.success) {
@@ -3939,7 +3971,7 @@ app.whenReady().then(async () => {
         console.log('[HANDSHAKE:FORCE_REVOKE] record found:', record ? `state=${record.state}` : 'null')
         if (!record) return { success: false, error: `Handshake ${id} not found in database` }
         const session = getCurrentSession()
-        await revokeHandshake(db, id, 'local-user', session?.wrdesk_user_id, session ?? undefined, async () => getAccessToken() ?? null)
+        await revokeHandshake(db, id, 'local-user', session?.wrdesk_user_id)
         console.log('[HANDSHAKE:FORCE_REVOKE] revoke completed for id:', id)
         return { success: true }
       } catch (err: any) {
@@ -4111,7 +4143,11 @@ app.whenReady().then(async () => {
           return { success: false, error: 'No LLM model installed. Install a model in LLM Settings first.' }
         }
         const response = await localLlmManager.chat(modelId, [{ role: 'user', content: prompt || '' }])
-        return { success: true, answer: response?.content ?? '' }
+        return {
+          success: true,
+          answer: response?.content ?? '',
+          provenance: response?.provenance ?? null,
+        }
       } catch (err: any) {
         console.error('[MAIN] handshake:generateDraft error:', err?.message)
         return { success: false, error: err?.message ?? 'Draft generation failed' }
@@ -4452,32 +4488,38 @@ app.whenReady().then(async () => {
           else if (scope.startsWith('rel-')) filter.relationship_id = scope
         }
 
-        // Fallback scope: when no handshake selected, use most recent handshake with context
-        // so retrieval runs in a sensible default scope instead of empty filter
+        // No implicit scope (roadmap 0.14, Annex XI I8): without a selected handshake or
+        // relationship, chat does not pick one. When context exists, ask for a selection.
         if (!filter.handshake_id && !filter.relationship_id && (scope === 'context-graph' || scope === 'all')) {
-          try {
-            const row = db.prepare(
-              `SELECT c.handshake_id FROM context_blocks c
-               INNER JOIN handshakes h ON h.handshake_id = c.handshake_id
-               WHERE h.state IN ('ACCEPTED','ACTIVE')
-               ORDER BY h.created_at DESC
-               LIMIT 1`
-            ).get() as { handshake_id: string } | undefined
-            if (row?.handshake_id) {
-              filter.handshake_id = row.handshake_id
-              console.log('[Chat] No selection: using fallback handshake', row.handshake_id)
+          const anyContext = db.prepare(`SELECT 1 FROM context_blocks LIMIT 1`).get()
+          if (anyContext) {
+            const msg = 'Select a handshake context first. Chat does not choose one for you.'
+            const doStream = params.stream === true && event.sender
+            if (doStream) {
+              const send = (ch: string, payload: unknown) => event.sender.send(ch, payload)
+              send('handshake:chatStreamStart', { contextBlocks: [], sources: [] })
+              send('handshake:chatStreamToken', { token: msg })
             }
-          } catch (e) {
-            /* ignore â€” proceed with empty filter */
+            return toIPC({ success: true, answer: msg, sources: [], streamed: !!doStream, resultType: 'context_selection_required' })
           }
         }
+
+        // One egress check before every model call in this handler (roadmap 0.13, D-37).
+        const { clearBlocksForModel, assertRagEgressCleared, dbRagEgressLookup, RAG_EGRESS_GOVERNANCE_NOTE } = await import('./main/handshake/ragEgress')
+        const egressVisibility = await import('./main/handshake/visibilityFilter')
+        const egressLookup = dbRagEgressLookup(db, {
+          getHandshakeRecord: (await import('./main/handshake/db')).getHandshakeRecord,
+          visibilityWhereClause: egressVisibility.visibilityWhereClause,
+          vaultUnlocked: egressVisibility.isVaultCurrentlyUnlocked(),
+        })
 
         // Structured path (no embedding needed): try first when embedding unavailable
         const { queryClassifier, structuredLookup, structuredLookupMulti, fetchBlocksForStructuredLookup } = await import('./main/handshake/structuredQuery')
         const classifierResult = queryClassifier(params.query ?? '')
         const pathForFetch = classifierResult.fieldPaths?.[0] ?? classifierResult.fieldPath
         if (classifierResult.matched && pathForFetch) {
-          const blocks = fetchBlocksForStructuredLookup(db, filter, pathForFetch)
+          const structClearance = clearBlocksForModel(provider, fetchBlocksForStructuredLookup(db, filter, pathForFetch), egressLookup)
+          const blocks = structClearance.allowed
           if (blocks.length > 0) {
             const structResult = classifierResult.fieldPaths && classifierResult.fieldPaths.length > 0
               ? structuredLookupMulti(blocks, classifierResult.fieldPaths)
@@ -4503,6 +4545,7 @@ app.whenReady().then(async () => {
 
               let answer: string
               try {
+                assertRagEgressCleared(structClearance, src ? [src] : [])
                 if (doStream) {
                   send('handshake:chatStreamStart', { contextBlocks: src ? [src.block_id] : [], sources })
                   answer = await ragSbxGen.runOllamaGenerateChatWithSandboxRouting(provider as any, messages, {
@@ -4566,13 +4609,6 @@ app.whenReady().then(async () => {
         } else {
           hybridResult = await hybridSearch(db, params.query ?? '', filter, embeddingService)
         }
-        const { getHandshakeRecord } = await import('./main/handshake/db')
-        const {
-          parseGovernanceJson,
-          resolveEffectiveGovernance,
-          filterBlocksForCloudAI,
-        } = await import('./main/handshake/contextGovernance')
-        const { visibilityWhereClause, isVaultCurrentlyUnlocked } = await import('./main/handshake/visibilityFilter')
         const { logCacheHitMetrics, logAIQueryMetrics, checkAILatency, buildLatencyDebugPayload } = await import('./main/handshake/latencyInstrumentation')
 
         const hasHandshakeScope = !!filter.handshake_id
@@ -4674,7 +4710,20 @@ app.whenReady().then(async () => {
               }
             } catch { /* skip malformed payload */ }
           }
-          if (docText && foundBlockId) {
+          const docClearance = docText && foundBlockId
+            ? clearBlocksForModel(provider, [{ handshake_id: filter.handshake_id, block_id: foundBlockId }], egressLookup)
+            : null
+          if (docClearance && docClearance.allowed.length === 0) {
+            const msg = "This document's governance policy restricts cloud AI processing. Use a local model to work with it."
+            const doStream = params.stream === true && event.sender
+            if (doStream) {
+              const send = (ch: string, payload: unknown) => event.sender.send(ch, payload)
+              send('handshake:chatStreamStart', { contextBlocks: [], sources: [] })
+              send('handshake:chatStreamToken', { token: msg })
+            }
+            return toIPC({ success: true, answer: msg, sources: [], streamed: !!doStream, resultType: 'context_answer', governanceNote: docClearance.governanceNote })
+          }
+          if (docText && foundBlockId && docClearance) {
             const { buildPrompt } = await import('./main/handshake/blockRetrieval')
             const docContext = `[block_id: ${foundBlockId}]\n[Document content]\n${docText}`
             const trimmedQuery = params.query?.trim() ?? ''
@@ -4688,14 +4737,25 @@ app.whenReady().then(async () => {
                 { role: 'system' as const, content: system },
                 { role: 'user' as const, content: userPrompt },
               ]
+              const provenanceOut: { value?: import('../../../packages/shared/src/aiProvenance').AiProvenance } = {}
+              assertRagEgressCleared(docClearance, [{ handshake_id: filter.handshake_id, block_id: foundBlockId }])
               const answer = await ragSbxGen.runOllamaGenerateChatWithSandboxRouting(provider as any, ragMessages, {
                 model: params.model,
                 stream: !!doStream,
                 send: doStream ? send : undefined,
                 ragParams: sandboxRagRoutingParams(),
                 contentTask: ragContentTask,
+                provenanceOut,
               })
-              return toIPC({ success: true, answer, sources, streamed: doStream, resultType: 'context_answer' })
+              const ragProv = provenanceOut.value
+              return toIPC({
+                success: true,
+                answer,
+                sources,
+                streamed: doStream,
+                resultType: 'context_answer',
+                ...(ragProv !== undefined ? { provenance: ragProv } : {}),
+              })
             } catch (err: unknown) {
               const ir = mapInferenceRoutingError(err)
               if (ir) return ir
@@ -4769,10 +4829,23 @@ app.whenReady().then(async () => {
         const doStream = params.stream === true && event.sender
         const send = doStream ? (ch: string, payload: unknown) => event.sender.send(ch, payload) : () => {}
 
-        // Fast-path: structured result â†’ route through LLM for natural-language answer (no raw JSON)
-        if (hybridResult.mode === 'structured' && hybridResult.structured?.found && hybridResult.structured?.value) {
-          const src = hybridResult.structured.source
-          const structuredValue = hybridResult.structured.value
+        // Fast-path: structured result â†’ route through LLM for natural-language answer (no raw JSON).
+        // A multi-field value may come from several blocks but names one source, so a remote
+        // model only takes this path for a single-field value whose source is cleared.
+        const hybridStructured = hybridResult.mode === 'structured' && hybridResult.structured?.found && hybridResult.structured?.value
+          ? hybridResult.structured
+          : null
+        const hybridStructClearance = hybridStructured
+          ? clearBlocksForModel(provider, hybridStructured.source ? [hybridStructured.source] : [], egressLookup)
+          : null
+        const hybridStructCleared =
+          !!hybridStructClearance &&
+          (hybridStructClearance.locality === 'local' ||
+            (hybridStructClearance.allowed.length === 1 && !((classifierResult.fieldPaths?.length ?? 0) > 1)))
+        const hybridStructEgressNote = hybridStructClearance && !hybridStructCleared ? RAG_EGRESS_GOVERNANCE_NOTE(1) : null
+        if (hybridStructured && hybridStructClearance && hybridStructCleared) {
+          const src = hybridStructured.source
+          const structuredValue = hybridStructured.value
           const sources = src
             ? [{ handshake_id: src.handshake_id, capsule_id: src.handshake_id, block_id: src.block_id, source: src.source ?? '', score: 1 }]
             : []
@@ -4787,6 +4860,7 @@ app.whenReady().then(async () => {
 
           let answer: string
           try {
+            assertRagEgressCleared(hybridStructClearance, src ? [src] : [])
             if (doStream) {
               send('handshake:chatStreamStart', { contextBlocks: src ? [src.block_id] : [], sources })
               answer = await ragSbxGen.runOllamaGenerateChatWithSandboxRouting(provider as any, messages, {
@@ -4840,38 +4914,9 @@ app.whenReady().then(async () => {
         } else if (relevantResults.length > 0) {
           searchResults = relevantResults
         }
-        const isCloud = ['openai', 'anthropic', 'google', 'xai'].includes(providerLower)
-
-        let governanceNote: string | null = null
-        if (isCloud && searchResults.length > 0) {
-          const vaultUnlocked = isVaultCurrentlyUnlocked()
-          const { sql: visSql, params: visParams } = visibilityWhereClause('context_blocks', vaultUnlocked)
-          const blocksWithGov: Array<{ governance?: any; [k: string]: any }> = []
-          for (const b of searchResults) {
-            const row = db.prepare(`SELECT governance_json FROM context_blocks WHERE handshake_id=? AND block_id=? AND block_hash=?${visSql}`).get(b.handshake_id, b.block_id, b.block_hash, ...visParams) as { governance_json?: string } | undefined
-            const record = getHandshakeRecord(db, b.handshake_id)
-            if (!record) continue
-            const itemGov = parseGovernanceJson(row?.governance_json)
-            const legacy = {
-              block_id: b.block_id,
-              type: b.type,
-              data_classification: b.data_classification,
-              scope_id: b.scope_id,
-              sender_wrdesk_user_id: b.sender_wrdesk_user_id,
-              publisher_id: b.sender_wrdesk_user_id,
-              source: b.source,
-            }
-            const governance = resolveEffectiveGovernance(itemGov, legacy, record, record.relationship_id)
-            blocksWithGov.push({ ...b, governance })
-          }
-          const originalCount = blocksWithGov.length
-          const filtered = filterBlocksForCloudAI(blocksWithGov, null)
-          searchResults = filtered
-          const filteredCount = originalCount - filtered.length
-          if (filteredCount > 0) {
-            governanceNote = `${filteredCount} context block(s) were excluded because their governance policy restricts cloud AI processing. Use a local model to access all results.`
-          }
-        }
+        const semanticClearance = clearBlocksForModel(provider, searchResults, egressLookup)
+        searchResults = semanticClearance.allowed
+        const governanceNote: string | null = semanticClearance.governanceNote ?? hybridStructEgressNote
 
         const retrievedBlocks = scoredBlocksToRetrieved(searchResults)
         // retrievalFailed = true only when embedding/vector search failed (unavailable). When we could
@@ -4938,13 +4983,16 @@ app.whenReady().then(async () => {
           { role: 'system' as const, content: systemPrompt },
           { role: 'user' as const, content: userPrompt },
         ]
+        const provenanceOut: { value?: import('../../../packages/shared/src/aiProvenance').AiProvenance } = {}
         try {
+          assertRagEgressCleared(semanticClearance, searchResults)
           answer = await ragSbxGen.runOllamaGenerateChatWithSandboxRouting(provider as any, messages, {
             model: params.model,
             stream: doStream,
             send: doStream ? send : undefined,
             ragParams: sandboxRagRoutingParams(),
             contentTask: ragContentTask,
+            provenanceOut,
           })
         } catch (err: unknown) {
           const ir = mapInferenceRoutingError(err)
@@ -4990,12 +5038,14 @@ app.whenReady().then(async () => {
         checkAILatency(total_ms)
 
         if (capsuleId && normalizedQuery) setCached(db, capsuleId, normalizedQuery, { answer, sources })
+        const chatWithContextProv = provenanceOut.value
         return toIPC({
           success: true,
           answer: doStream ? undefined : answer,
           sources,
           governanceNote: governanceNote ?? undefined,
           streamed: doStream,
+          ...(chatWithContextProv !== undefined ? { provenance: chatWithContextProv } : {}),
           ...(hybridResult.contextRetrieval && { contextRetrieval: hybridResult.contextRetrieval }),
           ...(debug && {
             latency: buildLatencyDebugPayload({
@@ -5058,13 +5108,16 @@ app.whenReady().then(async () => {
           { role: 'system' as const, content: params.systemPrompt },
           { role: 'user' as const, content: params.userPrompt },
         ]
+        const provenanceOut: { value?: import('../../../packages/shared/src/aiProvenance').AiProvenance } = {}
         const answer = await provider.generateChat(messages, {
           model: params.model,
           stream: doStream,
           send: doStream ? send : undefined,
+          provenanceOut,
           ...(typeof params.temperature === 'number' ? { temperature: params.temperature } : {}),
         })
-        return toIPC({ success: true, answer, contextBlocks: [], sources: [] })
+        const chatDirectProvenance = provenanceOut.value
+        return toIPC({ success: true, answer, contextBlocks: [], sources: [], ...(chatDirectProvenance !== undefined ? { provenance: chatDirectProvenance } : {}) })
       } catch (err: any) {
         console.error('[chatDirect] error:', err)
         return toIPC({ success: false, error: 'model_execution_failed', message: err?.message ?? 'Unknown error' })
@@ -5073,7 +5126,7 @@ app.whenReady().then(async () => {
 
     // email:listAccounts is registered by registerEmailHandlers() â€” do not duplicate here
 
-    ipcMain.handle('handshake:initiate', async (_e, receiverEmail: string, fromAccountId: string, contextOpts?: { skipVaultContext?: boolean; message?: string; context_blocks?: any[]; profile_ids?: string[]; profile_items?: any[]; policy_selections?: { cloud_ai?: boolean; internal_ai?: boolean }; handshake_type?: 'internal' | 'standard'; device_name?: string; device_role?: 'host' | 'sandbox'; counterparty_device_id?: string; counterparty_device_role?: 'host' | 'sandbox'; counterparty_computer_name?: string; counterparty_pairing_code?: string }) => {
+    ipcMain.handle('handshake:initiate', async (_e, receiverEmail: string, fromAccountId: string, contextOpts?: { skipVaultContext?: boolean; message?: string; context_blocks?: any[]; profile_ids?: string[]; profile_items?: any[]; policy_selections?: { cloud_ai?: boolean; internal_ai?: boolean }; profile_id?: string; device_name?: string; device_role?: 'host' | 'sandbox'; counterparty_device_id?: string; counterparty_device_role?: 'host' | 'sandbox'; counterparty_computer_name?: string; counterparty_pairing_code?: string }) => {
       try {
         const db = await getHandshakeDb()
         return await handleHandshakeRPC('handshake.initiate', {
@@ -5086,7 +5139,7 @@ app.whenReady().then(async () => {
           ...(contextOpts?.profile_ids?.length ? { profile_ids: contextOpts.profile_ids } : {}),
           ...(contextOpts?.profile_items?.length ? { profile_items: contextOpts.profile_items } : {}),
           ...(contextOpts?.policy_selections ? { policy_selections: contextOpts.policy_selections } : {}),
-          handshake_type: contextOpts?.handshake_type,
+          profile_id: contextOpts?.profile_id,
           device_name: contextOpts?.device_name,
           device_role: contextOpts?.device_role,
           ...(contextOpts?.counterparty_device_id ? { counterparty_device_id: contextOpts.counterparty_device_id } : {}),
@@ -5103,7 +5156,7 @@ app.whenReady().then(async () => {
       }
     })
 
-    ipcMain.handle('handshake:buildForDownload', async (_e, receiverEmail: string, contextOpts?: { skipVaultContext?: boolean; message?: string; context_blocks?: any[]; profile_ids?: string[]; profile_items?: any[]; policy_selections?: { cloud_ai?: boolean; internal_ai?: boolean }; handshake_type?: 'internal' | 'standard'; device_name?: string; device_role?: 'host' | 'sandbox'; counterparty_device_id?: string; counterparty_device_role?: 'host' | 'sandbox'; counterparty_computer_name?: string; counterparty_pairing_code?: string }) => {
+    ipcMain.handle('handshake:buildForDownload', async (_e, receiverEmail: string, contextOpts?: { skipVaultContext?: boolean; message?: string; context_blocks?: any[]; profile_ids?: string[]; profile_items?: any[]; policy_selections?: { cloud_ai?: boolean; internal_ai?: boolean }; profile_id?: string; device_name?: string; device_role?: 'host' | 'sandbox'; counterparty_device_id?: string; counterparty_device_role?: 'host' | 'sandbox'; counterparty_computer_name?: string; counterparty_pairing_code?: string }) => {
       try {
         const db = await getHandshakeDb()
         if (!db) {
@@ -5119,7 +5172,7 @@ app.whenReady().then(async () => {
           ...(contextOpts?.profile_ids?.length ? { profile_ids: contextOpts.profile_ids } : {}),
           ...(contextOpts?.profile_items?.length ? { profile_items: contextOpts.profile_items } : {}),
           ...(contextOpts?.policy_selections ? { policy_selections: contextOpts.policy_selections } : {}),
-          handshake_type: contextOpts?.handshake_type,
+          profile_id: contextOpts?.profile_id,
           device_name: contextOpts?.device_name,
           device_role: contextOpts?.device_role,
           ...(contextOpts?.counterparty_device_id ? { counterparty_device_id: contextOpts.counterparty_device_id } : {}),
@@ -6160,7 +6213,9 @@ async function runDeviceKeyMigration(
                   }))
                   return
                 }
-                const response = await handleHandshakeRPC(msg.method, msg.params, db)
+                const { productRoutePreviewPinRefusal } = await import('./main/handshake/desktopAcceptTarget')
+                const pinRefusal = productRoutePreviewPinRefusal(db, msg.method, msg.params)
+                const response = pinRefusal ?? (await handleHandshakeRPC(msg.method, msg.params, db))
                 socket.send(JSON.stringify({ id: msg.id, ...response }))
                 console.log('[MAIN] âœ… Handshake RPC response sent:', msg.method)
               } catch (error: any) {
@@ -6174,6 +6229,27 @@ async function runDeviceKeyMigration(
               return
             }
 
+            // ===== WR CODE RPC HANDLING (signed-in account required) =====
+            // Annex XVI: every WR Code effect requires an account; no
+            // skipVaultContext escape exists for this prefix.
+            if (msg.method && msg.method.startsWith('wrc.')) {
+              try {
+                if (!getCurrentSession()) {
+                  socket.send(JSON.stringify({
+                    id: msg.id,
+                    success: false,
+                    error: 'No active session. Please log in first.',
+                  }))
+                  return
+                }
+                const response = await handleHandshakeRPC(msg.method, msg.params || {}, getLedgerDb())
+                socket.send(JSON.stringify({ id: msg.id, ...response }))
+              } catch (error: any) {
+                console.error('[MAIN] wrc RPC error:', msg.method, error?.message)
+                socket.send(JSON.stringify({ id: msg.id, success: false, error: error.message || 'Unknown error' }))
+              }
+              return
+            }
 
             // ===== BEAP RPC HANDLING (device keys — no vault lock required) =====
             if (msg.method && msg.method.startsWith('beap.')) {
@@ -6991,13 +7067,17 @@ async function runDeviceKeyMigration(
   /**
    * Dispatch a chat request to a cloud LLM provider.
    * Reuses the same API patterns as handshake/aiProviders.ts.
+   * Returns content + AiProvenance (logged once here; no downstream re-log needed).
    */
   async function dispatchCloudChat(
     provider: string,
     modelId: string,
     messages: Array<{ role: string; content: string }>,
     apiKey: string
-  ): Promise<string> {
+  ) {
+    const { attachAndLogProvenance } = await import('./main/aiProvenance/attachProvenance')
+    const { extractUpstreamMarking } = await import('../../../packages/shared/src/aiProvenance/generate')
+
     switch (provider) {
       case 'openai': {
         const model = modelId || 'gpt-4o-mini'
@@ -7011,7 +7091,8 @@ async function runDeviceKeyMigration(
           throw new Error(`OpenAI ${res.status}: ${errText}`)
         }
         const data: any = await res.json()
-        return data.choices?.[0]?.message?.content ?? 'No response from OpenAI.'
+        const content: string = data.choices?.[0]?.message?.content ?? 'No response from OpenAI.'
+        return attachAndLogProvenance(content, { model_id: model, provider: 'cloud:openai', upstream_marking: extractUpstreamMarking(data) })
       }
 
       case 'anthropic': {
@@ -7040,7 +7121,8 @@ async function runDeviceKeyMigration(
           throw new Error(`Anthropic ${res.status}: ${errText}`)
         }
         const data: any = await res.json()
-        return data.content?.[0]?.text ?? 'No response from Anthropic.'
+        const content: string = data.content?.[0]?.text ?? 'No response from Anthropic.'
+        return attachAndLogProvenance(content, { model_id: model, provider: 'cloud:anthropic', upstream_marking: extractUpstreamMarking(data) })
       }
 
       case 'gemini': {
@@ -7064,7 +7146,8 @@ async function runDeviceKeyMigration(
           throw new Error(`Gemini ${res.status}: ${errText}`)
         }
         const data: any = await res.json()
-        return data.candidates?.[0]?.content?.parts?.[0]?.text ?? 'No response from Gemini.'
+        const content: string = data.candidates?.[0]?.content?.parts?.[0]?.text ?? 'No response from Gemini.'
+        return attachAndLogProvenance(content, { model_id: model, provider: 'cloud:gemini', upstream_marking: extractUpstreamMarking(data) })
       }
 
       case 'grok': {
@@ -7079,7 +7162,8 @@ async function runDeviceKeyMigration(
           throw new Error(`xAI/Grok ${res.status}: ${errText}`)
         }
         const data: any = await res.json()
-        return data.choices?.[0]?.message?.content ?? 'No response from Grok.'
+        const content: string = data.choices?.[0]?.message?.content ?? 'No response from Grok.'
+        return attachAndLogProvenance(content, { model_id: model, provider: 'cloud:grok', upstream_marking: extractUpstreamMarking(data) })
       }
 
       default:
@@ -7564,8 +7648,8 @@ async function runDeviceKeyMigration(
     })
     httpApp.post('/api/wrchat/smart-summary', async (_req, res) => {
       try {
-        const summary = await watchdogService.runSmartSummary()
-        res.json({ ok: true, summary })
+        const summaryResult = await watchdogService.runSmartSummary()
+        res.json({ ok: true, summary: summaryResult.text, provenance: summaryResult.provenance ?? undefined })
       } catch (error: any) {
         if (error?.message === 'Capture pipeline busy') {
           res.status(429).json({ ok: false, error: error.message })
@@ -7575,7 +7659,23 @@ async function runDeviceKeyMigration(
         res.status(500).json({ ok: false, error: error?.message || 'smart summary failed' })
       }
     })
-    httpApp.post('/api/wrchat/watchdog/continuous', async (req, res) => {
+        httpApp.post('/api/art50/editorial-responsibility', async (req, res) => {
+      try {
+        const { isAiProvenance, markEditorialResponsible } = await import('../../../packages/shared/src/aiProvenance')
+        const { logEditorialResponsibility } = await import('./main/aiProvenance/provenanceLog')
+        const raw = req.body?.provenance ?? req.body
+        if (!isAiProvenance(raw)) {
+          res.status(400).json({ ok: false, error: 'invalid_provenance' })
+          return
+        }
+        const next = markEditorialResponsible(raw)
+        logEditorialResponsibility(next)
+        res.json({ ok: true, provenance: next })
+      } catch (e: any) {
+        res.status(500).json({ ok: false, error: e?.message || 'editorial_log_failed' })
+      }
+    })
+httpApp.post('/api/wrchat/watchdog/continuous', async (req, res) => {
       try {
         const body = req.body && typeof req.body === 'object' ? (req.body as { enabled?: unknown }) : {}
         if (typeof body.enabled !== 'boolean') {
@@ -8387,7 +8487,7 @@ async function runDeviceKeyMigration(
               }
               
               const connectionId = 'postgres-local-wr-code';
-              const connectionName = 'Local PostgreSQL (WR Desk)';
+              const connectionName = 'Local PostgreSQL (Optirando)';
               // Include credentials in JDBC URL for automatic authentication
               const jdbcUrl = `jdbc:postgresql://${postgresConfig.host}:${postgresConfig.port}/${postgresConfig.database}?user=${encodeURIComponent(postgresConfig.user)}&password=${encodeURIComponent(postgresConfig.password)}`;
               
@@ -8454,11 +8554,11 @@ async function runDeviceKeyMigration(
         res.json({
           ok: true,
           message: postgresConfig 
-            ? 'DBeaver launched and configured! The connection "Local PostgreSQL (WR Desk)" is ready. Username is pre-filled. You may need to enter the password on first connect.'
+            ? 'DBeaver launched and configured! The connection "Local PostgreSQL (Optirando)" is ready. Username is pre-filled. You may need to enter the password on first connect.'
             : 'DBeaver launched successfully',
           path: launchPath,
           configured: !!postgresConfig,
-          connectionName: postgresConfig ? 'Local PostgreSQL (WR Desk)' : undefined,
+          connectionName: postgresConfig ? 'Local PostgreSQL (Optirando)' : undefined,
           username: postgresConfig?.user
         });
       } catch (error: any) {
@@ -8627,7 +8727,7 @@ async function runDeviceKeyMigration(
         
         // Create connection ID
         const connectionId = 'postgres-local-wr-code';
-        const connectionName = 'Local PostgreSQL (WR Desk)';
+        const connectionName = 'Local PostgreSQL (Optirando)';
         
         // Build JDBC URL
         const jdbcUrl = `jdbc:postgresql://${postgresConfig.host}:${postgresConfig.port}/${postgresConfig.database}`;
@@ -10180,7 +10280,7 @@ async function runDeviceKeyMigration(
         const ledger = hostAiEffectiveRole.getHostAiLedgerRoleSummaryFromDb(db, inst, String(om.mode))
         const internalRows =
           db != null
-            ? listHandshakeRecords(db as any, { state: HandshakeState.ACTIVE, handshake_type: 'internal' })
+            ? listHandshakeRecords(db as any, { state: HandshakeState.ACTIVE, same_principal: true })
             : []
         const rec = db && handshake_id ? getHandshakeRecord(db, handshake_id) : null
         const peerHostForHandshake = rec ? peerCoordinationDeviceId(rec) : null
@@ -10279,7 +10379,7 @@ async function runDeviceKeyMigration(
           timeoutMs: timeout_ms,
         })
         if (r.ok) {
-          res.json({ ok: true, data: { content: r.output, model: r.model } })
+          res.json({ ok: true, data: { content: r.output, model: r.model, ...(r.provenance !== undefined ? { provenance: r.provenance } : {}) } })
         } else {
           res.json({ ok: false, error: r.message, code: r.code })
         }
@@ -10355,8 +10455,8 @@ async function runDeviceKeyMigration(
         // Cloud provider dispatch: when provider + apiKey are present, call the cloud API directly
         if (provider && apiKey) {
           console.log('[HTTP-LLM] Cloud dispatch:', provider, modelId)
-          const cloudContent = await dispatchCloudChat(provider, modelId, messages, apiKey)
-          res.json({ ok: true, data: { content: cloudContent } })
+          const cloudResult = await dispatchCloudChat(provider, modelId, messages, apiKey)
+          res.json({ ok: true, data: { content: cloudResult.content, provenance: cloudResult.provenance } })
           return
         }
         
@@ -10396,15 +10496,20 @@ async function runDeviceKeyMigration(
           data: {
             ...response,
             content: response.content,
+            ...(response.provenance ? { provenance: response.provenance } : {}),
             ...(modelFallback ? { modelFallback } : {}),
           },
         })
       } catch (error: any) {
+        if (error?.code === 'vision_not_supported') {
+          res.status(422).json({ ok: false, error: 'vision_not_supported', message: error.message })
+          return
+        }
         console.error('[HTTP-LLM] Error in chat:', error)
         res.status(500).json({ ok: false, error: error.message })
       }
     })
-    
+
     // GET /api/llm/performance/:modelId - Get performance estimate for model
     httpApp.get('/api/llm/performance/:modelId', async (req, res) => {
       try {
@@ -10467,20 +10572,22 @@ async function runDeviceKeyMigration(
     httpApp.post('/api/ocr/process', async (req, res) => {
       try {
         const { image, options } = req.body
-        
+
         if (!image) {
           res.status(400).json({ ok: false, error: 'image is required (base64 or dataUrl)' })
           return
         }
-        
+
         const { ocrRouter } = await import('./main/ocr/router')
-        
+
         // Determine input type
-        const input = image.startsWith('data:') 
+        const input = image.startsWith('data:')
           ? { type: 'dataUrl' as const, dataUrl: image }
           : { type: 'base64' as const, data: image }
-        
-        const result = await ocrRouter.processImage(input, options)
+
+        // Captures stay local unless the user's explicit preference says otherwise (roadmap 0.15).
+        const { forceCloud: _ignoredForceCloud, ...ocrOptions } = (options ?? {}) as Record<string, unknown>
+        const result = await ocrRouter.processImage(input, ocrOptions)
         res.json({ ok: true, data: result })
       } catch (error: any) {
         console.error('[HTTP-OCR] Error processing image:', error)
@@ -10495,7 +10602,9 @@ async function runDeviceKeyMigration(
         type CloudAIConfig = import('./main/ocr/types').CloudAIConfig
         const body = (req.body || {}) as Record<string, unknown>
         const { optimandoFlatKeys, ...cloudOnly } = body
-        ocrRouter.setCloudConfig(cloudOnly as unknown as CloudAIConfig)
+        // A key sync is not consent (roadmap 0.15): keep the keys, stay local.
+        const { cloudConfigFromKeySync } = await import('./main/ocr/cloudConfigFromOptimandoKeys')
+        ocrRouter.setCloudConfig(cloudConfigFromKeySync(cloudOnly))
         try {
           const { getOrchestratorService } = await import('./main/orchestrator-db/service')
           const service = getOrchestratorService()
@@ -11791,10 +11900,10 @@ async function runDeviceKeyMigration(
           console.error(`[BOOT] âŒ FATAL: Port ${HTTP_PORT} is already in use`)
           console.error(`[BOOT] âŒ The Chrome extension expects Electron on port ${HTTP_PORT}`)
           dialog.showErrorBox(
-            'WRDesk Orchestrator - Port Conflict',
+            'Optirando Orchestrator - Port Conflict',
             `Port ${HTTP_PORT} is already in use by another process.\n\n` +
             `The Chrome extension requires Electron to be available on this exact port.\n\n` +
-            `Please close any previous WRDesk instance or other application using port ${HTTP_PORT}, then restart WRDesk Orchestrator.`
+            `Please close any previous Optirando instance or other application using port ${HTTP_PORT}, then restart Optirando Orchestrator.`
           )
           app.exit(1)
         } else {

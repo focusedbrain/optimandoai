@@ -13,7 +13,7 @@ import { getInstanceId } from '../../orchestrator/orchestratorModeStore'
 import { assertSandboxMayReceiveSealedServiceRpcInnerType, assertSandboxMaySealServiceRpcInnerType } from '../../sandbox/sandboxOutboundPolicy'
 import {
   openServiceRpcPayloadResolvingLocalKey,
-  sealServiceRpcPayload,
+  sealServiceRpcPayloadAuthenticatedResolvingLocalKey,
   type SealedServiceRpcEnvelope,
 } from '../../serviceRpc/sealedServiceRpc'
 import {
@@ -45,9 +45,18 @@ export function parseSealedServiceRpcEnvelopeFromRelayCapsule(
   capsule: Record<string, unknown>,
 ): SealedServiceRpcEnvelope | null {
   if (!isSealedServiceRpcRelayCapsule(capsule)) return null
+  // v2 (sender-authenticated, roadmap 0.26) carries expiry + message id; anything else
+  // is treated as v1, which relay receivers refuse.
+  const isV2 = capsule.schema_version === 2
   const envelope: SealedServiceRpcEnvelope = {
     envelope_type: SEALED_SERVICE_RPC_CAPSULE_TYPE,
-    schema_version: 1,
+    schema_version: isV2 ? 2 : 1,
+    ...(isV2
+      ? {
+          expires_at: typeof capsule.expires_at === 'number' ? capsule.expires_at : Number.NaN,
+          message_id: typeof capsule.message_id === 'string' ? capsule.message_id.trim() : '',
+        }
+      : {}),
     handshake_id: typeof capsule.handshake_id === 'string' ? capsule.handshake_id.trim() : '',
     sender_device_id: typeof capsule.sender_device_id === 'string' ? capsule.sender_device_id.trim() : '',
     receiver_device_id: typeof capsule.receiver_device_id === 'string' ? capsule.receiver_device_id.trim() : '',
@@ -135,7 +144,7 @@ async function sealAndSendPollOutcome(
     return
   }
 
-  const sealed = sealServiceRpcPayload(record, {
+  const sealed = await sealServiceRpcPayloadAuthenticatedResolvingLocalKey(record, {
     handshake_id: record.handshake_id,
     sender_device_id: localDeviceId,
     receiver_device_id: hostDeviceId,
@@ -221,7 +230,9 @@ export async function handleIngestionPollRelayCapsule(
     return
   }
 
-  const opened = await openServiceRpcPayloadResolvingLocalKey(record, envelope)
+  // No replay claim here: a relay redelivery of the same trigger is answered from the
+  // request_id idempotency cache (pollIdempotencyCache) — the provider is never fetched twice.
+  const opened = await openServiceRpcPayloadResolvingLocalKey(record, envelope, { requireAuthenticated: true })
   if (!opened.ok) {
     console.warn(
       `[IngestionPollTrigger] sealed relay request-open-on-sandbox failed — not running poll. handshake=${envelope.handshake_id} code=${opened.code}`,

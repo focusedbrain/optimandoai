@@ -67,4 +67,12 @@ describe('buildHandshakeAcceptSafeOpts (preload handshake:accept)', () => {
     const s = buildHandshakeAcceptSafeOpts({ device_role: 'host' })
     expect(s).toEqual({ device_role: 'host' })
   })
+
+  it('T10_forwards_expected_preview_hash_only_as_a_64_char_lowercase_hex_digest', () => {
+    const hash = 'ab'.repeat(32)
+    expect(buildHandshakeAcceptSafeOpts({ expected_preview_hash: ` ${hash} ` })).toEqual({ expected_preview_hash: hash })
+    for (const bad of ['AB'.repeat(32), 'ab'.repeat(31), `${hash}00`, 'not-a-hash', 42, { hash }]) {
+      expect(buildHandshakeAcceptSafeOpts({ expected_preview_hash: bad })).toEqual({})
+    }
+  })
 })

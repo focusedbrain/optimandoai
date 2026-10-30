@@ -45,6 +45,8 @@ export const SANDBOX_PERMITTED_SEALED_SERVICE_RPC_INBOUND_INNER_TYPES: ReadonlyS
   'host_ai_p2p_signal_v1',
   'host_ai_inference_result_v1',
   'host_ai_inference_error_v1',
+  // Host's receipt for a sandbox_email_delivery (ids + status only, no content).
+  'sandbox_email_delivery_ack',
 ])
 
 export type SandboxSealedServiceRpcInboundInnerVerdict =
@@ -94,6 +96,9 @@ export const SANDBOX_PERMITTED_SEALED_SERVICE_RPC_INNER_TYPES: ReadonlySet<strin
   'ingestion_poll_error',
   'host_ai_p2p_signal_v1',
   'host_ai_inference_request_v1',
+  // The depackaged→host ingestion handoff (guest-derived safe content to the paired
+  // host inbox only; decision D-38). Originates no user-composed message.
+  'sandbox_email_delivery',
 ])
 
 export type SandboxSealedServiceRpcInnerVerdict =

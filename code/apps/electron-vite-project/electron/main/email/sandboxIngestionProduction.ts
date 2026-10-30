@@ -2,8 +2,8 @@
  * Production wiring for sandbox A2 email ingestion (Prompt 1).
  *
  * Connects `runSandboxIngestionPoll` to real fetch (provider router), custody key
- * (sandbox local X25519 public key), and host delivery (`postSandboxEmailDelivery`
- * over the same direct BEAP ingest path Host AI uses).
+ * (sandbox local X25519 public key), and host delivery as a sealed, sender-authenticated
+ * envelope over the coordination relay (`deliverDepackagedMailViaSealedRelay`, D-38).
  *
  * INV-2: read token and P2P bearer never appear in job specs or wire payloads.
  * INV-5: metadata-only logs (handshake ids, counts, deny codes).
@@ -21,6 +21,8 @@ import { resolveSandboxToHostHttpDirectIngest } from '../internalInference/p2pEn
 import { getInstanceId } from '../orchestrator/orchestratorModeStore'
 import { fetchOpaqueForProviderAccount } from './sandboxOpaqueFetchRouter'
 import type { SandboxIngestionDeps } from './sandboxIngestion'
+import { emailGateway } from './gateway'
+import { deliverDepackagedMailViaSealedRelay, isAlreadyDeliveredToHost } from './sandboxDelivery/relayDelivery'
 
 export interface SandboxHostDeliveryContext {
   handshakeId: string
@@ -45,7 +47,7 @@ export function findActiveSandboxToHostHandshakeRecord(db: unknown): HandshakeRe
   const localId = getInstanceId().trim()
   const rows = listHandshakeRecords(db as never, {
     state: HandshakeState.ACTIVE,
-    handshake_type: 'internal',
+    same_principal: true,
   })
   for (const r of rows) {
     const dr = deriveInternalHostAiPeerRoles(r, localId)
@@ -94,26 +96,54 @@ export function resolveSandboxHostDeliveryContext(db: unknown): SandboxHostDeliv
 
 /**
  * Production deps for `runSandboxIngestionPoll` — used by auto-sync on sandbox owner nodes.
+ *
+ * Delivery runs over the sealed coordination relay (decision D-38). `deliveryTransport`
+ * keeps the retired direct `/beap/ingest` POST reachable for tests only.
  */
 export function buildProductionSandboxIngestionDeps(
   db: unknown,
   opts?: { deliveryTransport?: SandboxDeliveryTransport },
 ): SandboxIngestionDeps {
   const custodyPubKeyB64 = resolveSandboxCustodyPubKeyB64(db) ?? undefined
-  const deliveryCtx = resolveSandboxHostDeliveryContext(db)
 
+  if (opts?.deliveryTransport) {
+    const deliveryCtx = resolveSandboxHostDeliveryContext(db)
+    return {
+      custodyPubKeyB64,
+      fetchOpaque: (id, tokenRecord) => fetchOpaqueForProviderAccount(id, tokenRecord),
+      deliverToHost: async (readAccountId, msg, outcome) => {
+        if (!deliveryCtx) return { delivered: false }
+        if (!outcome.ok) return { delivered: false }
+        return postSandboxEmailDelivery(msg, outcome, {
+          accountId: readAccountId,
+          handshakeId: deliveryCtx.handshakeId,
+          hostEndpoint: deliveryCtx.hostEndpoint,
+          hostP2pToken: deliveryCtx.hostP2pToken,
+          transport: opts.deliveryTransport,
+        })
+      },
+    }
+  }
+
+  const record = findActiveSandboxToHostHandshakeRecord(db)
   return {
     custodyPubKeyB64,
     fetchOpaque: (id, tokenRecord) => fetchOpaqueForProviderAccount(id, tokenRecord),
-    deliverToHost: async (readAccountId, msg, outcome) => {
-      if (!deliveryCtx) return { delivered: false }
+    isAlreadyDelivered: (readAccountId, sourceMessageId) => isAlreadyDeliveredToHost(readAccountId, sourceMessageId),
+    deliverToHost: async (readAccountId, msg, outcome, triggerAccountId) => {
+      if (!record) {
+        console.warn('[SandboxIngestion] host delivery context missing — no active sandbox→host handshake')
+        return { delivered: false }
+      }
       if (!outcome.ok) return { delivered: false }
-      return postSandboxEmailDelivery(msg, outcome, {
-        accountId: readAccountId,
-        handshakeId: deliveryCtx.handshakeId,
-        hostEndpoint: deliveryCtx.hostEndpoint,
-        hostP2pToken: deliveryCtx.hostP2pToken,
-        transport: opts?.deliveryTransport,
+      return deliverDepackagedMailViaSealedRelay({
+        db,
+        record,
+        readAccountId,
+        triggerAccountId,
+        accountEmail: emailGateway.getAccountConfig(readAccountId)?.email,
+        msg,
+        result: outcome.result,
       })
     },
   }

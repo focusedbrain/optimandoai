@@ -106,7 +106,7 @@ const ModeBadge: React.FC<{ mode: 'beap' | 'email'; isProfessional: boolean }> =
       >
         {isBeap
           ? 'Reply is packaged as a BEAP™ capsule'
-          : 'Reply sent as email with WR Desk signature'}
+          : 'Reply sent as email with Optirando signature'}
       </span>
     </div>
   )
@@ -267,7 +267,7 @@ export const BeapReplyComposer: React.FC<BeapReplyComposerProps> = ({
               ? 'AI is drafting your reply…'
               : isBeap
                 ? 'Write a BEAP™ reply… (plain text, capsule-packaged on send)'
-                : 'Write your reply… (WR Desk signature appended automatically)'
+                : 'Write your reply… (Optirando signature appended automatically)'
           }
           disabled={state.isSending || state.isGeneratingDraft}
           style={{

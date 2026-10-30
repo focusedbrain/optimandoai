@@ -165,9 +165,9 @@ export function getFieldIconCount(): number {
  */
 export function setFieldIconMatchState(hasMatch: boolean): void {
   _hasMatch = hasMatch
-  const svg = hasMatch ? WR_LOGO_SVG_GREEN : WR_LOGO_SVG
+  const mark = optirandoMarkHtml(hasMatch)
   for (const btn of _iconBtns.values()) {
-    btn.innerHTML = svg
+    btn.innerHTML = mark
   }
 }
 
@@ -242,7 +242,7 @@ function createFieldIcon(
   btn.setAttribute('aria-label', 'WRVault — Fill this field')
   btn.setAttribute('title', 'WRVault')
   btn.setAttribute('type', 'button')
-  btn.innerHTML = _hasMatch ? WR_LOGO_SVG_GREEN : WR_LOGO_SVG
+  btn.innerHTML = optirandoMarkHtml(_hasMatch)
   btn.addEventListener('click', (e) => {
     e.preventDefault()
     e.stopPropagation()
@@ -346,27 +346,21 @@ function stopPositionWatchdog(): void {
 }
 
 // ============================================================================
-// §6  SVG Icon — Mini WR Desk Logo
+// §6  Icon — Optirando swirl mark (official raster via web_accessible_resources)
 // ============================================================================
 //
-// Recreated from the original WR Desk logo: shield shape with "WR" text
-// and a briefcase icon. Designed for 22x22px display inside form fields.
+// Legacy filename wrdesk-logo.png; asset displays Optirando branding (256×256 symbol).
 
-/** Grey shield icon — no matching credential for current domain. */
-const WR_LOGO_SVG = `<svg width="18" height="18" viewBox="0 0 64 72" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <path d="M32 2 L6 16 V38 C6 54 18 66 32 70 C46 66 58 54 58 38 V16 Z" fill="#6b7280" stroke="#9ca3af" stroke-width="2.5"/>
-  <text x="32" y="36" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-weight="900" font-size="20" fill="#ffffff" letter-spacing="-0.5">WR</text>
-  <rect x="22" y="44" width="20" height="12" rx="2" fill="none" stroke="#ffffff" stroke-width="1.8"/>
-  <path d="M27 44v-3a3 3 0 013-3h4a3 3 0 013 3v3" fill="none" stroke="#ffffff" stroke-width="1.8"/>
-</svg>`
-
-/** Green shield icon — matching credential found for current domain. */
-const WR_LOGO_SVG_GREEN = `<svg width="18" height="18" viewBox="0 0 64 72" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <path d="M32 2 L6 16 V38 C6 54 18 66 32 70 C46 66 58 54 58 38 V16 Z" fill="#22c55e" stroke="#16a34a" stroke-width="2.5"/>
-  <text x="32" y="36" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-weight="900" font-size="20" fill="#ffffff" letter-spacing="-0.5">WR</text>
-  <rect x="22" y="44" width="20" height="12" rx="2" fill="none" stroke="#ffffff" stroke-width="1.8"/>
-  <path d="M27 44v-3a3 3 0 013-3h4a3 3 0 013 3v3" fill="none" stroke="#ffffff" stroke-width="1.8"/>
-</svg>`
+function optirandoMarkHtml(hasMatch: boolean): string {
+  let src = 'wrdesk-logo.png'
+  try {
+    src = chrome.runtime.getURL('wrdesk-logo.png')
+  } catch {
+    // Content-script host may not expose chrome.runtime in unit tests.
+  }
+  const ring = hasMatch ? 'box-shadow:0 0 0 1.5px #22c55e;' : 'box-shadow:0 0 0 1px #9ca3af;'
+  return `<img src="${src}" alt="" width="18" height="18" style="width:18px;height:18px;object-fit:contain;border-radius:4px;${ring}" />`
+}
 
 // ============================================================================
 // §7  CSS

@@ -1,4 +1,4 @@
-# WRExpert.md — WR Desk Inbox AI Behaviour
+# WRExpert.md — Optirando Inbox AI Behaviour
 # This is your personal AI expert. Edit this file to teach the AI how to
 # handle your specific inbox. Changes take effect on the next Auto-Sort run.
 # Lines starting with # are comments and are ignored by the AI.
@@ -36,7 +36,7 @@ Move here if:
 - Meeting notes, summaries, reports for future reference
 - Any email explicitly marked by the user as "keep"
 
-### urgent (WR Desk Urgent tab + mirrored to server **Urgent** folder on sync, urgency >= 7)
+### urgent (Optirando Urgent tab + mirrored to server **Urgent** folder on sync, urgency >= 7)
 Move here if ANY of these apply:
 - Invoice or payment overdue or due within 3 days
 - Legal deadline within 7 days
@@ -44,13 +44,13 @@ Move here if ANY of these apply:
 - Security alert requiring immediate action
 - Direct request from a known important contact requiring same-day response
 
-### action_required (WR Desk Important flow + mirrored to **Pending Review** on sync, urgency 4–6)
+### action_required (Optirando Important flow + mirrored to **Pending Review** on sync, urgency 4–6)
 Move here if:
 - Requires a response within the next 7 days
 - Requires a decision or manual step (not just reading)
 - Contains a question directed at you that is not automated
 
-### normal (WR Desk Normal / All until archived; mirrored to **Archive** on sync when classified)
+### normal (Optirando Normal / All until archived; mirrored to **Archive** on sync when classified)
 Move here if:
 - Requires attention but no urgency
 - Does not fit the above categories

@@ -305,7 +305,7 @@ function createRequestHandler(
               has_acceptor_device_name: Boolean(acceptorDeviceName),
             })
           }
-          handshakeRegistry.registerHandshake(
+          const regResult = handshakeRegistry.registerHandshake(
             handshakeId,
             initiatorUserId,
             acceptorUserId,
@@ -317,7 +317,17 @@ function createRequestHandler(
             acceptorDeviceRole,
             initiatorDeviceName,
             acceptorDeviceName,
+            { sub: identity.userId, iss: identity.iss },
           )
+          if (!regResult.ok) {
+            log.info('register-handshake issuer mismatch', {
+              route: '/beap/register-handshake',
+              handshake_id: handshakeId,
+              authenticated_user: identity.userId,
+            })
+            sendError(res, 403, { error: 'handshake_principal_mismatch' })
+            return
+          }
         } catch {
           sendError(res, 503, { error: 'Storage unavailable' })
           return
@@ -399,7 +409,7 @@ function createRequestHandler(
           sendError(res, 404)
           return
         }
-        if (!handshakeRegistry.isSenderAuthorized(handshakeId, identity.userId)) {
+        if (!handshakeRegistry.isSenderAuthorized(handshakeId, identity.userId, identity.iss)) {
           sendError(res, 403)
           return
         }
@@ -442,7 +452,7 @@ function createRequestHandler(
           sendError(res, 404)
           return
         }
-        if (!handshakeRegistry.isSenderAuthorized(handshakeId, identity.userId)) {
+        if (!handshakeRegistry.isSenderAuthorized(handshakeId, identity.userId, identity.iss)) {
           sendError(res, 403)
           return
         }
@@ -588,7 +598,7 @@ function createRequestHandler(
           sendError(res, parsed.httpStatus, { error: 'P2P_SIGNAL_REJECTED', reason: parsed.reason })
           return
         }
-        if (!handshakeRegistry.isSenderAuthorized(parsed.handshakeId, identity.userId)) {
+        if (!handshakeRegistry.isSenderAuthorized(parsed.handshakeId, identity.userId, identity.iss)) {
           console.log(`[P2P_SIGNAL] rejected handshake=${parsed.handshakeId} reason=sender_unauthorized`)
           sendError(res, 403, { error: 'RELAY_SENDER_UNAUTHORIZED' })
           return
@@ -601,6 +611,7 @@ function createRequestHandler(
           parsed.handshakeId,
           identity.userId,
           senderDeviceId,
+          identity.iss,
         )
         if (!recipientRoute) {
           console.log(`[P2P_SIGNAL] rejected handshake=${parsed.handshakeId} reason=no_route`)
@@ -722,7 +733,7 @@ function createRequestHandler(
         }
         handshakeId = handshakeId.trim()
 
-        if (!handshakeRegistry.isSenderAuthorized(handshakeId, identity.userId)) {
+        if (!handshakeRegistry.isSenderAuthorized(handshakeId, identity.userId, identity.iss)) {
           sendError(res, 403, { error: 'RELAY_SENDER_UNAUTHORIZED' })
           return
         }
@@ -879,6 +890,7 @@ function createRequestHandler(
               handshakeId,
               identity.userId,
               initSenderId,
+              identity.iss,
             )
             if (!initRoute) {
               sendError(res, 404, {
@@ -924,6 +936,7 @@ function createRequestHandler(
           handshakeId,
           identity.userId,
           senderDeviceId,
+          identity.iss,
         )
         if (!recipientRoute) {
           if (samePrincipalRelay && !isMessagePackage) {
@@ -1241,10 +1254,42 @@ export async function createServer(config: CoordinationConfig): Promise<{
           const relayId = typeof msg.relay_id === 'string' ? msg.relay_id.trim() : ''
           const handshakeId = typeof msg.handshake_id === 'string' ? msg.handshake_id.trim() : ''
           const rowId = typeof msg.row_id === 'string' ? msg.row_id.trim() : ''
-          const recipientUserId = wsManager.getUserIdForWs(ws)
-          if (!relayId || !handshakeId || !rowId || !recipientUserId) return
+          const ackIdentity = wsManager.getIdentityForWs(ws)
+          if (!relayId || !handshakeId || !rowId || !ackIdentity) return
           const route = store.getCapsuleRelayRoute(relayId)
-          if (!route || route.recipientUserId !== recipientUserId) return
+          if (!route || route.recipientUserId !== ackIdentity.userId) return
+          /**
+           * Full-claim ack binding [VII.3.8/3.10]: when the registry row for this
+           * handshake still exists, the acking connection's (sub, iss) must match a
+           * registered principal side — a same-sub connection from a different
+           * issuer is dropped here (the cross-SSO beap_ingest_ack defect class).
+           * If the row TTL-expired while the capsule was pending, the sub-only
+           * route match above remains the authority (legacy-compatible), logged.
+           */
+          const registryRow = handshakeRegistry.getHandshake(handshakeId)
+          if (registryRow) {
+            if (
+              !handshakeRegistry.identityMatchesRegisteredPrincipal(handshakeId, {
+                sub: ackIdentity.userId,
+                iss: ackIdentity.iss,
+              })
+            ) {
+              console.log(
+                '[RELAY-QUEUE] beap_ingest_ack_rejected',
+                JSON.stringify({
+                  relay_id: relayId,
+                  handshake_id: handshakeId,
+                  reason: 'full_claim_identity_mismatch',
+                }),
+              )
+              return
+            }
+          } else {
+            console.log(
+              '[RELAY-QUEUE] beap_ingest_ack_registry_row_absent',
+              JSON.stringify({ relay_id: relayId, handshake_id: handshakeId }),
+            )
+          }
           const pushed = wsManager.pushBeapIngestAck(
             route.senderUserId,
             route.senderDeviceId,

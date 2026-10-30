@@ -203,7 +203,7 @@ export function HandshakeRequestForm({
           ...opts,
           ...(isInternal
             ? {
-                handshake_type: 'internal',
+                profile_id: 'internal_device',
                 device_name: deviceName.trim(),
                 device_role: deviceRole,
                 counterparty_device_id: counterpartyDeviceId.trim(),
