@@ -485,7 +485,7 @@ export function registerLlmHandlers() {
       return { ok: true, data: response, ...(response.provenance !== undefined ? { provenance: response.provenance } : {}) }
     } catch (error: any) {
       console.error('[LLM IPC] Chat failed:', error)
-      return { ok: false, error: error.message }
+      return { ok: false, error: error.message, ...(error?.code === 'vision_not_supported' ? { code: error.code } : {}) }
     }
   })
   

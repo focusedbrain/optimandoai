@@ -1318,11 +1318,11 @@ async function syncApiKeysToElectron(keysArg?: Record<string, string> | null): P
     const v = keys[k]
     if (typeof v === 'string' && v.trim()) apiKeys[k] = v.trim()
   }
-  const hasAny = Object.keys(apiKeys).length > 0
+  // A stored key is not consent to cloud use (roadmap 0.15): the sync carries keys only.
   const body = {
     apiKeys,
-    preference: hasAny ? ('auto' as const) : ('local' as const),
-    useCloudForImages: hasAny,
+    preference: 'local' as const,
+    useCloudForImages: false,
     optimandoFlatKeys: keys,
   }
   const res = await electronRequest('/api/ocr/config', {

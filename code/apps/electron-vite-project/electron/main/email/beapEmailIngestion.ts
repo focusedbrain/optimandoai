@@ -1103,7 +1103,7 @@ async function processBeapPackageInlineInternal(
   const transportSender = options.transportSender ?? parties.counterpartyEmail
 
   // ── Preview extraction ────────────────────────────────────────────────────
-  const preview = extractP2PBeapInboxPreview(packageJson)
+  let preview = extractP2PBeapInboxPreview(packageJson)
 
   // ── Outbound echo check ────────────────────────────────────────────────────
   if (isOutboundQbeapEcho(packageJson, handshakeId, db)) {

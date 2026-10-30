@@ -195,6 +195,36 @@ function displayLabel(d: Electron.Display): string {
   return typeof label === 'string' && label.trim() ? label.trim() : `Display ${d.id}`
 }
 
+/** Roadmap 0.24: the model could not see the screenshots; only tab text was checked. */
+export function screensNotAnalysedThreat(): WatchdogThreat {
+  return {
+    severity: 'low',
+    category: 'other',
+    source: 'Watchdog',
+    summary: 'Screens not analysed — the local model has no vision support',
+    advice: 'Only browser tab text was checked. Use a vision-capable model to include screenshots.',
+  }
+}
+
+function withoutImages(messages: ChatMessage[]): ChatMessage[] {
+  return messages.map(({ images: _images, ...m }) => m)
+}
+
+/** Runs the chat with images; on a typed vision refusal, retries text-only and says so. */
+export async function chatWithVisionFallback(
+  localLlmManager: { chat: (model: string, messages: ChatMessage[]) => Promise<{ content?: unknown; provenance?: AiProvenance | null }> },
+  modelId: string,
+  messages: ChatMessage[],
+): Promise<{ chatRes: { content?: unknown; provenance?: AiProvenance | null }; screensAnalysed: boolean }> {
+  try {
+    return { chatRes: await localLlmManager.chat(modelId, messages), screensAnalysed: true }
+  } catch (e) {
+    if ((e as { code?: string } | null)?.code !== 'vision_not_supported') throw e
+    console.warn('[Watchdog] vision_not_supported — screens not analysed, tab text only')
+    return { chatRes: await localLlmManager.chat(modelId, withoutImages(messages)), screensAnalysed: false }
+  }
+}
+
 function llmFailureThreat(): WatchdogThreat {
   return {
     severity: 'low',
@@ -566,12 +596,15 @@ export class WatchdogService {
       const { messages } = this.buildWatchdogPrompt(scan)
 
       let responseText = ''
+      let screensAnalysed = true
       try {
         const { localLlmManager } = await import('../main/llm/local-llm-manager')
         this.logWatchdogRemotePrivacyNote(localLlmManager)
 
         const effective = await resolveWatchdogEffectiveModelId(this.config.modelId)
-        const chatRes = await localLlmManager.chat(effective, messages)
+        const out = await chatWithVisionFallback(localLlmManager, effective, messages)
+        const chatRes = out.chatRes
+        screensAnalysed = out.screensAnalysed
         responseText = typeof chatRes?.content === 'string' ? chatRes.content : ''
         responseLen = responseText.length
         if (!responseText) {
@@ -599,6 +632,7 @@ export class WatchdogService {
       }
 
       const threats = this.parseWatchdogResponse(responseText)
+      if (!screensAnalysed && metaScreens > 0) threats.push(screensNotAnalysedThreat())
       threatCount = threats.length
       const clean = threats.length === 0
       const result: WatchdogResult = { scanId, timestamp, threats, clean }
@@ -681,15 +715,19 @@ export class WatchdogService {
       const configured = this.config.modelId?.trim()
       const effective =
         configured || (await localLlmManager.getEffectiveChatModelName()) || DEFAULT_WATCHDOG_MODEL_ID
-      const chatRes = await localLlmManager.chat(effective, messages)
+      const { chatRes, screensAnalysed } = await chatWithVisionFallback(localLlmManager, effective, messages)
       const responseText = typeof chatRes?.content === 'string' ? chatRes.content.trim() : ''
 
       this.deletePaths(capturePaths)
 
+      const screensNote =
+        !screensAnalysed && screenshots.length > 0
+          ? '\n\n(Screens not analysed: the local model has no vision support. Only tab text was summarised.)'
+          : ''
       if (!responseText) {
-        return { text: 'No summary available.', provenance: chatRes?.provenance ?? null }
+        return { text: 'No summary available.' + screensNote, provenance: chatRes?.provenance ?? null }
       }
-      return { text: responseText, provenance: chatRes?.provenance ?? null }
+      return { text: responseText + screensNote, provenance: chatRes?.provenance ?? null }
     } catch (e) {
       console.warn('[SmartSummary] failed:', e instanceof Error ? e.message : e)
       const paths = [...this.capturePathsBuffer]

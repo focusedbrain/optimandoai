@@ -62,6 +62,13 @@ vi.mock('../../vault/capabilityBroker', () => ({
   canPerform: () => ({ allowed: true, reasonCode: 'ok', userMessage: '', retryStrategy: 'transient' }),
 }))
 
+// Fixture premise: the handshakes under test are non-confidential. Since roadmap 0.16 an
+// unreadable classification (no ledger in this harness) reads as confidential, so state it.
+vi.mock('../../handshake/handshakeConfidentiality', async (io) => {
+  const mod = await io<typeof import('../../handshake/handshakeConfidentiality')>()
+  return { ...mod, getHandshakeClassification: () => 'non_confidential' as const }
+})
+
 // messageRouter import-time / no-attachment-path deps (harmless to the P2P path).
 vi.mock('../gateway', () => ({ emailGateway: { getProviderSync: () => 'gmail' } }))
 vi.mock('../attachmentBlobCrypto', () => ({

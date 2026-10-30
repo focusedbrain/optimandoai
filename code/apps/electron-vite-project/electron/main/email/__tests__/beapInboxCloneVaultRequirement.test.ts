@@ -1,10 +1,17 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import {
   inboxCloneRequiresInnerVault,
   inboxSealKeySourceRequiresInnerVault,
   isDepackagedEmailInboxSourceType,
   probeInboxMessageCloneVaultRequirement,
 } from '../beapInboxClonePrepare'
+
+// Fixture premise: the handshakes under test are non-confidential. Since roadmap 0.16 an
+// unreadable classification (no ledger in this harness) reads as confidential, so state it.
+vi.mock('../../handshake/handshakeConfidentiality', async (io) => {
+  const mod = await io<typeof import('../../handshake/handshakeConfidentiality')>()
+  return { ...mod, getHandshakeClassification: () => 'non_confidential' as const }
+})
 
 describe('inbox clone vault requirement', () => {
   it('depackaged email source types never require inner vault', () => {

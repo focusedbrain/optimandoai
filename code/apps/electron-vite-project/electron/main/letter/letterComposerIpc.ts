@@ -745,7 +745,7 @@ export function registerLetterComposerIpcHandlers(): void {
         layout: payload.layout,
         fieldCount: Object.keys(fields).length,
       })
-      console.log('[PDF-DEBUG] Field values:', JSON.stringify(fields, null, 2))
+      console.log('[PDF-DEBUG] Field names:', Object.keys(fields).join(', '))
       const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wrdesk-builtin-'))
       const tmpDocx = path.join(tmpDir, 'letter.docx')
       try {

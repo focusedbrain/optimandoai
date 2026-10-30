@@ -34,6 +34,13 @@ vi.mock('../../handshake/db', async (importOriginal) => {
   return { ...mod, getHandshakeRecord }
 })
 
+// Fixture premise: the handshakes under test are non-confidential. Since roadmap 0.16 an
+// unreadable classification (no ledger in this harness) reads as confidential, so state it.
+vi.mock('../../handshake/handshakeConfidentiality', async (io) => {
+  const mod = await io<typeof import('../../handshake/handshakeConfidentiality')>()
+  return { ...mod, getHandshakeClassification: () => 'non_confidential' as const }
+})
+
 const OUTER_KEY = deriveLedgerSealKey('clone-prepare-outer-session')
 
 function makeSession(): SSOSession {

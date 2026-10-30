@@ -88,6 +88,15 @@ function resolveGgufPathForModelId(modelId: string): string | null {
   return null
 }
 
+/** Typed refusal: images were sent to the local text-only chat lane (roadmap 0.24). */
+export class LocalLlmVisionUnsupportedError extends Error {
+  readonly code = 'vision_not_supported' as const
+  constructor(modelId: string) {
+    super(`vision_not_supported: local model "${modelId}" cannot analyse images`)
+    this.name = 'LocalLlmVisionUnsupportedError'
+  }
+}
+
 export class LocalLlmManager {
   private serverBinaryPath: string = ''
   private serverPort: number = DEFAULT_LLAMACPP_PORT
@@ -1060,6 +1069,11 @@ export class LocalLlmManager {
     messages: ChatMessage[],
     opts?: { keepAlive?: string; maxTokens?: number; timeoutMs?: number },
   ): Promise<ChatResponse> {
+    // Roadmap 0.24: this lane forwards text only. Refuse images instead of dropping them,
+    // so a caller never believes a screen was analysed.
+    if (messages.some((m) => Array.isArray(m.images) && m.images.length > 0)) {
+      throw new LocalLlmVisionUnsupportedError(modelId)
+    }
     // llama-server's OpenAI-compatible endpoint has no `keep_alive` concept (Ollama-specific);
     // kept as a no-op read so callers passing `opts.keepAlive` don't need updating yet.
     void (opts?.keepAlive ?? getAdaptiveKeepAlive())

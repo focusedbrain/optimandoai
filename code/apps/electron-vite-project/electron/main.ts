@@ -4488,32 +4488,38 @@ app.whenReady().then(async () => {
           else if (scope.startsWith('rel-')) filter.relationship_id = scope
         }
 
-        // Fallback scope: when no handshake selected, use most recent handshake with context
-        // so retrieval runs in a sensible default scope instead of empty filter
+        // No implicit scope (roadmap 0.14, Annex XI I8): without a selected handshake or
+        // relationship, chat does not pick one. When context exists, ask for a selection.
         if (!filter.handshake_id && !filter.relationship_id && (scope === 'context-graph' || scope === 'all')) {
-          try {
-            const row = db.prepare(
-              `SELECT c.handshake_id FROM context_blocks c
-               INNER JOIN handshakes h ON h.handshake_id = c.handshake_id
-               WHERE h.state IN ('ACCEPTED','ACTIVE')
-               ORDER BY h.created_at DESC
-               LIMIT 1`
-            ).get() as { handshake_id: string } | undefined
-            if (row?.handshake_id) {
-              filter.handshake_id = row.handshake_id
-              console.log('[Chat] No selection: using fallback handshake', row.handshake_id)
+          const anyContext = db.prepare(`SELECT 1 FROM context_blocks LIMIT 1`).get()
+          if (anyContext) {
+            const msg = 'Select a handshake context first. Chat does not choose one for you.'
+            const doStream = params.stream === true && event.sender
+            if (doStream) {
+              const send = (ch: string, payload: unknown) => event.sender.send(ch, payload)
+              send('handshake:chatStreamStart', { contextBlocks: [], sources: [] })
+              send('handshake:chatStreamToken', { token: msg })
             }
-          } catch (e) {
-            /* ignore â€” proceed with empty filter */
+            return toIPC({ success: true, answer: msg, sources: [], streamed: !!doStream, resultType: 'context_selection_required' })
           }
         }
+
+        // One egress check before every model call in this handler (roadmap 0.13, D-37).
+        const { clearBlocksForModel, assertRagEgressCleared, dbRagEgressLookup, RAG_EGRESS_GOVERNANCE_NOTE } = await import('./main/handshake/ragEgress')
+        const egressVisibility = await import('./main/handshake/visibilityFilter')
+        const egressLookup = dbRagEgressLookup(db, {
+          getHandshakeRecord: (await import('./main/handshake/db')).getHandshakeRecord,
+          visibilityWhereClause: egressVisibility.visibilityWhereClause,
+          vaultUnlocked: egressVisibility.isVaultCurrentlyUnlocked(),
+        })
 
         // Structured path (no embedding needed): try first when embedding unavailable
         const { queryClassifier, structuredLookup, structuredLookupMulti, fetchBlocksForStructuredLookup } = await import('./main/handshake/structuredQuery')
         const classifierResult = queryClassifier(params.query ?? '')
         const pathForFetch = classifierResult.fieldPaths?.[0] ?? classifierResult.fieldPath
         if (classifierResult.matched && pathForFetch) {
-          const blocks = fetchBlocksForStructuredLookup(db, filter, pathForFetch)
+          const structClearance = clearBlocksForModel(provider, fetchBlocksForStructuredLookup(db, filter, pathForFetch), egressLookup)
+          const blocks = structClearance.allowed
           if (blocks.length > 0) {
             const structResult = classifierResult.fieldPaths && classifierResult.fieldPaths.length > 0
               ? structuredLookupMulti(blocks, classifierResult.fieldPaths)
@@ -4539,6 +4545,7 @@ app.whenReady().then(async () => {
 
               let answer: string
               try {
+                assertRagEgressCleared(structClearance, src ? [src] : [])
                 if (doStream) {
                   send('handshake:chatStreamStart', { contextBlocks: src ? [src.block_id] : [], sources })
                   answer = await ragSbxGen.runOllamaGenerateChatWithSandboxRouting(provider as any, messages, {
@@ -4602,13 +4609,6 @@ app.whenReady().then(async () => {
         } else {
           hybridResult = await hybridSearch(db, params.query ?? '', filter, embeddingService)
         }
-        const { getHandshakeRecord } = await import('./main/handshake/db')
-        const {
-          parseGovernanceJson,
-          resolveEffectiveGovernance,
-          filterBlocksForCloudAI,
-        } = await import('./main/handshake/contextGovernance')
-        const { visibilityWhereClause, isVaultCurrentlyUnlocked } = await import('./main/handshake/visibilityFilter')
         const { logCacheHitMetrics, logAIQueryMetrics, checkAILatency, buildLatencyDebugPayload } = await import('./main/handshake/latencyInstrumentation')
 
         const hasHandshakeScope = !!filter.handshake_id
@@ -4710,7 +4710,20 @@ app.whenReady().then(async () => {
               }
             } catch { /* skip malformed payload */ }
           }
-          if (docText && foundBlockId) {
+          const docClearance = docText && foundBlockId
+            ? clearBlocksForModel(provider, [{ handshake_id: filter.handshake_id, block_id: foundBlockId }], egressLookup)
+            : null
+          if (docClearance && docClearance.allowed.length === 0) {
+            const msg = "This document's governance policy restricts cloud AI processing. Use a local model to work with it."
+            const doStream = params.stream === true && event.sender
+            if (doStream) {
+              const send = (ch: string, payload: unknown) => event.sender.send(ch, payload)
+              send('handshake:chatStreamStart', { contextBlocks: [], sources: [] })
+              send('handshake:chatStreamToken', { token: msg })
+            }
+            return toIPC({ success: true, answer: msg, sources: [], streamed: !!doStream, resultType: 'context_answer', governanceNote: docClearance.governanceNote })
+          }
+          if (docText && foundBlockId && docClearance) {
             const { buildPrompt } = await import('./main/handshake/blockRetrieval')
             const docContext = `[block_id: ${foundBlockId}]\n[Document content]\n${docText}`
             const trimmedQuery = params.query?.trim() ?? ''
@@ -4725,6 +4738,7 @@ app.whenReady().then(async () => {
                 { role: 'user' as const, content: userPrompt },
               ]
               const provenanceOut: { value?: import('../../../packages/shared/src/aiProvenance').AiProvenance } = {}
+              assertRagEgressCleared(docClearance, [{ handshake_id: filter.handshake_id, block_id: foundBlockId }])
               const answer = await ragSbxGen.runOllamaGenerateChatWithSandboxRouting(provider as any, ragMessages, {
                 model: params.model,
                 stream: !!doStream,
@@ -4815,10 +4829,23 @@ app.whenReady().then(async () => {
         const doStream = params.stream === true && event.sender
         const send = doStream ? (ch: string, payload: unknown) => event.sender.send(ch, payload) : () => {}
 
-        // Fast-path: structured result â†’ route through LLM for natural-language answer (no raw JSON)
-        if (hybridResult.mode === 'structured' && hybridResult.structured?.found && hybridResult.structured?.value) {
-          const src = hybridResult.structured.source
-          const structuredValue = hybridResult.structured.value
+        // Fast-path: structured result â†’ route through LLM for natural-language answer (no raw JSON).
+        // A multi-field value may come from several blocks but names one source, so a remote
+        // model only takes this path for a single-field value whose source is cleared.
+        const hybridStructured = hybridResult.mode === 'structured' && hybridResult.structured?.found && hybridResult.structured?.value
+          ? hybridResult.structured
+          : null
+        const hybridStructClearance = hybridStructured
+          ? clearBlocksForModel(provider, hybridStructured.source ? [hybridStructured.source] : [], egressLookup)
+          : null
+        const hybridStructCleared =
+          !!hybridStructClearance &&
+          (hybridStructClearance.locality === 'local' ||
+            (hybridStructClearance.allowed.length === 1 && !((classifierResult.fieldPaths?.length ?? 0) > 1)))
+        const hybridStructEgressNote = hybridStructClearance && !hybridStructCleared ? RAG_EGRESS_GOVERNANCE_NOTE(1) : null
+        if (hybridStructured && hybridStructClearance && hybridStructCleared) {
+          const src = hybridStructured.source
+          const structuredValue = hybridStructured.value
           const sources = src
             ? [{ handshake_id: src.handshake_id, capsule_id: src.handshake_id, block_id: src.block_id, source: src.source ?? '', score: 1 }]
             : []
@@ -4833,6 +4860,7 @@ app.whenReady().then(async () => {
 
           let answer: string
           try {
+            assertRagEgressCleared(hybridStructClearance, src ? [src] : [])
             if (doStream) {
               send('handshake:chatStreamStart', { contextBlocks: src ? [src.block_id] : [], sources })
               answer = await ragSbxGen.runOllamaGenerateChatWithSandboxRouting(provider as any, messages, {
@@ -4886,38 +4914,9 @@ app.whenReady().then(async () => {
         } else if (relevantResults.length > 0) {
           searchResults = relevantResults
         }
-        const isCloud = ['openai', 'anthropic', 'google', 'xai'].includes(providerLower)
-
-        let governanceNote: string | null = null
-        if (isCloud && searchResults.length > 0) {
-          const vaultUnlocked = isVaultCurrentlyUnlocked()
-          const { sql: visSql, params: visParams } = visibilityWhereClause('context_blocks', vaultUnlocked)
-          const blocksWithGov: Array<{ governance?: any; [k: string]: any }> = []
-          for (const b of searchResults) {
-            const row = db.prepare(`SELECT governance_json FROM context_blocks WHERE handshake_id=? AND block_id=? AND block_hash=?${visSql}`).get(b.handshake_id, b.block_id, b.block_hash, ...visParams) as { governance_json?: string } | undefined
-            const record = getHandshakeRecord(db, b.handshake_id)
-            if (!record) continue
-            const itemGov = parseGovernanceJson(row?.governance_json)
-            const legacy = {
-              block_id: b.block_id,
-              type: b.type,
-              data_classification: b.data_classification,
-              scope_id: b.scope_id,
-              sender_wrdesk_user_id: b.sender_wrdesk_user_id,
-              publisher_id: b.sender_wrdesk_user_id,
-              source: b.source,
-            }
-            const governance = resolveEffectiveGovernance(itemGov, legacy, record, record.relationship_id)
-            blocksWithGov.push({ ...b, governance })
-          }
-          const originalCount = blocksWithGov.length
-          const filtered = filterBlocksForCloudAI(blocksWithGov, null)
-          searchResults = filtered
-          const filteredCount = originalCount - filtered.length
-          if (filteredCount > 0) {
-            governanceNote = `${filteredCount} context block(s) were excluded because their governance policy restricts cloud AI processing. Use a local model to access all results.`
-          }
-        }
+        const semanticClearance = clearBlocksForModel(provider, searchResults, egressLookup)
+        searchResults = semanticClearance.allowed
+        const governanceNote: string | null = semanticClearance.governanceNote ?? hybridStructEgressNote
 
         const retrievedBlocks = scoredBlocksToRetrieved(searchResults)
         // retrievalFailed = true only when embedding/vector search failed (unavailable). When we could
@@ -4986,6 +4985,7 @@ app.whenReady().then(async () => {
         ]
         const provenanceOut: { value?: import('../../../packages/shared/src/aiProvenance').AiProvenance } = {}
         try {
+          assertRagEgressCleared(semanticClearance, searchResults)
           answer = await ragSbxGen.runOllamaGenerateChatWithSandboxRouting(provider as any, messages, {
             model: params.model,
             stream: doStream,
@@ -10501,11 +10501,15 @@ httpApp.post('/api/wrchat/watchdog/continuous', async (req, res) => {
           },
         })
       } catch (error: any) {
+        if (error?.code === 'vision_not_supported') {
+          res.status(422).json({ ok: false, error: 'vision_not_supported', message: error.message })
+          return
+        }
         console.error('[HTTP-LLM] Error in chat:', error)
         res.status(500).json({ ok: false, error: error.message })
       }
     })
-    
+
     // GET /api/llm/performance/:modelId - Get performance estimate for model
     httpApp.get('/api/llm/performance/:modelId', async (req, res) => {
       try {
@@ -10568,20 +10572,22 @@ httpApp.post('/api/wrchat/watchdog/continuous', async (req, res) => {
     httpApp.post('/api/ocr/process', async (req, res) => {
       try {
         const { image, options } = req.body
-        
+
         if (!image) {
           res.status(400).json({ ok: false, error: 'image is required (base64 or dataUrl)' })
           return
         }
-        
+
         const { ocrRouter } = await import('./main/ocr/router')
-        
+
         // Determine input type
-        const input = image.startsWith('data:') 
+        const input = image.startsWith('data:')
           ? { type: 'dataUrl' as const, dataUrl: image }
           : { type: 'base64' as const, data: image }
-        
-        const result = await ocrRouter.processImage(input, options)
+
+        // Captures stay local unless the user's explicit preference says otherwise (roadmap 0.15).
+        const { forceCloud: _ignoredForceCloud, ...ocrOptions } = (options ?? {}) as Record<string, unknown>
+        const result = await ocrRouter.processImage(input, ocrOptions)
         res.json({ ok: true, data: result })
       } catch (error: any) {
         console.error('[HTTP-OCR] Error processing image:', error)
@@ -10596,7 +10602,9 @@ httpApp.post('/api/wrchat/watchdog/continuous', async (req, res) => {
         type CloudAIConfig = import('./main/ocr/types').CloudAIConfig
         const body = (req.body || {}) as Record<string, unknown>
         const { optimandoFlatKeys, ...cloudOnly } = body
-        ocrRouter.setCloudConfig(cloudOnly as unknown as CloudAIConfig)
+        // A key sync is not consent (roadmap 0.15): keep the keys, stay local.
+        const { cloudConfigFromKeySync } = await import('./main/ocr/cloudConfigFromOptimandoKeys')
+        ocrRouter.setCloudConfig(cloudConfigFromKeySync(cloudOnly))
         try {
           const { getOrchestratorService } = await import('./main/orchestrator-db/service')
           const service = getOrchestratorService()

@@ -23,6 +23,8 @@ import { HOST_AI_DEFAULT_LOCAL_LLAMACPP_BASE } from '../llm/localLlmPaths'
 import { EMPTY_LLM_RESPONSE_ERROR } from '../llm/llamaChatResponseContent'
 import { localLlmManager } from '../llm/local-llm-manager'
 import { guardInboxPromptForCtxSlot } from './inboxPromptGuard'
+import { providerLocality } from '../handshake/ragEgress'
+import { INBOX_CLOUD_POLICY_UNCHECKED, type InboxCloudPolicy } from './inboxCloudPolicy'
 
 export const INBOX_LLM_TIMEOUT_MS = 45_000
 
@@ -81,20 +83,20 @@ function firstCloudRagSettings(): UserRagSettings | null {
 /**
  * Resolve provider/model for inbox using Backend (OCR) cloud preference + API keys, with Ollama fallback.
  * Exported for IPC paths that need a single `listModels` pass (e.g. advisory stream).
+ *
+ * Roadmap 0.15 / D-37: only an explicit `preference: 'cloud'` selects a cloud provider.
+ * `auto` (what a key sync used to send) and the mere presence of a key stay local.
  */
 export function resolveInboxLlmSettings(): UserRagSettings {
   const cfg = ocrRouter.getCloudConfig()
   const pref = cfg?.preference ?? 'local'
 
   let settings: UserRagSettings
-  if (!cfg || pref === 'local') {
-    settings = { provider: 'ollama' }
-  } else if (pref === 'cloud') {
+  if (cfg && pref === 'cloud') {
     const cloud = firstCloudRagSettings()
     settings = cloud ? cloud : { provider: 'ollama' }
   } else {
-    const cloud = firstCloudRagSettings()
-    settings = cloud ? cloud : { provider: 'ollama' }
+    settings = { provider: 'ollama' }
   }
 
   if (DEBUG_INBOX_LLM_SETTINGS) {
@@ -220,6 +222,11 @@ export interface InboxLlmChatParams {
    * Sandbox → Host: classify call for LAN `ollama_direct` vs BEAP transport ({@link planSandboxHostChatExecution}).
    */
   contentTask?: BeapContentAiTask
+  /**
+   * Result of {@link inboxCloudPolicyForMessages} for the messages in this prompt. A remote
+   * provider is used only when this says `cloudAllowed`; absent means unchecked and runs local.
+   */
+  cloudPolicy?: InboxCloudPolicy
 }
 
 /**
@@ -230,22 +237,30 @@ export async function inboxLlmChat(params: InboxLlmChatParams): Promise<string> 
     system,
     user,
     timeoutMs: timeoutMsParam,
-    resolvedContext,
     aiExecution: aiExecutionParam,
     llmTrace,
     contentTask,
   } = params
+  let { resolvedContext } = params
   if (DEBUG_AI_DIAGNOSTICS) console.warn('⚡ inboxLlmChat CALLED', new Date().toISOString(), {
     caller: new Error().stack?.split('\n')[2]?.trim(),
     model: resolvedContext?.model ?? '(will resolve)',
     skipLookup: resolvedContext != null,
   })
 
-  const settings: UserRagSettings = resolvedContext
+  let settings: UserRagSettings = resolvedContext
     ? { provider: resolvedContext.provider }
     : resolveInboxLlmSettings()
   const getApiKey = (p: string) => ocrRouter.getApiKey(p as VisionProvider)
-  const provider = getProvider(settings, getApiKey)
+  let provider = getProvider(settings, getApiKey)
+
+  const cloudPolicy = params.cloudPolicy ?? INBOX_CLOUD_POLICY_UNCHECKED
+  if (providerLocality(provider) === 'remote' && !cloudPolicy.cloudAllowed) {
+    console.log('[INBOX-LLM] cloud_egress_refused → local', { reason: cloudPolicy.reason })
+    settings = { provider: 'ollama' }
+    provider = getProvider(settings, getApiKey)
+    resolvedContext = undefined
+  }
 
   let aiExecution: AiExecutionContext | undefined =
     aiExecutionParam ?? resolvedContext?.aiExecution

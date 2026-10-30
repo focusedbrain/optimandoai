@@ -316,6 +316,7 @@ import {
 } from './inboxSealedRead'
 import { readDecryptedAttachmentBuffer, type AttachmentRowCrypto } from './attachmentBlobCrypto'
 import { inboxLlmChat, isLlmAvailable, INBOX_LLM_LOCAL_TIMEOUT_MS, INBOX_LLM_MAX_OUTPUT_TOKENS, resolveInboxLlmSettings, preResolveInboxLlm, type ResolvedLlmContext } from './inboxLlmChat'
+import { inboxCloudPolicyForMessages } from './inboxCloudPolicy'
 import { attachAndLogProvenance } from '../aiProvenance/attachProvenance'
 import { EMPTY_LLM_RESPONSE_ERROR } from '../llm/llamaChatResponseContent'
 import { maybePrewarmLocalLlmForBulkClassify, type LocalLlmBulkPrewarmDiag } from '../llm/localLlmBulkPrewarm'
@@ -2010,7 +2011,7 @@ Rules:
     const userPrompt = `AutoSort batch — ${messages.length} messages:\n\n${lines}`
 
     try {
-      const rawStr = (await inboxLlmChat({ system: systemPrompt, user: userPrompt, contentTask: { kind: 'summary' } })).trim()
+      const rawStr = (await inboxLlmChat({ system: systemPrompt, user: userPrompt, contentTask: { kind: 'summary' }, cloudPolicy: inboxCloudPolicyForMessages(db, messages.map((m) => m.id)) })).trim()
       const summaryProv = attachAndLogProvenance(rawStr, inboxProviderForProvenance())
       const parsed = parseAiJson(rawStr)
       if (!parsed || Object.keys(parsed).length === 0) throw new Error('Failed to parse summary JSON')
@@ -3953,7 +3954,7 @@ Rules:
       const systemPrompt = 'You are an AI assistant for Optirando inbox. Summarize the following email concisely in 2-3 sentences. Focus on: who sent it, what they want, and any action required.'
       console.log('[AI-SUMMARIZE] System prompt length:', systemPrompt.length)
       console.log('[AI-SUMMARIZE] Calling LLM...')
-      const summary = await inboxLlmChat({ system: systemPrompt, user: userPrompt, contentTask: { kind: 'summary' } })
+      const summary = await inboxLlmChat({ system: systemPrompt, user: userPrompt, contentTask: { kind: 'summary' }, cloudPolicy: inboxCloudPolicyForMessages(db, [messageId]) })
       const summaryProv = attachAndLogProvenance(summary, inboxProviderForProvenance())
       console.log('[AI-SUMMARIZE] Raw LLM response:', summary.substring(0, 500))
 
@@ -4116,6 +4117,7 @@ Write a reply specifically to the qbeap field above. Output ONLY the reply text.
               user: qbeapUserPrompt,
               ...(aiExecDraft ? { aiExecution: aiExecDraft } : {}),
               contentTask: { kind: 'draft' },
+              cloudPolicy: inboxCloudPolicyForMessages(db, [messageId]),
             })
           ).trim()
           qbeapReply = out ? out.slice(0, 8000) : null
@@ -4149,6 +4151,7 @@ Write a reply specifically to the pbeap field above. Output ONLY the reply text.
               user: pbeapUserPrompt,
               ...(aiExecDraft ? { aiExecution: aiExecDraft } : {}),
               contentTask: { kind: 'draft' },
+              cloudPolicy: inboxCloudPolicyForMessages(db, [messageId]),
             })
           ).trim()
           pbeapReply = out ? out.slice(0, 4000) : null
@@ -4294,6 +4297,7 @@ Write a reply specifically to the pbeap field above. Output ONLY the reply text.
         user: userPrompt,
         ...(aiExecDraft ? { aiExecution: aiExecDraft } : {}),
         contentTask: { kind: 'draft' },
+        cloudPolicy: inboxCloudPolicyForMessages(db, [messageId]),
       })
       const draftProv = attachAndLogProvenance(draft, {
         ...inboxProviderForProvenance(),
@@ -4453,7 +4457,7 @@ Respond ONLY with one valid JSON object. No markdown, no backticks, no preamble,
 
       console.log('[AI-ANALYZE] System prompt length:', systemPrompt.length)
       console.log('[AI-ANALYZE] Calling LLM...')
-      const raw = await inboxLlmChat({ system: systemPrompt, user: userPrompt, contentTask: { kind: 'analysis' } })
+      const raw = await inboxLlmChat({ system: systemPrompt, user: userPrompt, contentTask: { kind: 'analysis' }, cloudPolicy: inboxCloudPolicyForMessages(db, [messageId]) })
       const analyzeProv = attachAndLogProvenance(raw, inboxProviderForProvenance())
       console.log('[AI-ANALYZE] Raw LLM response:', raw.substring(0, 500))
       const parsed = parseAiJson(raw) as {
@@ -4925,6 +4929,7 @@ Respond ONLY with one valid JSON object. No markdown, no backticks, no preamble,
               user: userPrompt,
               ...(aiExec ? { aiExecution: aiExec } : {}),
               contentTask: { kind: 'analysis' },
+              cloudPolicy: inboxCloudPolicyForMessages(db, [messageId]),
             })
             if (!signal.aborted && !event.sender.isDestroyed() && text) {
               finalAnalysisText += text
@@ -5173,6 +5178,7 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
         user: userPrompt,
         resolvedContext: opts?.resolvedLlm,
         contentTask: { kind: 'analysis' },
+        cloudPolicy: inboxCloudPolicyForMessages(db, [messageId]),
         llmTrace:
           opts?.resolvedLlm != null
             ? {
